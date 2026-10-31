@@ -1,0 +1,67 @@
+name: qoj-vp-domjudge-ref
+
+services:
+  database:
+    image: mariadb:10.11
+    container_name: qoj-vp-domjudge-ref-database
+    restart: "no"
+    environment:
+      MARIADB_DATABASE: domjudge
+      MARIADB_USER: domjudge
+      MARIADB_PASSWORD_FILE: /run/secrets/database-password
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/database-root-password
+    secrets:
+      - database-password
+      - database-root-password
+    volumes:
+      - database-data:/var/lib/mysql
+    networks:
+      - reference
+    command: ["--max-connections=200", "--max-allowed-packet=512M"]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  domserver:
+    image: domjudge/domserver:9.0.1
+    container_name: qoj-vp-domjudge-ref-domserver
+    restart: "no"
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: database
+      MYSQL_DATABASE: domjudge
+      MYSQL_USER: domjudge
+      MYSQL_PASSWORD_FILE: /run/secrets/database-password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/database-root-password
+      CONTAINER_TIMEZONE: Asia/Shanghai
+      DJ_DB_INSTALL_BARE: "0"
+      FPM_MAX_CHILDREN: "4"
+    secrets:
+      - database-password
+      - database-root-password
+    ports:
+      - "127.0.0.1:19081:80"
+    networks:
+      - reference
+
+secrets:
+  database-password:
+    file: ./private/database-password
+  database-root-password:
+    file: ./private/database-root-password
+
+volumes:
+  database-data:
+    name: qoj-vp-domjudge-ref-database-data
+
+networks:
+  reference:
+    name: qoj-vp-domjudge-ref
+    ipam:
+      config:
+        - subnet: 198.18.253.0/24
+          gateway: 198.18.253.1

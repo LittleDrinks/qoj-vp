@@ -54,24 +54,40 @@
     },
     {
       "path": "assets/fontawesome/webfonts/fa-solid-900.woff2",
-      "reference": "preflight/domjudge-reference/third-party/fortawesome/font-awesome/webfonts/fa-solid-900.woff2",
-      "bytes": 156404,
-      "sha256": "599b18f9b0aa0bd7a76b01e724a7a189422fb20fb233a4586d420c777d3c2c23",
-      "modified": false
+      "reference": "preflight/visual-reference/rendered/assets/fontawesome/webfonts/fa-solid-900.woff2",
+      "bytes": 156400,
+      "sha256": "ae17c16afbea216707b2203ea1cf9bdb45b9bfe47d0f4ae3258ddbc6294dd02f",
+      "modified": false,
+      "sourceImage": "domjudge/domserver@sha256:e9704bdae8e08440eb0042c9817116dc9767a511f577e9318c4f0710ad5b5727",
+      "sourceImagePath": "/opt/domjudge/domserver/webapp/vendor/fortawesome/font-awesome/webfonts/fa-solid-900.woff2",
+      "sourceKind": "official-domserver-image"
     },
     {
       "path": "assets/fontawesome/webfonts/fa-regular-400.woff2",
-      "reference": "preflight/domjudge-reference/third-party/fortawesome/font-awesome/webfonts/fa-regular-400.woff2",
+      "reference": "preflight/visual-reference/rendered/assets/fontawesome/webfonts/fa-regular-400.woff2",
       "bytes": 25392,
-      "sha256": "a766b0ec6782888c8a7c3927b9cf25e472953f09dd839bb820354b1591f5c88b",
-      "modified": false
+      "sha256": "c27da6f833431da5aa295c44540bfac0fd8270ba6a3c4346427006d8a7b34b76",
+      "modified": false,
+      "sourceImage": "domjudge/domserver@sha256:e9704bdae8e08440eb0042c9817116dc9767a511f577e9318c4f0710ad5b5727",
+      "sourceImagePath": "/opt/domjudge/domserver/webapp/vendor/fortawesome/font-awesome/webfonts/fa-regular-400.woff2",
+      "sourceKind": "official-domserver-image"
     },
     {
       "path": "assets/fontawesome/webfonts/fa-brands-400.woff2",
-      "reference": "preflight/domjudge-reference/third-party/fortawesome/font-awesome/webfonts/fa-brands-400.woff2",
-      "bytes": 117860,
-      "sha256": "255ce3bdbe420b5f6dbaae6649d7d2480dcd8604f64c1d9e33c5d57db0d9edd1",
-      "modified": false
+      "reference": "preflight/visual-reference/rendered/assets/fontawesome/webfonts/fa-brands-400.woff2",
+      "bytes": 117852,
+      "sha256": "232c6f6a7678304f9efaa26f30b1610debc2ba9f4cd636b5e6751c8d73761b92",
+      "modified": false,
+      "sourceImage": "domjudge/domserver@sha256:e9704bdae8e08440eb0042c9817116dc9767a511f577e9318c4f0710ad5b5727",
+      "sourceImagePath": "/opt/domjudge/domserver/webapp/vendor/fortawesome/font-awesome/webfonts/fa-brands-400.woff2",
+      "sourceKind": "official-domserver-image"
     }
-  ]
+  ],
+  "fontAwesomeFontSource": {
+    "kind": "official-domserver-image",
+    "image": "domjudge/domserver@sha256:e9704bdae8e08440eb0042c9817116dc9767a511f577e9318c4f0710ad5b5727",
+    "version": "9.0.1",
+    "fontAwesomeVersion": "6.5.2",
+    "note": "The official-image WOFF2 bytes replace the prior Git-tag font binaries. Same declared version does not imply identical font bytes."
+  }
 }

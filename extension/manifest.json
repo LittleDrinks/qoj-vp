@@ -9,6 +9,7 @@
   "background": {"scripts": ["transport.js", "background.js"], "persistent": false},
   "content_scripts": [
     {"matches": ["https://qoj.ac/*", "http://127.0.0.1/*", "http://localhost/*"], "js": ["qoj-content.js"], "run_at": "document_start"},
+    {"matches": ["https://qoj.ac/contest/*"], "js": ["qoj-prepare-content.js"], "run_at": "document_idle"},
     {"matches": ["https://vp.xcpc.link/*"], "js": ["rankland-content.js"], "run_at": "document_idle"}
   ],
   "action": {"default_title": "Open QOJ VP Workbench"},

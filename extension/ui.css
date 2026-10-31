@@ -1,34 +1,19 @@
 /* QOJ VP adaptations to DOMjudge 9.0.1; GPL-2.0-or-later. */
-.vp-brand-note { font-size: .65em; color: #bfc7cd; margin-left: .3em; }
 .vp-session-select { max-width: 18rem; }
 .vp-clock { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.vp-external { font-size: .7em; }
-.vp-progress { height: 10px; margin-top: -16px; border-radius: 0; }
+.vp-progress { height: 10px; margin-top: -16px; }
 .vp-progress .progress-bar { width: 0; }
 .vp-refresh-bar { flex-wrap: wrap; }
 .vp-session-details { margin-top: 1rem; font-size: .9rem; }
 .vp-session-details dd { overflow-wrap: anywhere; }
 .vp-source-column { width: 7rem; }
-.vp-score-summary { width: auto; min-width: 27rem; }
-.vp-score-summary .scoretn { text-align: left; min-width: 10rem; max-width: 24rem; }
-.vp-score-summary .vp-solved { min-width: 3rem; text-align: center; }
-.vp-score-summary th { padding: 3px 8px; font-size: .8rem; text-align: center; }
-.vp-score-summary .vp-problem-link { border: 0; background: transparent; width: 100%; padding: .2rem; }
-.vp-score-summary .vp-problem-link:focus-visible { outline: 2px solid #0072ed; outline-offset: -2px; }
 .data-table td a, .data-table td a:hover { display: block; text-decoration: none; color: inherit; padding: 3px 5px; }
 .data-table tr { border-bottom: 1px solid silver; }
 .data-table tr:hover { background: #ffffcc !important; }
 .data-table .vp-reconcile { padding: 1px 5px; font-size: .8rem; }
 .vp-pending-label { color: #6c757d; }
-.problem-list .card { height: 100%; }
-.problem-list .card-body { display: flex; flex-direction: column; }
-.problem-list .vp-problem-actions { margin-top: auto; padding-top: 1rem; }
-.problem-list .vp-problem-links { margin-top: 10px; }
-.problem-list .vp-problem-status { min-height: 1.3em; font-size: .8rem; margin-top: .6rem; }
-.problem-badge { background-color: #c4d8ff; color: #171717; }
 .vp-download-note { overflow-wrap: anywhere; }
 .modal [aria-busy="true"] { cursor: progress; }
-#files_selected ul { margin-bottom: 0; padding-left: 1.3rem; overflow-wrap: anywhere; }
 [hidden] { display: none !important; }
 @media (max-width: 767.98px) {
   .vp-session-select { max-width: none; margin-top: .5rem; margin-bottom: .5rem; }

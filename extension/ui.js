@@ -4,6 +4,8 @@
 (() => {
   const $ = id => document.getElementById(id);
   const MAX_SOURCE_BYTES = 512 * 1024;
+  const MAX_RESOURCE_BYTES = 64 * 1024 * 1024;
+  const RESOURCE_CHUNK_BYTES = 256 * 1024;
   const INTENTS_KEY = "vpUiSubmissionIntents";
   const ACTIVE_KEY = "vpUiActiveSession";
   // Application.submit raises the account/session errors below before
@@ -19,6 +21,9 @@
     forms: new Map(), generation: 0, refreshPromise: null, refreshSession: null,
     intents: [], setupContest: null, submitting: false, formGeneration: 0,
     confirmPayload: null, reconcileOperation: null, lastError: null,
+    resources: new Map(), resourceActivity: new Map(), resourceInteractive: new Map(),
+    resourceDownloads: new Set(), resourceJob: null, resourcesLoaded: false, resourceReading: false,
+    resourceManifestError: "", resourceSummary: "", resourceReadSequence: 0, resourceMutation: 0,
   };
   const modals = {};
 
@@ -45,6 +50,7 @@
     target.className = "alert alert-" + kind + (target.id === "notice" ? " mt-3" : "");
     target.textContent = message;
     target.classList.remove("d-none");
+    if (target.id === "notice") target.hidden = isProblemsRoute() && kind === "success";
   }
   function hideMessage(target) { target.classList.add("d-none"); target.textContent = ""; }
   function message(error) {
@@ -104,6 +110,44 @@
     return Date.now() - start >= session.durationMs ? "finished" : "running";
   }
   function canSubmit() { return Boolean(state.contest && sessionState() === "running" && !state.submitting); }
+  function submitAvailability(link, enabled) {
+    if (link.tagName !== "A") { link.disabled = !enabled; return; }
+    link.setAttribute("aria-disabled", String(!enabled));
+    link.tabIndex = enabled ? 0 : -1;
+    const visual = link.querySelector("span.btn");
+    if (visual) {
+      visual.classList.toggle("disabled", !enabled);
+      if (enabled) visual.removeAttribute("disabled"); else visual.setAttribute("disabled", "");
+    }
+    if (enabled) {
+      link.href = "#submit";
+      link.setAttribute("data-ajax-modal", "");
+      link.setAttribute("data-ajax-modal-after", "initSubmitModal");
+    } else {
+      link.removeAttribute("href");
+      link.removeAttribute("data-ajax-modal");
+      link.removeAttribute("data-ajax-modal-after");
+    }
+  }
+  function cardSubmit(problem) {
+    const link = node("a", "justify-content-center"), visual = node("span", "btn btn-success");
+    visual.append(icon("cloud-upload-alt"), " Submit"); link.append(visual);
+    link.dataset.submitProblem = problem.id;
+    submitAvailability(link, canSubmit());
+    link.addEventListener("click", event => {
+      event.preventDefault();
+      if (link.getAttribute("aria-disabled") === "true" || !canSubmit()) return;
+      openSubmit(problem.id);
+    });
+    return link;
+  }
+  function actionBusy(control, busy) {
+    if (control.tagName === "A") {
+      control.classList.toggle("disabled", busy);
+      if (busy) control.setAttribute("aria-disabled", "true"); else control.removeAttribute("aria-disabled");
+    } else control.disabled = busy;
+  }
+  function regularClick(event) { return event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey; }
   function safeQojUrl(raw, fallback) {
     try {
       const value = new URL(raw);
@@ -114,7 +158,20 @@
   function problemUrl(problem) {
     return safeQojUrl(problem.url, `https://qoj.ac/contest/${state.session.contestId}/problem/${problem.id}`);
   }
-  function badge(label) { return node("span", "badge problem-badge", label || "?"); }
+  function badge(label) {
+    // Exact problemBadge fallback for an absent provider color: white, a
+    // border with each RGB channel reduced by 64, and black foreground.
+    // See pinned TwigExtension::problemBadge and Utils::hexToForegroundAndBorder.
+    const outer = node("span", "badge problem-badge"), inner = node("span", "", label || "?");
+    outer.style.backgroundColor = "#ffffff";
+    outer.style.border = "1px solid #bfbfbf";
+    inner.style.color = "#000000";
+    outer.append(inner);
+    return outer;
+  }
+  function contestName(contest) {
+    return String(contest?.name || "").replace(/\s+-\s+(?:比赛主页\s+-\s+比赛|Dashboard\s+-\s+Contest)\s+-\s+QOJ\.ac\s*$/iu, "").trim() || "Contest " + (contest?.id || state.session?.contestId || "");
+  }
   function problemById(id) { return state.contest?.problems.find(item => String(item.id) === String(id)); }
 
   function renderNavigation() {
@@ -128,8 +185,10 @@
     $("session-select").value = previous;
     $("session-select").disabled = !state.sessions.length || state.submitting;
     $("new-session").disabled = !state.connected || state.submitting;
+    $("open-resources").disabled = !state.connected || !state.contest;
     $("empty-new-session").disabled = !state.connected;
-    $("nav-scoreboard").disabled = !state.session;
+    $("nav-scoreboard").setAttribute("aria-disabled", String(!state.session));
+    if (state.session) $("nav-scoreboard").href = "#scoreboard"; else $("nav-scoreboard").removeAttribute("href");
     $("empty-state").hidden = Boolean(state.session) || !state.connected;
     $("contest-view").hidden = !state.session;
     renderClock();
@@ -147,53 +206,116 @@
     $("contest-progress").setAttribute("aria-valuenow", percentage.toFixed(1));
     $("session-state").textContent = {prepared: "已准备", running: "进行中", finished: "已结束", archived: "已归档"}[status];
     $("start-session").hidden = status !== "prepared";
-    $("open-submit").disabled = !canSubmit();
-    for (const item of document.querySelectorAll("[data-submit-problem]")) item.disabled = !canSubmit();
+    submitAvailability($("open-submit"), canSubmit());
+    for (const item of document.querySelectorAll("[data-submit-problem]")) submitAvailability(item, canSubmit());
   }
   function renderSession() {
     const session = state.session;
     if (!session) return;
+    $("open-resources").disabled = !state.connected || !state.contest;
     $("contest-name").textContent = session.title || state.contest?.name || "Contest " + session.contestId;
     $("account-name").textContent = session.account || state.contest?.account || "请在 QOJ 登录";
     $("started-at").textContent = formatDate(session.startAt);
     $("qoj-contest-link").href = `https://qoj.ac/contest/${session.contestId}`;
+    const historyUrl = new URL(`https://qoj.ac/contest/${session.contestId}/submissions`);
+    if (session.account) historyUrl.searchParams.set("submitter", session.account);
+    $("qoj-history-link").href = historyUrl.href;
     $("archive-session").disabled = session.state === "archived";
     $("sync-scoreboard").disabled = !session.ranklandUrl;
-    $("rankland-status").textContent = session.ranklandUrl ? "已保存这场 VP 的榜单入口。" : "选择 RankLand 比赛后，在榜单设置中保存链接。";
-    document.title = (session.title || "Contest " + session.contestId) + " — QOJ VP";
+    $("rankland-status").textContent = "";
+    document.title = (session.title || "Contest " + session.contestId) + " — QOJ";
     renderClock();
   }
   function renderSummary() {
     const target = $("teamscoresummary");
     target.replaceChildren();
     if (!state.session || !state.contest) return;
-    const table = node("table", "scoreboard vp-score-summary");
-    const thead = node("thead");
-    const header = node("tr", "scoreheader");
-    header.append(node("th", "scoretn", state.session.account || state.contest.account || "This VP"), node("th", "vp-solved", "solved"));
-    const body = node("tbody"), row = node("tr");
-    row.append(node("td", "scoretn", state.session.title || state.contest.name));
+    const account = state.session.account || state.contest.account || "—";
+    const rankNote = "仅显示本地已确认进度，尚未读取 RankLand 排名。";
+    const penaltyNote = "罚时未知：尚未读取 RankLand 完整计分规则及历史。";
+    const finalVerdicts = new Set(["CORRECT", "WRONG-ANSWER", "TIMELIMIT", "RUN-ERROR", "COMPILER-ERROR", "NO-OUTPUT", "OUTPUT-LIMIT", "MEMORY-LIMIT", "PRESENTATION-ERROR"]);
     const progress = state.contest.problems.map(problem => {
       const attempts = state.submissions.filter(item => String(item.problemId) === String(problem.id) && item.state === "confirmed" &&
-        typeof item.elapsedMs === "number" && Number.isFinite(item.elapsedMs) && item.elapsedMs >= 0 && item.elapsedMs < state.session.durationMs);
-      const accepted = attempts.filter(item => item.verdict === "CORRECT").sort((a, b) => a.elapsedMs - b.elapsedMs)[0];
-      const pending = attempts.some(item => item.pending);
-      return {problem, attempts, accepted, pending};
+        typeof item.elapsedMs === "number" && Number.isFinite(item.elapsedMs) && item.elapsedMs >= 0 && item.elapsedMs < state.session.durationMs)
+        .sort((a, b) => a.elapsedMs - b.elapsedMs || Number(a.id || 0) - Number(b.id || 0));
+      const acceptedIndex = attempts.findIndex(item => !item.pending && item.verdict === "CORRECT");
+      const accepted = acceptedIndex < 0 ? null : attempts[acceptedIndex];
+      const beforeAccepted = accepted ? attempts.slice(0, acceptedIndex + 1) : attempts;
+      // Original pass-fail scoreboard structure: compile errors do not count
+      // as judged tries; unresolved verdicts remain separate pending tries.
+      const judged = beforeAccepted.filter(item => !item.pending && finalVerdicts.has(item.verdict) && item.verdict !== "COMPILER-ERROR");
+      const pending = beforeAccepted.filter(item => item.pending || !finalVerdicts.has(item.verdict)).length;
+      return {problem, accepted, judged: judged.length, pending};
     });
-    row.append(node("td", "vp-solved", progress.filter(item => item.accepted).length));
-    for (const {problem, attempts, accepted, pending} of progress) {
-      header.append(node("th", "", problem.label));
-      const cell = node("td", accepted ? "score_correct" : pending ? "score_pending" : attempts.length ? "score_incorrect" : "");
-      const control = button("", "vp-problem-link", () => openSubmit(problem.id));
-      control.dataset.submitProblem = problem.id;
-      control.disabled = !canSubmit();
-      control.setAttribute("aria-label", `${problem.label} — ${problem.name}，提交`);
-      const value = node("div", "", accepted ? Math.floor(accepted.elapsedMs / 60000) : attempts.length ? "−" + attempts.length : "—");
-      if (accepted) value.append(node("span", "", `${attempts.filter(item => item.elapsedMs <= accepted.elapsedMs).length} tries`));
-      else if (pending) value.append(node("span", "", "pending"));
-      control.append(value); cell.append(control); row.append(cell);
+    const solved = progress.filter(item => item.accepted).length;
+    const teamCell = () => {
+      const cell = node("td", "scoretn cl_FFFFFF"); cell.title = account;
+      const link = node("a");
+      link.append(node("span", "forceWidth", account), node("span", "univ forceWidth"));
+      cell.append(link);
+      return cell;
+    };
+    const columns = (table, ids) => {
+      const group = node("colgroup");
+      for (const id of ids) { const column = node("col"); if (id) column.id = id; group.append(column); }
+      table.append(group);
+    };
+    const heading = (label, title, span) => {
+      const cell = node("th", "", label); cell.title = title; cell.scope = "col";
+      if (span) cell.colSpan = span;
+      return cell;
+    };
+    // Literal single-team desktop/mobile topology from DOMjudge 9.0.1's
+    // partials/scoreboard_table.html.twig. Missing provider facts stay unknown.
+    const table = node("table", "d-none d-md-table scoreboard desktop-scoreboard center");
+    columns(table, ["scoremedal", "scorerank", "scoreflags", "scoreteamname"]);
+    columns(table, ["scoresolv", "scoretotal"]);
+    const problemColumns = node("colgroup");
+    for (const item of progress) problemColumns.append(node("col", "scoreprob"));
+    table.append(problemColumns);
+    const head = node("thead"), header = node("tr", "scoreheader"); header.dataset.static = "";
+    header.append(heading("rank", "rank", 2), heading("team", "team name", 2), heading("score", "# solved / penalty time", 2));
+    const row = node("tr", "sortorderswitch");
+    const rank = node("td", "scorepl rank", "—"); rank.title = rankNote;
+    const total = node("td", "scorett", "—"); total.title = penaltyNote;
+    const count = node("td", "scorenc", solved); count.title = "本次练习已确认解题数。";
+    row.append(node("td", "no-border"), rank, node("td", "scoreaf cl_FFFFFF"), teamCell(), count, total);
+    for (const {problem, accepted, judged, pending} of progress) {
+      const title = heading("", "problem " + problem.name);
+      const statement = node("a"); statement.href = problemUrl(problem); statement.target = "_blank"; statement.rel = "noopener noreferrer";
+      statement.append(badge(problem.label)); title.append(statement); header.append(title);
+      const cell = node("td", "score_cell");
+      if (judged || pending) {
+        const link = node("a");
+        const value = node("div", accepted ? "score_correct" : pending ? "score_pending" : "score_incorrect", accepted ? Math.floor(accepted.elapsedMs / 60000) : "\u00a0");
+        const tries = pending ? judged + " + " + pending : String(judged);
+        value.append(node("span", "", tries + (tries === "1" ? " try" : " tries")));
+        link.append(value); cell.append(link);
+      }
+      row.append(cell);
     }
-    thead.append(header); body.append(row); table.append(thead, body); target.append(table);
+    const body = node("tbody"); head.append(header); body.append(row); table.append(head, body);
+
+    const mobile = node("table", "d-md-none scoreboard mobile-scoreboard center");
+    columns(mobile, ["scorerankmobile", "scoreflagsmobile", "scoreteamnamemobile"]);
+    columns(mobile, ["scoresolvmobile"]);
+    const mobileHead = node("thead"), mobileHeader = node("tr", "scoreheader"); mobileHeader.dataset.static = ""; mobileHeader.style.fontSize = "75%";
+    mobileHeader.append(heading("rank", "rank"), heading("team", "team name", 2), heading("score", "# solved / penalty time", 1)); mobileHead.append(mobileHeader);
+    const mobileBody = node("tbody"), mobileRow = node("tr", "sortorderswitch"); mobileRow.style.borderBottomWidth = "0"; mobileRow.style.height = "28px";
+    const mobileScore = node("td", "scorenc", solved); mobileScore.rowSpan = 2;
+    const mobileTotal = node("span", "scorett", "—"); mobileTotal.style.fontWeight = "normal"; mobileTotal.title = penaltyNote;
+    mobileScore.append(node("br"), mobileTotal);
+    mobileRow.append(node("td", "scorepl"), node("td", "scoreaf cl_FFFFFF"), teamCell(), mobileScore);
+    const mobileProblems = node("tr"); mobileProblems.style.height = "32px";
+    const mobileRankCell = node("td"), mobileRank = node("span", "d-block me-2 rank", "—"); mobileRank.title = rankNote; mobileRankCell.append(mobileRank);
+    const mobileBadges = node("td"); mobileBadges.colSpan = 2;
+    for (const {problem, accepted} of progress) {
+      const item = badge(problem.label); item.style.fontSize = "x-small"; item.style.minWidth = "18px";
+      if (!accepted) { item.style.backgroundColor = "#F5F5F5"; item.style.border = "1px solid linen"; item.firstChild.style.color = "silver"; }
+      mobileBadges.append(item, " ");
+    }
+    mobileProblems.append(mobileRankCell, mobileBadges); mobileBody.append(mobileRow, mobileProblems); mobile.append(mobileHead, mobileBody);
+    target.append(table, mobile);
   }
   function renderSubmissions() {
     const body = $("submissions-body"); body.replaceChildren();
@@ -204,12 +326,20 @@
       const row = node("tr", submission.pending ? "unseen" : "");
       if (submission.operationId) row.dataset.operationId = submission.operationId;
       if (submission.id) row.dataset.submissionId = submission.id;
+      const detailLink = () => {
+        const link = node("a");
+        if (submission.state === "confirmed" && submission.id) {
+          link.href = safeQojUrl(submission.url, "https://qoj.ac/submission/" + submission.id);
+          link.target = "_blank"; link.rel = "noopener noreferrer";
+        }
+        return link;
+      };
       const time = node("td");
       const elapsed = submission.elapsedMs ?? (epoch(submission.submittedAt) !== null && epoch(state.session.startAt) !== null ? epoch(submission.submittedAt) - epoch(state.session.startAt) : null);
-      time.append(node("span", "d-block px-1 py-1", formatElapsed(elapsed)));
+      const timeLink = detailLink(); timeLink.textContent = formatElapsed(elapsed); time.append(timeLink);
       time.title = formatDate(submission.submittedAt);
-      const problem = node("td", "probid"); problem.append(badge(submission.problemLabel));
-      const language = node("td", "langid"); language.append(node("span", "d-block px-1 py-1", submission.language || "—"));
+      const problem = node("td", "probid"), problemLink = detailLink(); problemLink.append(badge(submission.problemLabel)); problem.append(problemLink);
+      const language = node("td", "langid"), languageLink = detailLink(); languageLink.textContent = submission.language || "—"; language.append(languageLink);
       const result = node("td");
       let text = submission.verdict || "UNKNOWN";
       if (submission.state === "unknown" || submission.state === "sending") text = "结果未确认";
@@ -217,7 +347,7 @@
       const css = text === "CORRECT" ? "sol_correct" : submission.pending || ["JUDGING", "UNKNOWN", "结果未确认"].includes(text) ? "sol_queued" : "sol_incorrect";
       const verdict = node("span", "sol " + css, text);
       verdict.title = submission.rawVerdict || text;
-      result.append(node("span", "d-block px-1 py-1")); result.firstChild.append(verdict);
+      const resultLink = detailLink(); resultLink.append(verdict); result.append(resultLink);
       const source = node("td");
       if (submission.id) {
         const link = node("a", "", "#" + submission.id);
@@ -230,33 +360,70 @@
     }
     renderSummary();
   }
+  function historyCoverageMessage(coverage, submissions) {
+    const warning = String(coverage.warning || ""), notes = [];
+    const unverified = submissions.filter(item => item.timeSource === "unverified-display").length;
+    if (unverified) notes.push(`${unverified} 条记录时间未核实，不计入本次进度或榜单。`);
+    const categories = [
+      [/Cached history[^;]*/gi, "当前为缓存记录，可刷新判定。"],
+      [/(?:#\d+:\s*)?detailed verdict unavailable[^;]*|Detailed verdicts remain unverified[^;]*/gi, "部分判定未核实，可稍后刷新。"],
+      [/(?:#\d+:\s*)?numeric submission score is not verified|Some submission rows could not be verified/gi, "部分记录字段未核实，请在原站核对。"],
+      [/History refresh reached its time budget[^;]*|A history page could not be verified[^;]*|Repeated history page detected[^;]*|History exceeded ten pages[^;]*/gi, "部分历史未读完，可刷新继续。"],
+    ];
+    let remaining = warning.replace(/#\d+:\s*absolute submission time is not verified/gi, "");
+    for (const [pattern, note] of categories) {
+      if (pattern.test(remaining)) { notes.push(note); pattern.lastIndex = 0; remaining = remaining.replace(pattern, ""); }
+    }
+    remaining = remaining.replace(/refresh to (?:retry|query QOJ)|refresh again to continue|[;\s.]/gi, "");
+    if (remaining) notes.push("读取历史时有未确认项，请在原站核对。");
+    if (!notes.length && coverage.complete === false) notes.push("部分历史尚未核实，可刷新继续。");
+    return notes.join(" ");
+  }
   function renderProblems() {
     const target = $("problems-list"); target.replaceChildren();
     if (!state.contest) return;
-    $("problemset-title").textContent = state.contest.name + " problems";
+    $("problemset-title").textContent = contestName(state.contest) + " problems";
     for (const problem of state.contest.problems) {
       const col = node("div", "col"), card = node("div", "card"), body = node("div", "card-body");
       const title = node("h2", "card-title"); title.append(badge(problem.label));
       body.append(title, node("h3", "card-subtitle mb-2 text-muted", problem.name));
-      const actions = node("div", "text-center vp-problem-actions");
-      const submit = button("Submit", "btn btn-success", () => openSubmit(problem.id), "cloud-upload-alt");
-      submit.dataset.submitProblem = problem.id; submit.disabled = !canSubmit(); actions.append(submit);
-      const links = node("div", "vp-problem-links d-flex flex-wrap gap-2 justify-content-center");
-      const statement = node("a", "btn btn-secondary"); statement.append(icon("file-alt"), " statement"); statement.href = problemUrl(problem); statement.target = "_blank"; statement.rel = "noopener noreferrer";
-      const pdf = button("PDF", "btn btn-secondary", () => downloadPdf(problem, pdf), "file-pdf"); pdf.dataset.pdfProblem = problem.id;
-      const samples = button("samples", "btn btn-secondary", () => downloadSamples(problem, samples), "file-archive"); samples.dataset.samplesProblem = problem.id;
-      links.append(statement, pdf, samples); actions.append(links);
-      const status = node("p", "vp-problem-status text-muted mb-0"); status.id = "problem-status-" + problem.id; status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
+      const typeLabel = typeof problem.typeLabel === "string" ? problem.typeLabel.trim() : "";
+      body.append(node("h4", "card-subtitle mb-2 text-muted", "Type: " + (typeLabel || "—")));
+      const actions = node("div", "text-center");
+      actions.append(cardSubmit(problem));
+      // Same ordinary document flow as pinned partials/problem_list: the
+      // centered Submit action, its exact 10px separator, then inline links.
+      const separator = node("div"); separator.style.marginTop = "10px"; actions.append(separator);
+      const statement = node("a", "btn btn-secondary"); statement.setAttribute("role", "button"); statement.append(icon("file-pdf"), " statement"); statement.href = problemUrl(problem); statement.target = "_blank"; statement.rel = "noopener noreferrer";
+      statement.dataset.pdfProblem = problem.id;
+      statement.addEventListener("click", event => {
+        if (!regularClick(event)) return;
+        event.preventDefault();
+        if (statement.getAttribute("aria-disabled") !== "true") downloadPdf(problem, statement);
+      });
+      actions.append(statement);
+      const resource = readyResource(problem.id);
+      if (resource) {
+        const link = node("a", "btn btn-secondary"); link.setAttribute("role", "button"); link.tabIndex = 0;
+        link.dataset.resourceProblem = problem.id;
+        if (resource.kind === "samples") link.dataset.samplesProblem = problem.id;
+        link.append(icon("file-archive"), resource.kind === "samples" ? " samples" : " 附件");
+        resourceDownloadAction(link, problem);
+        actions.append(" ", link);
+      }
+      const status = node("p", "small text-muted mb-0"); status.hidden = true; status.id = "problem-status-" + problem.id; status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
       body.append(actions, status); card.append(body); col.append(card); target.append(col);
     }
   }
+  function isProblemsRoute() { return location.hash === "#problems" || location.hash === "#problemset"; }
   function route() {
-    const problems = location.hash === "#problems" || location.hash === "#problemset";
+    const problems = isProblemsRoute();
     $("home-view").hidden = problems; $("problems-view").hidden = !problems;
     $("nav-home").classList.toggle("active", !problems);
     $("nav-problems").classList.toggle("active", problems);
     $(problems ? "nav-problems" : "nav-home").setAttribute("aria-current", "page");
     $(problems ? "nav-home" : "nav-problems").removeAttribute("aria-current");
+    $("notice").hidden = problems && $("notice").classList.contains("alert-success");
   }
 
   async function listSessions(preferred) {
@@ -274,19 +441,25 @@
     if (generation !== state.generation) return;
     state.session = session;
     state.contest = null; state.submissions = []; state.forms.clear();
+    state.resources.clear(); state.resourceActivity.clear(); state.resourceInteractive.clear();
+    state.resourceJob = null; state.resourcesLoaded = false; state.resourceReading = false; state.resourceManifestError = ""; state.resourceSummary = "";
+    state.resourceMutation = 0;
     hideMessage($("history-warning")); hideMessage($("notice"));
     $("teamscoresummary").replaceChildren(); $("problems-list").replaceChildren();
     $("refresh-status").textContent = "正在读取比赛…";
     renderNavigation(); renderSession(); renderSubmissions(); route();
+    renderResourceModal();
+    const resourceLoad = loadResourceManifest(sessionId, generation);
     await browser.storage.local.set({[ACTIVE_KEY]: sessionId});
     try {
       const contest = await call("qoj_contest", {contestId: state.session.contestId, sessionId});
       if (!current(sessionId, generation)) return;
-      state.contest = contest;
+      state.contest = {...contest, name: contestName(contest)};
       if (!Array.isArray(contest.problems)) throw new Error("比赛题表格式无法识别，请重新读取比赛。");
-      renderSession(); renderProblems(); renderSummary(); renderClock();
+      renderSession(); renderProblems(); renderSummary(); renderClock(); renderResourceModal();
       if (!contest.account) showMessage($("notice"), "尚未登录 QOJ。请在原站登录后刷新页面。", "warning");
     } catch (error) { if (current(sessionId, generation)) fail(error); }
+    await resourceLoad;
     try { await refresh(false); await refresh(true); }
     catch (error) { if (current(sessionId, generation)) fail(error); }
   }
@@ -308,7 +481,8 @@
       await persistIntents();
       renderSubmissions();
       const coverage = result.coverage || {};
-      if (coverage.warning || coverage.complete === false) showMessage($("history-warning"), coverage.warning || "部分提交历史尚未读取完整，下次刷新将继续核对。", "warning");
+      const coverageMessage = historyCoverageMessage(coverage, state.submissions);
+      if (coverageMessage) showMessage($("history-warning"), coverageMessage, "warning");
       else hideMessage($("history-warning"));
       $("refresh-status").textContent = refreshProvider ? "更新于 " + new Date().toLocaleTimeString() : "已读取保存的判定";
     })();
@@ -348,9 +522,9 @@
       if ($("contest-input").value !== entered) return;
       if (!contest.account) throw new Error("请先在 Firefox 的 QOJ 页面登录，再点击读取比赛。");
       if (!Array.isArray(contest.problems) || !contest.problems.length) throw new Error("比赛题表为空，请检查原站参赛权限。");
-      state.setupContest = contest;
-      if (!$("session-title").value) $("session-title").value = contest.name;
-      showMessage($("contest-preview"), `${contest.name} · ${contest.problems.length} problems · ${contest.account}`, "secondary");
+      state.setupContest = {...contest, name: contestName(contest)};
+      if (!$("session-title").value) $("session-title").value = state.setupContest.name;
+      showMessage($("contest-preview"), `${state.setupContest.name} · ${contest.problems.length} problems · ${contest.account}`, "secondary");
       $("prepare-session").disabled = false;
     } catch (error) { hideMessage($("contest-preview")); showMessage($("session-error"), message(error)); }
     finally { $("load-contest").disabled = false; }
@@ -368,19 +542,19 @@
       if (started !== null) args.startAt = started;
       const session = await call("create_session", args);
       modals.session.hide(); await listSessions(session.sessionId);
-      if (sessionState() === "prepared") showMessage($("notice"), "比赛已准备好。点击“开始本次 VP”记录开始时间。", "success");
+      if (sessionState() === "prepared") showMessage($("notice"), "已准备。点击 Start 开始。", "success");
     } catch (error) { showMessage($("session-error"), message(error)); }
     finally { $("prepare-session").disabled = !state.setupContest; }
   }
   async function startSession() {
-    if (!state.session || !confirm("从现在开始本次 VP 的计时？")) return;
+    if (!state.session || !confirm("开始计时？仅启动本地计时，不开启 QOJ 官方 VP。")) return;
     $("start-session").disabled = true;
     try {
       state.session = await call("start_session", {sessionId: state.session.sessionId});
       const index = state.sessions.findIndex(item => item.sessionId === state.session.sessionId);
       if (index >= 0) state.sessions[index] = state.session;
       renderSession(); renderNavigation(); renderSummary();
-      showMessage($("notice"), "VP 已开始。", "success");
+      showMessage($("notice"), "计时已开始。", "success");
     } catch (error) { fail(error); }
     finally { $("start-session").disabled = false; }
   }
@@ -408,41 +582,46 @@
   function resetConfirmation() {
     state.confirmPayload = null;
     for (const id of ["submit_problem_code", "submit_problem_problem"]) $(id).disabled = false;
-    $("submit_problem_language").disabled = !$("submit_problem_language").options.length || !$("submit_problem_problem").value;
+    $("submit_problem_language").disabled = ![...$("submit_problem_language").options].some(option => option.value);
   }
   async function openSubmit(problemId) {
-    if (!canSubmit()) { showMessage($("notice"), "请先开始一场正在进行的 VP，再提交代码。", "warning"); return; }
+    if (!canSubmit()) { showMessage($("notice"), "请先点击 Start，再提交代码。", "warning"); return; }
     $("submit-form").reset(); hideMessage($("submit-error")); hideMessage($("files_selected"));
-    $("submit_problem_problem").replaceChildren(new Option("autodetect", ""));
+    $("submit_problem_problem").replaceChildren(new Option("Select a problem", ""));
     for (const problem of state.contest.problems) $("submit_problem_problem").append(new Option(problem.label + " - " + problem.name, problem.id));
     $("submit_problem_problem").value = problemId || "";
-    $("submit_problem_language").replaceChildren(new Option("先选择题目", ""));
-    $("submit_problem_language").disabled = true; $("language-status").textContent = "";
-    $("submit-title").textContent = problemId ? "Submit problem " + problemById(problemId).label : "Submit";
+    $("submit-problem-row").className = problemId ? "d-none" : "mb-3";
+    $("submit_problem_language").replaceChildren(new Option("Select a language", ""));
+    $("submit_problem_language").disabled = true; $("language-status").textContent = ""; $("language-status").hidden = true;
+    $("submit-title").textContent = problemId ? "Submit problem " + problemById(problemId).name : "Submit";
     resetConfirmation(); modals.submit.show();
-    if (problemId) await loadLanguages();
+    await loadLanguages();
   }
   async function loadLanguages() {
-    const problemId = $("submit_problem_problem").value;
+    const selectedProblemId = $("submit_problem_problem").value;
+    const problemId = selectedProblemId || state.contest?.problems[0]?.id;
+    const previousLanguage = $("submit_problem_language").value;
     const generation = ++state.formGeneration, sessionId = state.session?.sessionId;
-    $("submit_problem_language").replaceChildren(new Option(problemId ? "正在读取…" : "先选择题目", ""));
-    $("submit_problem_language").disabled = true; $("language-status").textContent = "";
+    $("submit_problem_language").replaceChildren(new Option("Select a language", ""));
+    $("submit_problem_language").disabled = true; $("language-status").textContent = ""; $("language-status").hidden = true;
     if (!problemId) return;
     try {
       const key = sessionId + ":" + problemId;
       let form = state.forms.get(key);
       if (!form) { form = await call("qoj_problem_form", {sessionId, problemId}); state.forms.set(key, form); }
-      if (generation !== state.formGeneration || state.session?.sessionId !== sessionId || $("submit_problem_problem").value !== problemId) return;
+      if (generation !== state.formGeneration || state.session?.sessionId !== sessionId || $("submit_problem_problem").value !== selectedProblemId) return;
       const languages = form.languages || [];
       if (!languages.length) throw new Error("QOJ 未返回可用语言，请检查原站提交权限。");
-      $("submit_problem_language").replaceChildren(new Option("autodetect", ""));
+      $("submit_problem_language").replaceChildren(new Option("Select a language", ""));
       for (const language of languages) $("submit_problem_language").append(new Option(language, language));
       $("submit_problem_language").disabled = false;
       const file = $("submit_problem_code").files[0];
-      if (file) {
+      if (previousLanguage && languages.includes(previousLanguage)) {
+        $("submit_problem_language").value = previousLanguage;
+      } else if (file) {
         const guessed = inferLanguage(file.name, languages);
         $("submit_problem_language").value = guessed;
-        $("language-status").textContent = guessed ? "已按文件扩展名选择，可手动更改。" : "无法唯一推断语言，请手动选择。";
+        $("language-status").textContent = ""; $("language-status").hidden = true;
       }
     } catch (error) {
       if (generation === state.formGeneration) showMessage($("submit-error"), message(error));
@@ -451,12 +630,15 @@
   async function fileSelected() {
     resetConfirmation(); hideMessage($("submit-error"));
     const file = $("submit_problem_code").files[0]; if (!file) return;
-    const details = $("files_selected"); details.replaceChildren();
+    const details = $("files_selected"); details.className = "alert d-none"; details.replaceChildren();
     const list = node("ul");
-    list.append(node("li", "", `${file.name}, size ${humanReadableBytes(file.size)}, last modified ${humanReadableTimeDiff((Date.now() - file.lastModified) / 1000)} ago`));
+    const validName = /^[a-zA-Z0-9_][a-zA-Z0-9+_.-]*$/.test(file.name);
+    const item = node("li", file.size === 0 ? "bg-warning" : validName ? "" : "bg-danger");
+    item.append(node("span", "filename", file.name), ` size ${humanReadableBytes(file.size)}, last modified ${humanReadableTimeDiff((Date.now() - file.lastModified) / 1000)} ago` + (!validName ? ", invalid filename" : "") + (!file.size ? ", empty file" : ""));
+    list.append(item);
     details.append(list); details.classList.remove("d-none");
     if (file.size === 0 || file.size > MAX_SOURCE_BYTES) showMessage($("submit-error"), file.size === 0 ? "源文件为空，请检查选择的文件。" : "源文件超过 512 KiB，请检查选择的文件。");
-    else if (Date.now() - file.lastModified > 5 * 60 * 1000) details.append(node("p", "text-warning-emphasis mt-2 mb-0", "None of the selected files have been recently modified."));
+    if (Date.now() - file.lastModified > 5 * 60 * 1000) details.append(node("div", "alert alert-warning", "None of the selected files have been recently modified"));
     // As in DOMjudge: only infer while the select is still on autodetect.
     if (!$("submit_problem_problem").value) {
       const stem = file.name.replace(/\.[^.]*$/, "").toUpperCase();
@@ -479,7 +661,7 @@
     const sessionId = state.session.sessionId;
     const problemId = $("submit_problem_problem").value, language = $("submit_problem_language").value;
     const problem = problemById(problemId);
-    if (!problem || !language || !canSubmit()) throw new Error("请核对比赛、题目、语言以及 VP 状态。");
+    if (!problem || !language || !canSubmit()) throw new Error("请核对比赛、题目、语言和比赛状态。");
     const data = new Uint8Array(await file.arrayBuffer());
     const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", data))].map(value => value.toString(16).padStart(2, "0")).join("");
     const fingerprint = [sessionId, problemId, language, hash].join(":");
@@ -508,7 +690,7 @@
       } catch (error) { showMessage($("submit-error"), message(error)); return; }
     }
     const payload = {...state.confirmPayload};
-    if (!canSubmit() || payload.sessionId !== state.session.sessionId) { showMessage($("submit-error"), "VP 状态已改变，请重新确认。"); return; }
+    if (!canSubmit() || payload.sessionId !== state.session.sessionId) { showMessage($("submit-error"), "比赛状态已改变，请重新确认。"); return; }
     state.submitting = true;
     $("submit-send").disabled = true; $("submit-cancel").disabled = true;
     for (const id of ["submit_problem_code", "submit_problem_problem", "submit_problem_language"]) $(id).disabled = true;
@@ -548,26 +730,189 @@
     }
   }
 
-  function saveArchive(base64, filename, type = "application/zip") {
-    const decoded = atob(base64), bytes = Uint8Array.from(decoded, value => value.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], {type}));
+  function interactiveResource(problemId) {
+    const id = String(problemId);
+    if (state.resourceInteractive.has(id)) return state.resourceInteractive.get(id);
+    const problem = problemById(id), entry = state.resources.get(id);
+    return problem?.interactive === true || /interactive|交互/i.test(problem?.typeLabel || "") ||
+      entry?.interactiveHint === true || entry?.lastAttempt?.interactiveHint === true;
+  }
+  function validReadyResource(entry) {
+    if (entry?.status !== "ready" || !["samples", "attachment"].includes(entry.kind) ||
+        !/^[a-f0-9]{64}$/.test(entry.resourceId || "") || !/^[a-f0-9]{64}$/.test(entry.sha256 || "") ||
+        !Number.isSafeInteger(entry.totalBytes) || entry.totalBytes <= 0 || entry.totalBytes > MAX_RESOURCE_BYTES ||
+        typeof entry.filename !== "string" || !entry.filename || entry.filename.length > 200 ||
+        /[\\/:\x00-\x1f]/.test(entry.filename) || entry.filename === "." || entry.filename === "..") return false;
+    return true;
+  }
+  function readyResource(problemId) {
+    const entry = state.resources.get(String(problemId));
+    if (!validReadyResource(entry) || entry.problemId !== String(problemId)) return null;
+    if (interactiveResource(problemId) && entry.sampleSource === "inline-statement") return null;
+    return entry;
+  }
+  async function loadResourceManifest(sessionId = state.session?.sessionId, generation = state.generation) {
+    if (!sessionId) return;
+    const sequence = ++state.resourceReadSequence, mutation = state.resourceMutation;
+    state.resourceReading = true; renderResourceModal();
+    try {
+      const manifest = await call("resource_manifest", {sessionId});
+      if (!current(sessionId, generation) || sequence !== state.resourceReadSequence || mutation !== state.resourceMutation) return;
+      if (manifest?.origin !== "https://qoj.ac" || String(manifest.contestId) !== String(state.session.contestId) ||
+          typeof manifest.account !== "string" || manifest.account.toLowerCase() !== String(state.session.account || "").toLowerCase() ||
+          !Array.isArray(manifest.problems)) throw new Error("资源清单与当前比赛或账号不一致。");
+      const entries = new Map();
+      for (const entry of manifest.problems) {
+        if (!entry || typeof entry.problemId !== "string" || entries.has(entry.problemId) || !["ready", "unknown"].includes(entry.status) || entry.status === "ready" && !validReadyResource(entry)) throw new Error("资源清单格式无法识别。");
+        entries.set(entry.problemId, entry);
+      }
+      state.resources = entries; state.resourcesLoaded = true; state.resourceManifestError = "";
+    } catch (error) {
+      if (current(sessionId, generation) && sequence === state.resourceReadSequence && mutation === state.resourceMutation) state.resourceManifestError = message(error);
+    } finally {
+      if (current(sessionId, generation) && sequence === state.resourceReadSequence) {
+        state.resourceReading = false; renderProblems(); renderResourceModal();
+      }
+    }
+  }
+  function resourceDownloadAction(control, problem) {
+    const request = event => {
+      event.preventDefault();
+      if (control.getAttribute("aria-disabled") !== "true") downloadResource(problem, control);
+    };
+    control.addEventListener("click", request);
+    control.addEventListener("auxclick", event => { if (event.button === 1) request(event); });
+    control.addEventListener("mousedown", event => { if (event.button === 1) event.preventDefault(); });
+    control.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); if (!event.repeat) request(event); }
+    });
+    actionBusy(control, state.resourceDownloads.has(state.session?.sessionId + ":" + problem.id));
+  }
+  function renderResourceModal() {
+    const target = $("resources-list"); target.replaceChildren();
+    const problems = state.contest?.problems || [], busy = Boolean(state.resourceJob) || state.resourceReading;
+    let count = 0;
+    for (const problem of problems) {
+      const id = String(problem.id), entry = state.resources.get(id), ready = readyResource(id);
+      if (ready) count++;
+      const row = node("tr"), name = node("td"), status = node("td"), hint = node("td"), actions = node("td");
+      name.append(badge(problem.label), " " + problem.name);
+      const activity = state.resourceActivity.get(id);
+      if (activity) status.textContent = activity;
+      else if (ready) {
+        status.append(node("span", "", (ready.kind === "samples" ? "samples" : "附件") + " · " + humanReadableBytes(ready.totalBytes)));
+        if (ready.lastAttempt?.status === "unknown") status.append(node("div", "small text-warning", "本次未确认，保留旧包" + (ready.lastAttempt.code ? "（" + ready.lastAttempt.code + "）" : "")));
+      } else status.textContent = entry?.status === "ready" && interactiveResource(id) && entry.sampleSource === "inline-statement" ? "需重新核对交互题附件" : entry?.lastAttempt?.status === "unknown" ? "未确认" + (entry.lastAttempt.code ? "（" + entry.lastAttempt.code + "）" : "") : "未准备";
+      const checkbox = node("input", "form-check-input"); checkbox.type = "checkbox"; checkbox.checked = interactiveResource(id); checkbox.disabled = busy;
+      checkbox.setAttribute("aria-label", problem.label + " 是交互题");
+      checkbox.title = "已确认是交互题时勾选，不把交互对话整理为普通样例。";
+      checkbox.addEventListener("change", () => { state.resourceInteractive.set(id, checkbox.checked); renderProblems(); renderResourceModal(); });
+      hint.append(checkbox);
+      if (ready) {
+        const download = node("a", "btn btn-secondary btn-sm"); download.setAttribute("role", "button"); download.tabIndex = 0; download.textContent = "下载";
+        resourceDownloadAction(download, problem); actions.append(download, " ");
+      }
+      const prepare = button(ready ? "刷新" : entry ? "重试" : "准备", "btn btn-outline-secondary btn-sm", () => prepareResources([id], Boolean(ready || entry)));
+      prepare.disabled = busy; actions.append(prepare);
+      row.append(name, status, hint, actions); target.append(row);
+    }
+    $("resources-summary").textContent = state.resourceReading ? "正在读取已准备的资源…" : state.resourceSummary || `${count}/${problems.length} 题可下载。准备会读取 QOJ；已有文件直接复用。`;
+    if (state.resourceManifestError) showMessage($("resources-error"), state.resourceManifestError); else hideMessage($("resources-error"));
+    $("prepare-resources").disabled = busy || !problems.length;
+    $("refresh-resources").disabled = busy || !problems.length;
+  }
+  async function openResources() {
+    if (!state.session) return;
+    const loading = loadResourceManifest();
+    modals.resources.show(); await loading;
+  }
+  async function prepareResources(problemIds, refresh = false) {
+    if (!state.session || !state.contest || state.resourceJob || state.resourceReading) return;
+    const sessionId = state.session.sessionId, generation = state.generation;
+    const ids = problemIds || state.contest.problems.map(problem => String(problem.id));
+    const job = {sessionId, generation}; state.resourceJob = job;
+    state.resourceManifestError = "";
+    let prepared = 0, reused = 0, unknown = 0;
+    try {
+      for (const id of ids) {
+        if (!current(sessionId, generation)) break;
+        if (!refresh && readyResource(id)) { reused++; continue; }
+        state.resourceActivity.set(id, "正在准备…"); state.resourceSummary = `正在准备 ${problemById(id)?.label || id}…`; renderResourceModal();
+        try {
+          const entry = await call("prepare_resource", {sessionId, problemId: id, interactiveHint: interactiveResource(id)});
+          if (!current(sessionId, generation)) break;
+          if (!entry || entry.problemId !== id || !["ready", "unknown"].includes(entry.status) || entry.status === "ready" && !validReadyResource(entry)) throw new Error("准备结果与题目不一致。");
+          state.resourceMutation++; state.resources.set(id, entry); state.resourcesLoaded = true;
+          state.resourceActivity.delete(id);
+          if (readyResource(id) && entry.lastAttempt?.status !== "unknown") prepared++;
+          else unknown++;
+        } catch (error) {
+          if (!current(sessionId, generation)) break;
+          unknown++; state.resourceActivity.set(id, (readyResource(id) ? "本次未确认，保留旧包：" : "本次未确认：") + message(error));
+        }
+        renderProblems(); renderResourceModal();
+      }
+    } finally {
+      if (state.resourceJob === job) {
+        state.resourceJob = null;
+        state.resourceSummary = `新准备 ${prepared}，复用 ${reused}，未确认 ${unknown}。`;
+        renderResourceModal();
+      }
+    }
+  }
+  async function sha256(bytes) {
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    let hex = ""; for (const byte of digest) hex += byte.toString(16).padStart(2, "0");
+    return hex;
+  }
+  async function downloadResource(problem, control) {
+    const sessionId = state.session?.sessionId, generation = state.generation, id = String(problem.id);
+    const entry = readyResource(id), key = sessionId + ":" + id;
+    if (!entry || state.resourceDownloads.has(key)) return;
+    state.resourceDownloads.add(key); actionBusy(control, true); control.setAttribute("aria-busy", "true");
+    state.resourceManifestError = "";
+    try {
+      const bytes = new Uint8Array(entry.totalBytes);
+      let offset = 0;
+      while (offset < entry.totalBytes) {
+        if (!current(sessionId, generation) || !readyResource(id) || readyResource(id).resourceId !== entry.resourceId) throw new Error("资源或比赛已改变，请重新下载。");
+        state.resourceActivity.set(id, "正在读取 " + Math.floor(offset / entry.totalBytes * 100) + "%…"); renderResourceModal();
+        const chunk = await call("resource_chunk", {sessionId, problemId: id, resourceId: entry.resourceId, offset, maxBytes: RESOURCE_CHUNK_BYTES});
+        if (!current(sessionId, generation)) throw new Error("比赛已切换，请重新下载。");
+        if (!chunk || chunk.problemId !== id || chunk.resourceId !== entry.resourceId || chunk.offset !== offset || chunk.totalBytes !== entry.totalBytes || chunk.sha256 !== entry.sha256 ||
+            typeof chunk.bytesBase64 !== "string" || chunk.bytesBase64.length > Math.ceil(RESOURCE_CHUNK_BYTES / 3) * 4 ||
+            !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(chunk.bytesBase64) || !/^[a-f0-9]{64}$/.test(chunk.chunkSha256 || "")) throw new Error("资源分块信息校验失败，未下载文件。");
+        const decoded = atob(chunk.bytesBase64), part = new Uint8Array(decoded.length);
+        for (let index = 0; index < decoded.length; index++) part[index] = decoded.charCodeAt(index);
+        if (!part.length || part.length > RESOURCE_CHUNK_BYTES || chunk.nextOffset !== offset + part.length || chunk.nextOffset > entry.totalBytes ||
+            chunk.eof !== (chunk.nextOffset === entry.totalBytes) || await sha256(part) !== chunk.chunkSha256) throw new Error("资源分块内容校验失败，未下载文件。");
+        bytes.set(part, offset); offset = chunk.nextOffset;
+      }
+      if (await sha256(bytes) !== entry.sha256 || !current(sessionId, generation) || !readyResource(id) || readyResource(id).resourceId !== entry.resourceId) throw new Error("资源整包校验失败，未下载文件。");
+      saveBlob(new Blob([bytes], {type: "application/zip"}), entry.filename);
+      state.resourceActivity.set(id, "已校验并开始下载。");
+    } catch (error) {
+      if (current(sessionId, generation)) {
+        state.resourceManifestError = message(error); state.resourceActivity.set(id, "未下载：" + message(error));
+        renderResourceModal(); modals.resources.show();
+      }
+    } finally {
+      state.resourceDownloads.delete(key); actionBusy(control, false); control.removeAttribute("aria-busy");
+      if (current(sessionId, generation)) renderResourceModal();
+    }
+  }
+  function saveBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
     const link = node("a"); link.href = url; link.download = filename.replace(/[\\/]/g, "_"); document.body.append(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
-  async function downloadSamples(problem, control) {
-    control.disabled = true; const sessionId = state.session.sessionId;
-    const target = $("problem-status-" + problem.id); target.textContent = "正在下载 samples…";
-    try {
-      const result = await call("qoj_samples", {sessionId, problemLabel: problem.label});
-      if (!result.zipBase64) throw new Error("样例包未返回，请稍后重新下载。");
-      saveArchive(result.zipBase64, result.zipFilename || `samples-${problem.label}.zip`);
-      if (state.session?.sessionId === sessionId) target.textContent = result.warnings?.length ? result.warnings.map(String).join("；") : "samples 已下载。";
-    } catch (error) { if (state.session?.sessionId === sessionId) target.textContent = message(error); }
-    finally { control.disabled = false; }
+  function saveArchive(base64, filename, type = "application/zip") {
+    const decoded = atob(base64), bytes = Uint8Array.from(decoded, value => value.charCodeAt(0));
+    saveBlob(new Blob([bytes], {type}), filename);
   }
   async function downloadPdf(problem, control) {
-    control.disabled = true; const sessionId = state.session.sessionId;
-    const target = $("problem-status-" + problem.id); target.textContent = "正在打开题面 PDF…";
+    actionBusy(control, true); const sessionId = state.session.sessionId;
+    const target = $("problem-status-" + problem.id); target.hidden = false; target.textContent = "正在打开题面 PDF…";
     try {
       const result = await call("problem.pdf", {sessionId, problemId: problem.id});
       if (result?.pdfBase64) saveArchive(result.pdfBase64, result.filename || `problem-${problem.label}.pdf`, "application/pdf");
@@ -584,7 +929,7 @@
         } else target.textContent = result?.message || (result?.mode === "html" || result?.mode === "print" ? "原题面为 HTML，请在 Firefox 中保存为 PDF。" : "题面已打开。");
       }
     } catch (error) { if (state.session?.sessionId === sessionId) target.textContent = message(error); }
-    finally { control.disabled = false; }
+    finally { actionBusy(control, false); }
   }
   function openRanklandSettings() {
     if (!state.session) return;
@@ -594,7 +939,7 @@
     if (!state.session?.ranklandUrl) { openRanklandSettings(); return; }
     try {
       const result = await call("rankland.open", {sessionId: state.session.sessionId});
-      $("rankland-status").textContent = result?.message || "已打开这场 VP 保存的 RankLand 榜单。";
+      $("rankland-status").textContent = result?.message || "榜单已打开。";
     } catch (error) { $("rankland-status").textContent = message(error); }
   }
   async function syncScoreboard() {
@@ -617,7 +962,7 @@
   }
 
   async function initialize() {
-    for (const id of ["session", "submit", "rankland", "reconcile"]) modals[id] = new bootstrap.Modal($(id + "-modal"));
+    for (const id of ["session", "submit", "rankland", "reconcile", "resources"]) modals[id] = new bootstrap.Modal($(id + "-modal"));
     window.addEventListener("hashchange", route); route();
     $("session-select").addEventListener("change", event => selectSession(event.target.value).catch(fail));
     $("new-session").addEventListener("click", openSessionSetup);
@@ -626,14 +971,23 @@
     $("contest-input").addEventListener("input", () => { state.setupContest = null; $("prepare-session").disabled = true; hideMessage($("contest-preview")); });
     $("session-form").addEventListener("submit", prepareSession);
     $("start-session").addEventListener("click", startSession);
+    $("open-resources").addEventListener("click", () => openResources().catch(fail));
+    $("prepare-resources").addEventListener("click", () => prepareResources());
+    $("refresh-resources").addEventListener("click", () => prepareResources(undefined, true));
     $("refresh-submissions").addEventListener("click", () => refresh(true).catch(fail));
-    $("open-submit").addEventListener("click", () => openSubmit());
+    $("open-submit").addEventListener("click", event => {
+      event.preventDefault();
+      if ($("open-submit").getAttribute("aria-disabled") !== "true" && canSubmit()) openSubmit();
+    });
     $("submit-form").addEventListener("submit", submit);
     $("submit_problem_code").addEventListener("change", () => fileSelected().catch(error => showMessage($("submit-error"), message(error))));
     $("submit_problem_problem").addEventListener("change", () => { resetConfirmation(); loadLanguages().catch(fail); });
     $("submit_problem_language").addEventListener("change", () => { if (state.confirmPayload) resetConfirmation(); });
     $("submit-modal").addEventListener("hide.bs.modal", event => { if (state.submitting) event.preventDefault(); });
-    $("nav-scoreboard").addEventListener("click", openScoreboard);
+    $("nav-scoreboard").addEventListener("click", event => {
+      event.preventDefault();
+      if ($("nav-scoreboard").getAttribute("aria-disabled") !== "true") openScoreboard();
+    });
     $("open-scoreboard").addEventListener("click", openScoreboard);
     $("rankland-settings").addEventListener("click", openRanklandSettings);
     $("sync-scoreboard").addEventListener("click", syncScoreboard);
@@ -657,7 +1011,7 @@
       finally { control.disabled = false; }
     });
     $("archive-session").addEventListener("click", async () => {
-      if (!state.session || !confirm("归档这场 VP？历史记录和榜单入口仍会保留。")) return;
+      if (!state.session || !confirm("归档这场练习？提交记录和榜单入口会保留。")) return;
       try { const session = await call("archive_session", {sessionId: state.session.sessionId}); await listSessions(session.sessionId); }
       catch (error) { fail(error); }
     });
@@ -668,7 +1022,10 @@
     try {
       const saved = await localGet(INTENTS_KEY); state.intents = Array.isArray(saved) ? saved : [];
       await call("hello"); state.connected = true; $("connection").classList.add("d-none");
-      await listSessions();
+      const entry = new URLSearchParams(location.search), requestedSession = entry.get("session");
+      const preferred = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(requestedSession || "") ? requestedSession : undefined;
+      await listSessions(preferred);
+      if (preferred && state.session?.sessionId === preferred && entry.get("resources") === "1") await openResources();
     } catch (error) {
       state.lastError = {code: error.code || "HELPER_UNAVAILABLE", message: message(error)};
       showMessage($("connection"), message(error), "danger");
@@ -683,6 +1040,8 @@
     getState: () => ({connected: state.connected, session: state.session ? {...state.session} : null,
       contest: state.contest ? {id: state.contest.id, name: state.contest.name, problemCount: state.contest.problems?.length} : null,
       submissions: state.submissions.map(item => ({...item})), submitting: state.submitting,
+      resources: [...state.resources.values()].map(item => ({...item})),
+      resourcesLoaded: state.resourcesLoaded, resourceReading: state.resourceReading, resourcePreparing: Boolean(state.resourceJob),
       route: location.hash || "#home", lastError: state.lastError ? {...state.lastError} : null}),
   });
   initialize().catch(fail);

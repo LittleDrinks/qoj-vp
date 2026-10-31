@@ -25,12 +25,18 @@ VERDICT_ALIASES = (
 
 def verdict(text, score=None):
     text = re.sub(r"\s+", " ", str(text or "").strip().lower()).replace("_", " ")
+    # QOJ's verified accepted marker has this exact suffix. Do not strip
+    # punctuation/letters generally: "AC, TL" is an ambiguous different value.
+    if text == 'ac ✓':
+        text = 'ac'
     for result, aliases in VERDICT_ALIASES:
         if text in aliases:
+            if result == 'CORRECT' and score is not None and score != 100:
+                return 'UNKNOWN'
             return result
     # A score is meaningful only when the list explicitly exposes the score;
     # partial/zero scores need the detail's actual failing verdict.
-    if score is not None and score == 100:
+    if score is not None and score == 100 and (not text or re.fullmatch(r'\d+(?:\.\d+)?', text)):
         return "CORRECT"
     return "UNKNOWN"
 
@@ -77,6 +83,55 @@ def timestamp(value):
     return int(parsed.timestamp() * 1000)
 
 
+def submission_time_metadata(html, cid, account, sid, pid):
+    """Verify one detail-table Submit time against its SID, owner and problem.
+
+    A submission detail also has an execution 'Time' column. Only the exact
+    'Submit time' header and its own zoned time.uoj-time metadata count; page
+    clocks, footer dates and timestamps in unrelated rows cannot supply it.
+    """
+    page = BeautifulSoup(html, 'html.parser')
+    candidates = []
+    expected_sid = re.compile(rf'/submission/{re.escape(str(sid))}/?')
+    expected_pid = re.compile(rf'/contest/{re.escape(str(cid))}/problem/{re.escape(str(pid))}/?')
+
+    def matches_link(cell, pattern):
+        links = []
+        for link in cell.select('a[href]'):
+            parsed = urlparse(link['href'])
+            if parsed.scheme in ('', 'https') and parsed.netloc in ('', 'qoj.ac') and pattern.fullmatch(parsed.path):
+                links.append(link)
+        return len(links) == 1
+
+    for table in page.select('table'):
+        rows = [row for row in table.find_all('tr') if row.find_parent('table') is table]
+        if not rows:
+            continue
+        headers = [cell.get_text(' ', strip=True).casefold() for cell in rows[0].find_all('th', recursive=False)]
+        required = ('id', 'problem', 'submitter', 'submit time')
+        if any(headers.count(name) != 1 for name in required):
+            continue
+        indexes = {name: headers.index(name) for name in required}
+        for row in rows[1:]:
+            cells = row.find_all('td', recursive=False)
+            if len(cells) != len(headers):
+                continue
+            if not matches_link(cells[indexes['id']], expected_sid) or not matches_link(cells[indexes['problem']], expected_pid):
+                continue
+            owners = cells[indexes['submitter']].select('span.uoj-username')
+            if len(owners) != 1 or owners[0].get_text(' ', strip=True).casefold() != account.casefold():
+                continue
+            times = cells[indexes['submit time']].select('time.uoj-time[datetime]')
+            if len(times) != 1:
+                continue
+            raw = times[0].get('datetime', '')
+            at = timestamp(raw)
+            if at is not None:
+                candidates.append({'submittedAt': at, 'timeSource': 'provider-absolute',
+                                   'timeEvidence': {'source': 'submission-detail', 'datetime': raw}})
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def parse_history(html, cid, account, problems):
     page = BeautifulSoup(html, "html.parser")
     result, warnings = {}, []
@@ -93,6 +148,8 @@ def parse_history(html, cid, account, problems):
         saw_table = True
         result_index = next(i for i, h in enumerate(headers) if h in ("result", "score", "status"))
         language_index = next((i for i, h in enumerate(headers) if h in ("language", "lang")), None)
+        owner_index = next((i for i, h in enumerate(headers) if h in ('submitter', 'username', 'user')), None)
+        time_index = next((i for i, h in enumerate(headers) if h in ('time', 'submit time', 'submission time', 'submitted at')), None)
         for row in table.select("tr"):
             cells = row.find_all("td", recursive=False)
             if not cells:
@@ -101,12 +158,29 @@ def parse_history(html, cid, account, problems):
                              if re.fullmatch(r"/submission/\d+/?", urlparse(a['href']).path)), None)
             if not sid_link:
                 continue
-            submitter = next((a for a in row.select("a[href]")
-                              if urlparse(a['href']).path.startswith('/user/profile/')), None)
-            if submitter is None:
+            if owner_index is None or owner_index >= len(cells):
                 malformed += 1
                 continue
-            actual_account = urlparse(submitter['href']).path.removeprefix('/user/profile/').rstrip('/')
+            # Raw QOJ GETs expose span.uoj-username; frontend JavaScript turns
+            # that span into a profile link. Both are authoritative only in
+            # the table's owner column, never arbitrary links in other cells.
+            owners = {}
+            for node in cells[owner_index].select('span.uoj-username, a[href]'):
+                if node.name == 'span':
+                    name = node.get_text(' ', strip=True)
+                else:
+                    parsed_owner = urlparse(node['href'])
+                    match = re.fullmatch(r'/user/profile/([^/]+)/?', parsed_owner.path)
+                    if (not match or parsed_owner.netloc not in ('', 'qoj.ac')
+                            or parsed_owner.scheme not in ('', 'https')):
+                        continue
+                    name = match.group(1)
+                if name and not any(ord(char) < 32 for char in name):
+                    owners.setdefault(name.casefold(), name)
+            if len(owners) != 1:
+                malformed += 1
+                continue
+            actual_account = next(iter(owners.values()))
             if actual_account.casefold() != account.casefold():
                 continue
             problem = next((a for a in row.select("a[href]")
@@ -120,16 +194,28 @@ def parse_history(html, cid, account, problems):
             sid = urlparse(sid_link['href']).path.rstrip('/').rsplit('/', 1)[-1]
             raw = cells[result_index].get_text(" ", strip=True)
             score = float(raw) if re.fullmatch(r"\d+(?:\.\d+)?", raw) else None
+            score_nodes = cells[result_index].select('a.uoj-score[data-score]')
+            invalid_score = False
+            if score_nodes:
+                value = score_nodes[0].get('data-score', '')
+                if len(score_nodes) == 1 and re.fullmatch(r'\d+(?:\.\d+)?', value) and 0 <= float(value) <= 100:
+                    score = float(value)
+                else:
+                    score, invalid_score = None, True
+                    warnings.append(f'#{sid}: numeric submission score is not verified')
             pending = bool(row.select_one('[id^="status_details_"]') or
                            re.search(r"update_judgement_status_details\s*\(", str(row)))
-            time_node = row.select_one('time[datetime]')
-            display = row.get_text(" ", strip=True)
+            time_cell = cells[time_index] if time_index is not None and time_index < len(cells) else cells[-1]
+            time_nodes = time_cell.select('time[datetime]')
+            display = time_cell.get_text(" ", strip=True)
             dates = re.findall(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:?\d{2})?", display)
-            raw_time = time_node.get('datetime') if time_node else dates[0] if dates else cells[-1].get_text(" ", strip=True)
+            raw_time = time_nodes[0].get('datetime') if len(time_nodes) == 1 else dates[0] if not time_nodes and len(dates) == 1 else display
+            if len(time_nodes) > 1:
+                raw_time = ''
             at = timestamp(raw_time)
             if at is None:
                 warnings.append(f"#{sid}: absolute submission time is not verified")
-            parsed = "JUDGING" if pending else verdict(raw, score)
+            parsed = "JUDGING" if pending else "UNKNOWN" if invalid_score else verdict(raw, score)
             result[sid] = {"id": sid, "account": actual_account, "problemId": pid,
                            "problemLabel": pid_to_label[pid], "language": cells[language_index].get_text(" ", strip=True)
                            if language_index is not None and language_index < len(cells) else "",

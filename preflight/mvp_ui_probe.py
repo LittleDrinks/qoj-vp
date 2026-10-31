@@ -280,7 +280,7 @@ def run_ui_probe(driver, output_dir, source_path, rankland_url, *, get_post_coun
             _require(card.find_element(By.CSS_SELECTOR, "[data-pdf-problem]").is_displayed(), "Per-problem PDF action missing")
             _require(card.find_element(By.CSS_SELECTOR, "[data-samples-problem]").is_displayed(), "Per-problem samples action missing")
             _require(card.find_element(By.CSS_SELECTOR, "a[href*='/contest/3387/problem/']").is_displayed(), "Original statement link missing")
-            card_evidence.append({"label": label, "actions": ["Submit", "statement", "PDF", "samples"]})
+            card_evidence.append({"label": label, "actions": ["Submit", "statement (PDF)", "samples"]})
         _record(report, "problemset_per_problem_actions", card_evidence)
         _screenshot(driver, output, "problemset", report)
 

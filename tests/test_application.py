@@ -16,11 +16,21 @@ import zipfile
 from qojvp import Application, ApplicationError
 from qojvp.history import detail_verdict, parse_history
 from qojvp.native_host import read_frame, write_frame
-from tests.support import FIXTURES, QojFixture
+from tests.support import FIXTURES, QojFixture, account_menu
 
 ROOT = Path(__file__).resolve().parents[1]
 AT = int(datetime.fromisoformat('2026-10-31T09:00:00+08:00').timestamp() * 1000)
 CODE = b'int main() { return 0; }\n'
+
+
+def inline_sample_statement(input_text='1 2', output_text='3'):
+    # Actual QOJ 1051/C ancestry and heading types, using synthetic sample data.
+    from html import escape
+    return ('<div class="tab-pane active"><article class="uoj-article top-buffer-md">'
+            '<h2>描述</h2><pre>unlabelled implementation example, not sample data</pre>'
+            '<h2>样例</h2><h4>输入 1</h4><pre>' + escape(input_text) + '</pre>'
+            '<h4>输出 1</h4><pre>' + escape(output_text) + '</pre>'
+            '<h2>提示</h2><pre>not a sample either</pre></article></div>')
 
 
 class ApplicationIntegrationTests(unittest.TestCase):
@@ -75,6 +85,61 @@ class ApplicationIntegrationTests(unittest.TestCase):
             self.assertTrue(any(name.endswith('judge.cpp') for name in archive.namelist()))
         self.assertTrue(download['warnings'])
 
+    def inline_problem(self, html, *, attachment=None):
+        self.fixture.contest_html = ('<title>Inline sample fixture</title><table><tr><td>C</td>'
+            '<td><a href="/contest/3387/problem/5115">Synthetic inline problem</a></td></tr></table>')
+        self.fixture.problem_html['5115'] = html
+        self.fixture.attachment_overrides['5115'] = attachment or (404, b'not found', 'text/plain')
+
+    def test_missing_attachment_without_verified_inline_samples_is_unavailable_not_empty_zip(self):
+        self.inline_problem('<main><pre>unrelated source code is not a sample</pre></main>')
+        with self.assertRaises(ApplicationError) as cm:
+            self.call('qoj_samples', {'sessionId': self.session['sessionId'], 'problemLabel': 'C'})
+        self.assertEqual(cm.exception.code, 'SAMPLES_UNAVAILABLE')
+        self.assertEqual(self.fixture.posts, [])
+
+    def test_missing_attachment_uses_verified_qoj_inline_samples_and_real_upstream_packaging(self):
+        self.inline_problem(inline_sample_statement('1 2\n3 4', '3\n7'))
+        result = self.call('qoj_samples', {'sessionId': self.session['sessionId'], 'problemLabel': 'C'})
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(result['zipBase64']))) as archive:
+            self.assertEqual(sorted(archive.namelist()), ['samples-C/1.ans', 'samples-C/1.in'])
+            self.assertEqual(archive.read('samples-C/1.in'), b'1 2\n3 4\n')
+            self.assertEqual(archive.read('samples-C/1.ans'), b'3\n7\n')
+        self.assertEqual(result['sampleSource'], 'inline-statement')
+        self.assertEqual(result['extraFiles'], [])
+        self.assertEqual(self.fixture.posts, [])
+
+    def test_inline_samples_require_verified_section_scope_and_complete_pairing(self):
+        cases = [
+            inline_sample_statement().replace('<h2>样例</h2>', '<h2>实现代码</h2>'),
+            inline_sample_statement().replace('class="uoj-article top-buffer-md"', 'class="unrelated-article"'),
+            inline_sample_statement().replace('<h4>输出 1</h4>', '<h4>输出 2</h4>'),
+            inline_sample_statement().replace('class="tab-pane active"', 'class="tab-pane"'),
+        ]
+        for html in cases:
+            with self.subTest(html=html[:60]):
+                self.inline_problem(html)
+                with self.assertRaises(ApplicationError) as cm:
+                    self.call('qoj_samples', {'sessionId': self.session['sessionId'], 'problemLabel': 'C'})
+                self.assertEqual(cm.exception.code, 'SAMPLES_UNAVAILABLE')
+
+    def test_unsafe_attachment_error_is_not_hidden_by_an_inline_fallback(self):
+        self.inline_problem(inline_sample_statement(),
+            attachment=(200, (FIXTURES / 'attachment-unsafe.zip').read_bytes(), 'application/zip'))
+        with self.assertRaises(ApplicationError) as cm:
+            self.call('qoj_samples', {'sessionId': self.session['sessionId'], 'problemLabel': 'C'})
+        self.assertEqual(cm.exception.code, 'QOJ_ERROR')
+
+    def test_corrupt_attachment_error_is_not_hidden_by_an_inline_fallback(self):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_STORED) as stream:
+            stream.writestr('1.in', b'unique-crc-content')
+        data = archive.getvalue().replace(b'unique-crc-content', b'broken-crc-content')
+        self.inline_problem(inline_sample_statement(), attachment=(200, data, 'application/zip'))
+        with self.assertRaises(ApplicationError) as cm:
+            self.call('qoj_samples', {'sessionId': self.session['sessionId'], 'problemLabel': 'C'})
+        self.assertEqual(cm.exception.code, 'QOJ_ERROR')
+
     def test_lost_receipt_does_not_repeat_even_after_restart_or_new_operation_id(self):
         self.fixture.disconnect = True
         result = self.call('qoj_submit', self.args())
@@ -120,6 +185,43 @@ class ApplicationIntegrationTests(unittest.TestCase):
             self.call('qoj_submit', self.args())
         self.assertEqual(cm.exception.code, 'ACCOUNT_MISMATCH')
         self.assertFalse(self.fixture.posts)
+
+    def test_contest_does_not_expose_upstream_unknown_account_placeholder(self):
+        self.fixture.root_html = '<nav><a href="/logout">退出登录</a></nav><main>训练赛</main>'
+        contest = self.call('qoj_contest', {'contestId': '3387'})
+        self.assertIsNone(contest['account'])
+        with self.assertRaises(ApplicationError) as cm:
+            self.call('qoj_submit', self.args())
+        self.assertEqual(cm.exception.code, 'ACCOUNT_UNKNOWN')
+        self.assertEqual(self.fixture.posts, [])
+
+    def test_another_users_body_profile_cannot_be_taken_as_current_account(self):
+        self.fixture.root_html = ('<nav><a href="/logout">退出登录</a></nav>'
+                                  '<main><a href="/user/profile/OtherUser">My Profile</a></main>')
+        contest = self.call('qoj_contest', {'contestId': '3387'})
+        self.assertIsNone(contest['account'])
+        with self.assertRaises(ApplicationError) as cm:
+            self.call('qoj_submit', self.args())
+        self.assertEqual(cm.exception.code, 'ACCOUNT_UNKNOWN')
+        self.assertEqual(self.fixture.posts, [])
+
+    def test_chinese_menu_resolves_own_account_and_ignores_body_and_footer_profiles(self):
+        self.fixture.root_html = account_menu('LittleDrinks',
+            body='<a href="/user/profile/OtherUser">My Profile</a>')
+        contest = self.call('qoj_contest', {'contestId': '3387'})
+        self.assertEqual(contest['account'], 'LittleDrinks')
+        current = self.app.dispatch('create_session', {'contestId': '3387', 'account': 'LittleDrinks', 'startAt': AT})
+        form = self.call('qoj_problem_form', {'sessionId': current['sessionId'], 'problemId': '15419'})
+        self.assertTrue(form['csrfPresent'])
+        self.assertEqual(self.fixture.posts, [])
+
+    def test_chinese_menu_account_switch_is_rejected_before_send_intent(self):
+        self.fixture.root_html = account_menu('OtherUser')
+        with self.assertRaises(ApplicationError) as cm:
+            self.call('qoj_submit', self.args())
+        self.assertEqual(cm.exception.code, 'ACCOUNT_MISMATCH')
+        self.assertEqual(self.fixture.posts, [])
+        self.assertEqual(self.app.ledger.db.execute('SELECT COUNT(*) FROM operations').fetchone()[0], 0)
 
     def test_atomic_operation_claim_across_two_helpers(self):
         def send(_):

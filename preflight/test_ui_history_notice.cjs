@@ -1,0 +1,12 @@
+"use strict";
+const assert=require("node:assert/strict"),fs=require("node:fs"),path=require("node:path"),vm=require("node:vm");
+const source=fs.readFileSync(path.join(__dirname,"../extension/ui.js"),"utf8"),context={};vm.createContext(context);
+vm.runInContext(source.slice(source.indexOf("  function historyCoverageMessage("),source.indexOf("  function renderProblems(")),context);
+const records=Array.from({length:13},(_,index)=>({id:String(index+1),timeSource:"unverified-display"}));
+const warning=records.map(item=>"#"+item.id+": absolute submission time is not verified").join("; ");
+const result=context.historyCoverageMessage({complete:false,warning},records);
+assert.match(result,/13 条记录/);assert.equal(result.includes("#"),false);assert.equal(result.includes("absolute"),false);assert.ok(result.length<70);assert.equal(records.length,13);
+assert.match(context.historyCoverageMessage({complete:false,warning:"History exceeded ten pages; earlier submissions remain unverified"},[]),/历史未读完/);
+assert.match(context.historyCoverageMessage({complete:false,warning:"#2: detailed verdict unavailable; refresh to retry"},[]),/判定未核实/);
+assert.equal(context.historyCoverageMessage({complete:true},[]),"");
+console.log(JSON.stringify({pass:true,count:4,cases:["thirteen time warnings become one counted line","partial reads remain explicit","verdict gaps stay visible","complete history has no warning"]}));

@@ -46,6 +46,89 @@
     element.value = String(value);
     element.dispatchEvent(new Event(event, {bubbles: true}));
   }
+  function readiness(expectedUrl, sessionId) {
+    try {
+      if (!expectedUrl || identity(location.href) !== identity(expectedUrl) ||
+          (sessionId && new URL(location.href).searchParams.get('run') !== sessionId)) {
+        return {ready: false, reason: 'SESSION_MISMATCH'};
+      }
+    } catch (_) { return {ready: false, reason: 'SESSION_MISMATCH'}; }
+    const board = document.querySelector('[data-id="vp-ranklist-content"]');
+    if (!board) {
+      const error = [...document.querySelectorAll('section.mt-16.text-center > p[role="alert"]')].find(visible);
+      return {ready: false, reason: !error ? 'CONTEST_LOADING' :
+        error.textContent.trim() === '起始时间必须小于比赛时长。' ? 'START_OFFSET_OUT_OF_RANGE' : 'SOURCE_LOAD_ERROR'};
+    }
+    const state = saved();
+    if (!state) return {ready: false, reason: 'STORAGE_NOT_READY'};
+    if (typeof state.value.ownName !== 'string') return {ready: false, reason: 'STORAGE_FORMAT_CHANGED'};
+    if (!state.value.ownName.trim()) return {ready: false, reason: 'TEAM_REQUIRED', run: state.run};
+    if (board.querySelectorAll('select[aria-label="题目"]').length !== 1 ||
+        board.querySelectorAll('select[aria-label="结果"]').length !== 1) {
+      return {ready: false, reason: 'RECORD_FORM_CHANGED', run: state.run};
+    }
+    return {ready: true, reason: 'READY', run: state.run};
+  }
+  async function prepareTeam(sessionId, expectedUrl, teamName) {
+    let status = readiness(expectedUrl, sessionId);
+    // Existing original-site team names are authoritative, including custom
+    // names restored from a previous tab. Never overwrite them from QOJ.
+    if (status.reason !== 'TEAM_REQUIRED') return status;
+    if (typeof teamName !== 'string' || !teamName.trim() || teamName.trim().length > 80 || /[\x00-\x1f\x7f]/.test(teamName)) {
+      return {ready: false, reason: 'TEAM_NAME_REQUIRED'};
+    }
+    teamName = teamName.trim();
+    await intro();
+    status = readiness(expectedUrl, sessionId);
+    if (status.reason !== 'TEAM_REQUIRED') return status;
+    const before = saved();
+    const manualBefore = JSON.stringify(before.value.manual);
+    const guard = () => browser.runtime.sendMessage({type: 'vp.rankland.guard', expectedUrl});
+    if (!(await guard())?.allowed) return {ready: false, reason: 'TEAM_GUARD_BLOCKED'};
+    // Do not take over a team dialog the user already has open.
+    if ([...document.querySelectorAll('input[aria-label="队伍名称"]')].some(visible)) {
+      return {ready: false, reason: 'TEAM_FORM_ALREADY_OPEN'};
+    }
+    const board = document.querySelector('[data-id="vp-ranklist-content"]');
+    const joins = [...board.querySelectorAll('button')].filter(button => visible(button) && button.textContent.trim() === '加入我的队伍');
+    if (joins.length !== 1) return {ready: false, reason: 'TEAM_FORM_CHANGED'};
+    joins[0].click();
+    let field, form;
+    for (let n = 0; n < 40; n++) {
+      await pause(100);
+      const fields = [...document.querySelectorAll('input[aria-label="队伍名称"]')].filter(visible);
+      if (fields.length === 1 && fields[0].closest('form')) {
+        field = fields[0];
+        form = field.closest('form');
+        break;
+      }
+    }
+    if (!field || !form) return {ready: false, reason: 'TEAM_FORM_CHANGED'};
+    let current = saved();
+    if (readiness(expectedUrl, sessionId).reason !== 'TEAM_REQUIRED' || current?.key !== before.key ||
+        JSON.stringify(current.value.manual) !== manualBefore || !(await guard())?.allowed) {
+      return {ready: false, reason: 'TEAM_STATE_CHANGED'};
+    }
+    setValue(field, teamName, 'input');
+    await pause(100);
+    const submit = [...form.querySelectorAll('button[type="submit"]')]
+      .filter(button => visible(button) && button.textContent.trim() === '加入');
+    if (submit.length !== 1) return {ready: false, reason: 'TEAM_FORM_CHANGED'};
+    current = saved();
+    if (readiness(expectedUrl, sessionId).reason !== 'TEAM_REQUIRED' || current?.key !== before.key ||
+        JSON.stringify(current.value.manual) !== manualBefore || !(await guard())?.allowed) {
+      return {ready: false, reason: 'TEAM_STATE_CHANGED'};
+    }
+    submit[0].click(); // Original local team form; never dispatch a verdict here.
+    for (let n = 0; n < 50; n++) {
+      await pause(100);
+      current = saved();
+      status = readiness(expectedUrl, sessionId);
+      if (status.ready && current?.key === before.key && current.value.ownName === teamName &&
+          JSON.stringify(current.value.manual) === manualBefore) return {...status, joined: true};
+    }
+    return {ready: false, reason: 'TEAM_SETUP_NOT_CONFIRMED'};
+  }
   async function deliver(sessionId, item, previous, expectedUrl, receiptKey) {
     if (new URL(location.href).searchParams.get('run') !== sessionId || identity(location.href) !== identity(expectedUrl)) throw new Error("RANKLAND_SESSION_MISMATCH");
     await intro();
@@ -109,12 +192,18 @@
     }
     return {state: "ambiguous", receipt, message: "已操作原站表单，但未取得一致回执；不会自动重复。"};
   }
-  let busy = false;
+  let busy = false, preparing = null;
   browser.runtime.onMessage.addListener((message, sender) => {
     if (sender.id !== browser.runtime.id) return undefined;
-    if (message?.type === 'vp.rankland.ready') return Promise.resolve({ready: Boolean(message.expectedUrl && identity(location.href) === identity(message.expectedUrl) && saved() && document.querySelector('select[aria-label="题目"]')), run: saved()?.run});
+    if (message?.type === 'vp.rankland.ready') return Promise.resolve(readiness(message.expectedUrl, message.sessionId));
+    if (message?.type === 'vp.rankland.prepare') {
+      if (busy) return Promise.resolve({ready: false, reason: 'DELIVERY_BUSY'});
+      if (!preparing) preparing = prepareTeam(message.sessionId, message.expectedUrl, message.teamName)
+        .catch(() => ({ready: false, reason: 'TEAM_SETUP_FAILED'})).finally(() => { preparing = null; });
+      return preparing;
+    }
     if (message?.type !== 'vp.rankland.deliver') return undefined;
-    if (busy) return Promise.resolve({state: 'failed', message: '另一个同步任务仍在进行。'});
+    if (busy || preparing) return Promise.resolve({state: 'failed', message: '另一个同步任务仍在进行。'});
     busy = true;
     return deliver(message.sessionId, message.item, message.previous, message.expectedUrl, message.receiptKey).catch(error => ({state: 'failed', message: error.message})).finally(() => { busy = false; });
   });

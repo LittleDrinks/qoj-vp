@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- DOMjudge version 9.0.1 -->
+    <meta charset="utf-8">
+    <title>Example teamname - DOMjudge</title>
+    <link rel="icon" href="/favicon.ico?v=9.0.1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <link rel="stylesheet" href="/css/bootstrap.min.css?v=9.0.1">
+    <link rel="stylesheet" href="/css/fontawesome-all.min.css?v=9.0.1">
+    <link rel="stylesheet" href="/public/scoreboard-category-color.css">
+    <script src="/js/jquery.min.js?v=9.0.1"></script>
+    <script src="/js/jquery.debounce.min.js?v=9.0.1"></script>
+    <script src="/js/bootstrap.bundle.min.js?v=9.0.1"></script>
+
+    <script src="/js/domjudge.js?v=9.0.1"></script>
+                    <link rel="stylesheet" href="/style_domjudge.css?v=9.0.1">
+
+        
+    
+    <style>
+        .data-table td a, .data-table td a:hover {
+            display: block;
+            text-decoration: none;
+            color: inherit;
+            padding: 3px 5px;
+        }
+
+        .data-table tr {
+            border-bottom: 1px solid silver;
+        }
+
+        .data-table tr:hover {
+            background: #ffffcc !important;
+        }
+    </style>
+    </head>
+<body>
+    <nav class="navbar navbar-expand-md navbar-dark bg-dark fixed-top">
+  <div class="container-fluid">
+    <a class="navbar-brand hidden-sm-down" href="/team">DOMjudge</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#menuDefault"
+            aria-controls="menuDefault" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+    </button>
+
+    
+    <div class="collapse navbar-collapse" id="menuDefault" data-update-url="/team/updates">
+        <ul class="navbar-nav me-auto">
+            <li class="nav-item">
+                <a class="nav-link active"
+                    href="/team"><i class="fas fa-home"></i> Home</a>
+            </li>
+            <li class="nav-item">
+                                    <a class="nav-link"
+                        href="/team/problems">
+                        <i class="fas fa-book-open"></i> Problemset
+                    </a>
+                            </li>
+                                                    <li class="nav-item">
+                    <a class="nav-link"
+                        href="/team/scoreboard"><i class="fas fa-list-ol"></i> Scoreboard</a>
+                </li>
+                        
+                    </ul>
+
+        <div class="ml-auto me-3">
+            <a class="nav-link d-none" id="notify_enable">
+                <span class="btn btn-warning btn-sm">
+                    <i class="fas fa-bell fa-fw"></i> Enable Notifications
+                </span>
+            </a>
+            <a class="nav-link d-none" id="notify_disable">
+                <span class="btn btn-secondary btn-sm">
+                    <i class="fas fa-bell-slash fa-fw"></i> Disable Notifications
+                </span>
+            </a>
+
+        </div>
+        <div class="ml-auto me-3">
+                            <a class="nav-link" data-ajax-modal data-ajax-modal-after="initSubmitModal" href="/team/submit">
+                    <span class="btn btn-success btn-sm">
+                        <i class="fas fa-cloud-upload-alt"></i> Submit
+                    </span>
+                </a>
+                    </div>
+
+            <a class="btn btn-info btn-sm me-2" href="/logout"
+            onclick="return confirmLogout();"
+    >
+        <i class="fas fa-sign-out-alt"></i> Logout
+    </a>
+
+        <ul class="navbar-nav">
+                            <li class="nav-item dropdown">
+    <a class="nav-link dropdown-toggle" href="#" id="navbarDropdownContests" role="button" data-bs-toggle="dropdown"
+       aria-haspopup="true" aria-expanded="false">
+        <i class="fas fa-trophy"></i> qoj-vp-xian-reference
+    </a>
+    <div class="dropdown-menu scrollable-menu" aria-labelledby="navbarDropdown" data-current-contest="">
+        <a class="dropdown-item disabled" href="#">Change Contest</a>
+                            <a class="dropdown-item"
+               href="/team/change-contest/1">demo</a>
+            </div>
+</li>
+                    </ul>
+
+        <div class="navbar-text" style="white-space:nowrap;">
+    <span style="padding-left: 10px;">
+        <i class="fas fa-clock loading-indicator"></i>
+    </span>
+        <span id="timeleft">3:45:30</span>
+</div>
+
+<script>
+    var initial = 1793462891;
+    var localInitial = new Date().getTime();
+    var activatetime = 1793456622;
+    var starttime = 1793458422;
+    var endtime = 1793476422;
+    var clientOffset = localInitial - new Date(initial * 1000).getTime();
+    var timeleftelt = document.getElementById("timeleft");
+
+    setInterval(function () {
+        updateClock();
+    }, 1000);
+    updateClock();
+</script>
+    </div>
+  </div>
+</nav>
+        <div class="progress" style="margin-top:-16px; height: 10px;" data-progress-bar>
+        <div class="progress-bar" role="progressbar" style="width: 24%;"
+             aria-valuenow="24" aria-valuemin="0" aria-valuemax="100"></div>
+    </div>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-12">
+                                    <div data-ajax-refresh-target data-ajax-refresh-after="setFlashAndProgress" data-ajax-refresh-before="saveFlash">
+        
+    <div id="teamscoresummary">
+                                        
+
+<table class="d-none d-md-table scoreboard desktop-scoreboard center ">
+
+                        
+        <colgroup>
+                                    <col id="scoremedal"/>
+                        <col id="scorerank"/>
+                            <col id="scoreflags"/>
+                                <col id="scoreteamname"/>
+    </colgroup>
+            <colgroup>
+            <col id="scoresolv"/>
+                            <col id="scoretotal"/>
+                    </colgroup>
+        <colgroup>
+                                    <col class="scoreprob"/>
+                            <col class="scoreprob"/>
+                            <col class="scoreprob"/>
+                            <col class="scoreprob"/>
+                            <col class="scoreprob"/>
+                            <col class="scoreprob"/>
+                            <col class="scoreprob"/>
+                            <col class="scoreprob"/>
+                            <col class="scoreprob"/>
+                            <col class="scoreprob"/>
+                            <col class="scoreprob"/>
+                            <col class="scoreprob"/>
+                        </colgroup>
+    <thead>
+    <tr class="scoreheader" data-static="">
+                    <th title="rank" scope="col" colspan="2">rank</th>
+                <th title="team name" scope="col" colspan="2">team</th>
+                                    <th title="# solved / penalty time" colspan="2" scope="col">score</th>
+                                                                                                                                                                                                                                                                        <th
+                    title="problem Bridge"
+                    scope="col"
+                    data-problem-external-id="xian-a"
+                    data-problem-name="Bridge"
+                    data-problem-badge="&lt;span&#x20;class&#x3D;&quot;badge&#x20;problem-badge&quot;&#x20;style&#x3D;&quot;background-color&#x3A;&#x20;&#x23;ffffff&#x3B;&#x20;border&#x3A;&#x20;1px&#x20;solid&#x20;&#x23;bfbfbf&quot;&gt;&lt;span&#x20;style&#x3D;&quot;color&#x3A;&#x20;&#x23;000000&#x3B;&quot;&gt;A&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;"
+                >
+                    <a href="/team/problems/4/statement" target="_blank">
+                        <span class="badge problem-badge" style="background-color: #ffffff; border: 1px solid #bfbfbf"><span style="color: #000000;">A</span></span>
+                                            </a>
+                </th>
+                                                                                                                                                                                                                                            <th
+                    title="problem Cells Coloring"
+                    scope="col"
+                    data-problem-external-id="xian-b"
+                    data-problem-name="Cells&#x20;Coloring"
+                    data-problem-badge="&lt;span&#x20;class&#x3D;&quot;badge&#x20;problem-badge&quot;&#x20;style&#x3D;&quot;background-color&#x3A;&#x20;&#x23;ffffff&#x3B;&#x20;border&#x3A;&#x20;1px&#x20;solid&#x20;&#x23;bfbfbf&quot;&gt;&lt;span&#x20;style&#x3D;&quot;color&#x3A;&#x20;&#x23;000000&#x3B;&quot;&gt;B&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;"
+                >
+                    <a href="/team/problems/5/statement" target="_blank">
+                        <span class="badge problem-badge" style="background-color: #ffffff; border: 1px solid #bfbfbf"><span style="color: #000000;">B</span></span>
+                                            </a>
+                </th>
+                                                                                                                                                                                                                                            <th
+                    title="problem Clone Ranran"
+                    scope="col"
+                    data-problem-external-id="xian-c"
+                    data-problem-name="Clone&#x20;Ranran"
+                    data-problem-badge="&lt;span&#x20;class&#x3D;&quot;badge&#x20;problem-badge&quot;&#x20;style&#x3D;&quot;background-color&#x3A;&#x20;&#x23;ffffff&#x3B;&#x20;border&#x3A;&#x20;1px&#x20;solid&#x20;&#x23;bfbfbf&quot;&gt;&lt;span&#x20;style&#x3D;&quot;color&#x3A;&#x20;&#x23;000000&#x3B;&quot;&gt;C&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;"
+                >
+                    <a href="/team/problems/6/statement" target="_blank">
+                        <span class="badge problem-badge" style="background-color: #ffffff; border: 1px solid #bfbfbf"><span style="color: #000000;">C</span></span>
+                                            </a>
+                </th>
+                                                                                                                                                                                                                                            <th
+                    title="problem Contests"
+                    scope="col"
+                    data-problem-external-id="xian-d"
+                    data-problem-name="Contests"
+                    data-problem-badge="&lt;span&#x20;class&#x3D;&quot;badge&#x20;problem-badge&quot;&#x20;style&#x3D;&quot;background-color&#x3A;&#x20;&#x23;ffffff&#x3B;&#x20;border&#x3A;&#x20;1px&#x20;solid&#x20;&#x23;bfbfbf&quot;&gt;&lt;span&#x20;style&#x3D;&quot;color&#x3A;&#x20;&#x23;000000&#x3B;&quot;&gt;D&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;"
+                >
+                    <a href="/team/problems/7/statement" target="_blank">
+                        <span class="badge problem-badge" style="background-color: #ffffff; border: 1px solid #bfbfbf"><span style="color: #000000;">D</span></span>
+                                            </a>
+                </th>
+                                                                                                                                                                                                                                            <th
+                    title="problem Find Maximum"
+                    scope="col"
+                    data-problem-external-id="xian-e"
+                    data-problem-name="Find&#x20;Maximum"
+                    data-problem-badge="&lt;span&#x20;class&#x3D;&quot;badge&#x20;problem-badge&quot;&#x20;style&#x3D;&quot;background-color&#x3A;&#x20;&#x23;ffffff&#x3B;&#x20;border&#x3A;&#x20;1px&#x20;solid&#x20;&#x23;bfbfbf&quot;&gt;&lt;span&#x20;style&#x3D;&quot;color&#x3A;&#x20;&#x23;000000&#x3B;&quot;&gt;E&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;"
+                >
+                    <a href="/team/problems/8/statement" target="_blank">
+                        <span class="badge problem-badge" style="background-color: #ffffff; border: 1px solid #bfbfbf"><span style="color: #000000;">E</span></span>
+                                            </a>
+                </th>
+                                                                                                                                                                                                                                            <th
+                    title="problem Hotel"
+                    scope="col"
+                    data-problem-external-id="xian-f"
+                    data-problem-name="Hotel"
+                    data-problem-badge="&lt;span&#x20;class&#x3D;&quot;badge&#x20;problem-badge&quot;&#x20;style&#x3D;&quot;background-color&#x3A;&#x20;&#x23;ffffff&#x3B;&#x20;border&#x3A;&#x20;1px&#x20;solid&#x20;&#x23;bfbfbf&quot;&gt;&lt;span&#x20;style&#x3D;&quot;color&#x3A;&#x20;&#x23;000000&#x3B;&quot;&gt;F&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;"
+                >
+                    <a href="/team/problems/9/statement" target="_blank">
+                        <span class="badge problem-badge" style="background-color: #ffffff; border: 1px solid #bfbfbf"><span style="color: #000000;">F</span></span>
+                                            </a>
+                </th>
+                                                                                                                                                                                                                                            <th
+                    title="problem Perfect Word"
+                    scope="col"
+                    data-problem-external-id="xian-g"
+                    data-problem-name="Perfect&#x20;Word"
+                    data-problem-badge="&lt;span&#x20;class&#x3D;&quot;badge&#x20;problem-badge&quot;&#x20;style&#x3D;&quot;background-color&#x3A;&#x20;&#x23;ffffff&#x3B;&#x20;border&#x3A;&#x20;1px&#x20;solid&#x20;&#x23;bfbfbf&quot;&gt;&lt;span&#x20;style&#x3D;&quot;color&#x3A;&#x20;&#x23;000000&#x3B;&quot;&gt;G&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;"
+                >
+                    <a href="/team/problems/10/statement" target="_blank">
+                        <span class="badge problem-badge" style="background-color: #ffffff; border: 1px solid #bfbfbf"><span style="color: #000000;">G</span></span>
+                                            </a>
+                </th>
+                                                                                                                                                                                                                                            <th
+                    title="problem Power of Two"
+                    scope="col"
+                    data-problem-external-id="xian-h"
+                    data-problem-name="Power&#x20;of&#x20;Two"
+                    data-problem-badge="&lt;span&#x20;class&#x3D;&quot;badge&#x20;problem-badge&quot;&#x20;style&#x3D;&quot;background-color&#x3A;&#x20;&#x23;ffffff&#x3B;&#x20;border&#x3A;&#x20;1px&#x20;solid&#x20;&#x23;bfbfbf&quot;&gt;&lt;span&#x20;style&#x3D;&quot;color&#x3A;&#x20;&#x23;000000&#x3B;&quot;&gt;H&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;"
+                >
+                    <a href="/team/problems/11/statement" target="_blank">
+                        <span class="badge problem-badge" style="background-color: #ffffff; border: 1px solid #bfbfbf"><span style="color: #000000;">H</span></span>
+                                            </a>
+                </th>
+                                                                                                                                                                                                                                            <th
+                    title="problem Square Grid"
+                    scope="col"
+                    data-problem-external-id="xian-i"
+                    data-problem-name="Square&#x20;Grid"
+                    data-problem-badge="&lt;span&#x20;class&#x3D;&quot;badge&#x20;problem-badge&quot;&#x20;style&#x3D;&quot;background-color&#x3A;&#x20;&#x23;ffffff&#x3B;&#x20;border&#x3A;&#x20;1px&#x20;solid&#x20;&#x23;bfbfbf&quot;&gt;&lt;span&#x20;style&#x3D;&quot;color&#x3A;&#x20;&#x23;000000&#x3B;&quot;&gt;I&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;"
+                >
+                    <a href="/team/problems/12/statement" target="_blank">
+                        <span class="badge problem-badge" style="background-color: #ffffff; border: 1px solid #bfbfbf"><span style="color: #000000;">I</span></span>
+                                            </a>
+                </th>
+                                                                                                                                                                                                                                            <th
+                    title="problem Strange Sum"
+                    scope="col"
+                    data-problem-external-id="xian-j"
+                    data-problem-name="Strange&#x20;Sum"
+                    data-problem-badge="&lt;span&#x20;class&#x3D;&quot;badge&#x20;problem-badge&quot;&#x20;style&#x3D;&quot;background-color&#x3A;&#x20;&#x23;ffffff&#x3B;&#x20;border&#x3A;&#x20;1px&#x20;solid&#x20;&#x23;bfbfbf&quot;&gt;&lt;span&#x20;style&#x3D;&quot;color&#x3A;&#x20;&#x23;000000&#x3B;&quot;&gt;J&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;"
+                >
+                    <a href="/team/problems/13/statement" target="_blank">
+                        <span class="badge problem-badge" style="background-color: #ffffff; border: 1px solid #bfbfbf"><span style="color: #000000;">J</span></span>
+                                            </a>
+                </th>
+                                                                                                                                                                                                                                            <th
+                    title="problem Streets"
+                    scope="col"
+                    data-problem-external-id="xian-k"
+                    data-problem-name="Streets"
+                    data-problem-badge="&lt;span&#x20;class&#x3D;&quot;badge&#x20;problem-badge&quot;&#x20;style&#x3D;&quot;background-color&#x3A;&#x20;&#x23;ffffff&#x3B;&#x20;border&#x3A;&#x20;1px&#x20;solid&#x20;&#x23;bfbfbf&quot;&gt;&lt;span&#x20;style&#x3D;&quot;color&#x3A;&#x20;&#x23;000000&#x3B;&quot;&gt;K&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;"
+                >
+                    <a href="/team/problems/14/statement" target="_blank">
+                        <span class="badge problem-badge" style="background-color: #ffffff; border: 1px solid #bfbfbf"><span style="color: #000000;">K</span></span>
+                                            </a>
+                </th>
+                                                                                                                                                                                                                                            <th
+                    title="problem Tree"
+                    scope="col"
+                    data-problem-external-id="xian-l"
+                    data-problem-name="Tree"
+                    data-problem-badge="&lt;span&#x20;class&#x3D;&quot;badge&#x20;problem-badge&quot;&#x20;style&#x3D;&quot;background-color&#x3A;&#x20;&#x23;ffffff&#x3B;&#x20;border&#x3A;&#x20;1px&#x20;solid&#x20;&#x23;bfbfbf&quot;&gt;&lt;span&#x20;style&#x3D;&quot;color&#x3A;&#x20;&#x23;000000&#x3B;&quot;&gt;L&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;"
+                >
+                    <a href="/team/problems/15/statement" target="_blank">
+                        <span class="badge problem-badge" style="background-color: #ffffff; border: 1px solid #bfbfbf"><span style="color: #000000;">L</span></span>
+                                            </a>
+                </th>
+                        </tr>
+    </thead>
+    <tbody>
+                                                                                            
+                        
+                                            <tr class="sortorderswitch" data-team-id="2" data-team-external-id="exteam" data-team-name="Example&#x20;teamname">
+                                                <td class="no-border">
+                                            </td>
+                                <td class="scorepl rank">
+                                                                1
+                                                        </td>
+                                                                                <td class="scoreaf cl_FFFFFF">
+                                                                                                            <a >
+                            <img loading="lazy" src="/flags/4x3/nl.svg?v=9.0.1" alt="NLD" title="Netherlands" class="countryflag">
+                        </a>
+                                                </td>
+                                    <td class="scoretn cl_FFFFFF" title="Example teamname">
+                                                                                                                                                                        <a data-ajax-modal href="/team/team/2">
+                    <span class="forceWidth">
+                                                Example teamname
+                    </span>
+                                            <span class="univ forceWidth">
+                                                            Utrecht University
+                                                    </span>
+                                    </a>
+            </td>
+                                                                    <td class="scorenc">0</td>
+                                                            <td class="scorett">0</td>
+                                                
+                                                                                                                                
+                                        
+                                                            
+                                                            
+                    <td class="score_cell">
+                                            </td>
+                                                                                                                    
+                                        
+                                                            
+                                                            
+                    <td class="score_cell">
+                                            </td>
+                                                                                                                    
+                                        
+                                                            
+                                                            
+                    <td class="score_cell">
+                                            </td>
+                                                                                                                    
+                                        
+                                                            
+                                                            
+                    <td class="score_cell">
+                                            </td>
+                                                                                                                    
+                                        
+                                                            
+                                                            
+                    <td class="score_cell">
+                                            </td>
+                                                                                                                    
+                                        
+                                                            
+                                                            
+                    <td class="score_cell">
+                                            </td>
+                                                                                                                    
+                                        
+                                                            
+                                                            
+                    <td class="score_cell">
+                                            </td>
+                                                                                                                    
+                                        
+                                                            
+                                                            
+                    <td class="score_cell">
+                                            </td>
+                                                                                                                    
+                                        
+                                                            
+                                                            
+                    <td class="score_cell">
+                                            </td>
+                                                                                                                    
+                                        
+                                                            
+                                                            
+                    <td class="score_cell">
+                                            </td>
+                                                                                                                    
+                                        
+                                                            
+                                                            
+                    <td class="score_cell">
+                                            </td>
+                                                                                                                    
+                                        
+                                                            
+                                                            
+                    <td class="score_cell">
+                                            </td>
+                                    </tr>
+    
+            </tbody>
+</table>
+
+<table class="d-md-none scoreboard mobile-scoreboard center ">
+        <colgroup>
+                    <col id="scorerankmobile"/>
+                            <col id="scoreflagsmobile"/>
+                                <col id="scoreteamnamemobile"/>
+    </colgroup>
+            <colgroup>
+            <col id="scoresolvmobile"/>
+        </colgroup>
+        <thead>
+
+            
+    <tr class="scoreheader" data-static="" style="font-size: 75%;">
+                    <th title="rank" scope="col">rank</th>
+                <th title="team name" scope="col" colspan="2">team</th>
+                    <th title="# solved / penalty time" colspan="1" scope="col">score</th>
+            </tr>
+    </thead>
+    <tbody>
+                                                    
+            
+                        <tr
+        class="sortorderswitch"
+        data-team-id="2"
+        data-team-external-id="exteam"
+        data-team-name="Example&#x20;teamname"
+        style="border-bottom-width: 0; height: 28px;">
+                    <td class="scorepl">
+                            </td>
+                                                        <td class="scoreaf cl_FFFFFF">
+                                                                                        <a >
+                        <img loading="lazy" src="/flags/4x3/nl.svg?v=9.0.1" alt="NLD" title="Netherlands" class="countryflag">
+                    </a>
+                                    </td>
+                        <td class="scoretn cl_FFFFFF" title="Example teamname">
+                                                                                                <a data-ajax-modal href="/team/team/2">
+                    <span class="forceWidth">
+                                                Example teamname
+                    </span>
+                            <span class="univ forceWidth">
+                                                            Utrecht University
+                                                    </span>
+                    </a>
+        </td>
+                                                        <td class="scorenc" rowspan="2">0<br/><span class="scorett" style="font-weight: normal;">0</span></td>
+            </tr>
+        <tr style="height: 32px;">
+            <td>
+                                <span class="d-block me-2 rank">
+                                            1
+                                    </span>
+                            </td>
+                                                                <td colspan="2">
+                                                        <span class="badge problem-badge"
+      style="font-size: x-small; background-color: #F5F5F5; min-width: 18px; border: 1px solid linen;"
+      data-submissions-url="/public/submissions-data/team/exteam/problem/xian-a.json"
+      data-team-id="exteam"
+      data-problem-id="xian-a">
+    <span style="color: silver;">A</span>
+</span>
+                                                        <span class="badge problem-badge"
+      style="font-size: x-small; background-color: #F5F5F5; min-width: 18px; border: 1px solid linen;"
+      data-submissions-url="/public/submissions-data/team/exteam/problem/xian-b.json"
+      data-team-id="exteam"
+      data-problem-id="xian-b">
+    <span style="color: silver;">B</span>
+</span>
+                                                        <span class="badge problem-badge"
+      style="font-size: x-small; background-color: #F5F5F5; min-width: 18px; border: 1px solid linen;"
+      data-submissions-url="/public/submissions-data/team/exteam/problem/xian-c.json"
+      data-team-id="exteam"
+      data-problem-id="xian-c">
+    <span style="color: silver;">C</span>
+</span>
+                                                        <span class="badge problem-badge"
+      style="font-size: x-small; background-color: #F5F5F5; min-width: 18px; border: 1px solid linen;"
+      data-submissions-url="/public/submissions-data/team/exteam/problem/xian-d.json"
+      data-team-id="exteam"
+      data-problem-id="xian-d">
+    <span style="color: silver;">D</span>
+</span>
+                                                        <span class="badge problem-badge"
+      style="font-size: x-small; background-color: #F5F5F5; min-width: 18px; border: 1px solid linen;"
+      data-submissions-url="/public/submissions-data/team/exteam/problem/xian-e.json"
+      data-team-id="exteam"
+      data-problem-id="xian-e">
+    <span style="color: silver;">E</span>
+</span>
+                                                        <span class="badge problem-badge"
+      style="font-size: x-small; background-color: #F5F5F5; min-width: 18px; border: 1px solid linen;"
+      data-submissions-url="/public/submissions-data/team/exteam/problem/xian-f.json"
+      data-team-id="exteam"
+      data-problem-id="xian-f">
+    <span style="color: silver;">F</span>
+</span>
+                                                        <span class="badge problem-badge"
+      style="font-size: x-small; background-color: #F5F5F5; min-width: 18px; border: 1px solid linen;"
+      data-submissions-url="/public/submissions-data/team/exteam/problem/xian-g.json"
+      data-team-id="exteam"
+      data-problem-id="xian-g">
+    <span style="color: silver;">G</span>
+</span>
+                                                        <span class="badge problem-badge"
+      style="font-size: x-small; background-color: #F5F5F5; min-width: 18px; border: 1px solid linen;"
+      data-submissions-url="/public/submissions-data/team/exteam/problem/xian-h.json"
+      data-team-id="exteam"
+      data-problem-id="xian-h">
+    <span style="color: silver;">H</span>
+</span>
+                                                        <span class="badge problem-badge"
+      style="font-size: x-small; background-color: #F5F5F5; min-width: 18px; border: 1px solid linen;"
+      data-submissions-url="/public/submissions-data/team/exteam/problem/xian-i.json"
+      data-team-id="exteam"
+      data-problem-id="xian-i">
+    <span style="color: silver;">I</span>
+</span>
+                                                        <span class="badge problem-badge"
+      style="font-size: x-small; background-color: #F5F5F5; min-width: 18px; border: 1px solid linen;"
+      data-submissions-url="/public/submissions-data/team/exteam/problem/xian-j.json"
+      data-team-id="exteam"
+      data-problem-id="xian-j">
+    <span style="color: silver;">J</span>
+</span>
+                                                        <span class="badge problem-badge"
+      style="font-size: x-small; background-color: #F5F5F5; min-width: 18px; border: 1px solid linen;"
+      data-submissions-url="/public/submissions-data/team/exteam/problem/xian-k.json"
+      data-team-id="exteam"
+      data-problem-id="xian-k">
+    <span style="color: silver;">K</span>
+</span>
+                                                        <span class="badge problem-badge"
+      style="font-size: x-small; background-color: #F5F5F5; min-width: 18px; border: 1px solid linen;"
+      data-submissions-url="/public/submissions-data/team/exteam/problem/xian-l.json"
+      data-team-id="exteam"
+      data-problem-id="xian-l">
+    <span style="color: silver;">L</span>
+</span>
+                            </td>
+        </tr>
+        </tbody>
+</table>
+
+
+
+<script>
+    document.querySelectorAll(".forceWidth:not(.toolong)").forEach(el => {
+        if (el instanceof Element && el.scrollWidth > el.offsetWidth) {
+            el.classList.add("toolong");
+        }
+    });
+</script>
+    </div>
+
+    <div class="mt-4" data-flash-messages>
+                                    </div>
+
+    <div class="row">
+        <div class="col">
+            <h1 class="teamoverview">Submissions</h1>
+
+            
+    <div class="alert alert-warning">No submissions</div>
+        </div>
+        <div class="col">
+            <h1 class="teamoverview">Clarifications</h1>
+                            <p class="nodata">No clarifications.</p>
+            
+            <h1 class="teamoverview">Clarification Requests</h1>
+                            <p class="nodata">No clarification request.</p>
+            
+            <div class="m-1">
+                <a href="/team/clarifications/add" class="btn btn-secondary btn-sm" data-ajax-modal data-ajax-modal-after="initModalClarificationPreviewAdd">
+                    Request clarification
+                </a>
+            </div>
+        </div>
+    </div>
+
+    </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+            var domjudge_base_url = "";
+        var markdownPreviewUrl = "/markdown-preview";
+    $(function () {
+        /* toggle refresh if set */
+                $('#refresh-navitem').on('click', function () {
+            toggleRefresh('', 30, 1);
+        });
+                /* Enable page refresh if set if wanted by the page, and wanted by the user */
+                enableRefresh('', 30, 1);
+        
+        initializeAjaxModals();
+    });
+</script>
+    <script>
+    function getMainExtension(ext) {
+        switch (ext) {
+                                            case 'c':
+                return 'c';
+                                                            case 'cpp':
+                return 'cpp';
+                            case 'cc':
+                return 'cpp';
+                            case 'cxx':
+                return 'cpp';
+                            case 'c++':
+                return 'cpp';
+                                                            case 'java':
+                return 'java';
+                                                            case 'py':
+                return 'py3';
+                                            default:
+                return '';
+        }
+    }
+
+    function getEntryPoint(mainext) {
+        switch (mainext) {
+                                                                                                                                                            default:
+                return '';
+        }
+    }
+</script>
+<script>
+    function entryPointDetectJava(filename) {
+        return filename.replace(/\.[^\.]*$/, '');
+    }
+
+    function entryPointDetectKt(filename) {
+        var filebase = filename.replace(/\.[^\.]*$/, '');
+        if (filebase === '') return '_Kt';
+
+        filebase = filebase.replace(/[^a-zA-Z0-9]/, '_');
+        if (filebase.charAt(0).match(/^[a-zA-Z]$/)) {
+            return filebase.charAt(0).toUpperCase() + filebase.slice(1) + 'Kt';
+        } else {
+            return '_' + filebase + 'Kt';
+        }
+    }
+
+    function maybeShowEntryPoint(filename) {
+        var langid = $('#submit_problem_language').val();
+        if (langid === "") {
+            return;
+        }
+        var $entryPoint = $('[data-entry-point]');
+        var $entryPointLabel = $entryPoint.find('label');
+        var $entryPointInput = $entryPoint.find('input');
+        var entryPointDescription = getEntryPoint(langid);
+        if (entryPointDescription) {
+            $entryPoint.show();
+        } else {
+            $entryPoint.hide();
+        }
+
+        if (entryPointDescription) {
+            var $labelChildren = $entryPointLabel.children();
+            $entryPointLabel.text(entryPointDescription).append($labelChildren);
+            $entryPointInput.attr('required', 'required');
+        } else {
+            $entryPointInput.attr('required', null);
+        }
+
+        if (entryPointDescription && filename) {
+            switch (langid) {
+                case 'java':
+                    $entryPointInput.val(entryPointDetectJava(filename));
+                    break;
+                case 'kt':
+                    $entryPointInput.val(entryPointDetectKt(filename));
+                    break;
+                default:
+                    $entryPointInput.val(filename);
+            }
+        } else {
+            $entryPointInput.val('');
+        }
+    }
+
+    $(function () {
+        var $entryPoint = $('[data-entry-point]');
+        $entryPoint.hide();
+
+        var processFile = function () {
+            var filename = $('#submit_problem_code').val();
+            if (filename !== '' && filename !== undefined) {
+                filename = filename.replace(/^.*[\\\/]/, '');
+                var parts = filename.split('.').reverse();
+                if (parts.length < 2) return;
+                var lcParts = [parts[0].toLowerCase(), parts[1].toLowerCase()];
+
+                // language ID
+
+                var language = document.getElementById('submit_problem_language');
+                // the "autodetect" option has empty value
+                if (language.value !== '') return;
+
+                var langid = getMainExtension(lcParts[0]);
+                for (i = 0; i < language.length; i++) {
+                    if (language.options[i].value === langid) {
+                        language.selectedIndex = i;
+                    }
+                }
+
+                maybeShowEntryPoint(filename);
+
+                // Problem ID
+
+                var problem = document.getElementById('submit_problem_problem');
+                // the "autodetect" option has empty value
+                if (problem.value !== '') {
+                    return;
+                }
+
+                for (var i = 0; i < problem.length; i++) {
+                    if (problem.options[i].text.split(/ - /)[0].toLowerCase() === lcParts[1]) {
+                        problem.selectedIndex = i;
+                    }
+                }
+            }
+        };
+
+        var $body = $('body');
+        $body.on('change', '#submit_problem_code', processFile);
+        $body.on('change', '#submit_problem_language', function () {
+            maybeShowEntryPoint();
+        });
+
+        $body.on('submit', 'form[name=submit_problem]', function () {
+            var langelt = document.getElementById("submit_problem_language");
+            var language = langelt.options[langelt.selectedIndex].value;
+            var languagetxt = langelt.options[langelt.selectedIndex].text;
+            var fileelt = document.getElementById("submit_problem_code");
+            var filenames = fileelt.files;
+            var filename = filenames[0].name;
+            var probelt = document.getElementById("submit_problem_problem");
+            var problem = probelt.options[probelt.selectedIndex].value;
+            var problemtxt = probelt.options[probelt.selectedIndex].text;
+
+            var error = false;
+            if (language === "") {
+                langelt.focus();
+                langelt.className = langelt.className + " errorfield";
+                error = true;
+            }
+            if (problem === "") {
+                probelt.focus();
+                probelt.className = probelt.className + " errorfield";
+                error = true;
+            }
+            if (filename === "") {
+                error = true;
+            }
+            if (error) return false;
+
+            var auxfileno = 0;
+            // start at one; skip maincode file field
+            for (var i = 1; i < filenames.length; i++) {
+                if (filenames[i].value !== "") {
+                    auxfileno++;
+                }
+            }
+            var extrafiles = '';
+            if (auxfileno > 0) {
+                extrafiles = "Additional source files: " + auxfileno + '\n';
+            }
+            var question =
+                'Main source file: ' + filename + '\n' +
+                extrafiles + '\n' +
+                'Problem: ' + problemtxt + '\n' +
+                'Language: ' + languagetxt + '\n' +
+                '\nMake submission?';
+            return confirm(question);
+        });
+
+        processFile();
+        maybeShowEntryPoint();
+
+        window.initSubmitModal = function ($elem) {
+            $('[data-entry-point]').hide();
+        };
+    });
+</script>
+
+    <script>
+        $(function () {
+            var $body = $('body');
+            $body.on('submit', 'form[name=team_clarification]', function () {
+                return confirm("Send clarification request to Jury?");
+            });
+
+            window.replaceClarificationReplyButton = function() {
+                var $replyButton = $('#clarification-reply-button');
+                var $submitButton = $('<button type="submit" name="submit" class="btn btn-primary"><i class="fas fa-envelope"></i> Send</button>');
+                $replyButton.replaceWith($submitButton);
+
+                $submitButton.on('click', function() {
+                    var $form = $('form[name="team_clarification"]');
+                    if ($form[0].reportValidity()) {
+                        $form.submit();
+                    }
+                });
+            }
+
+            $body.on('click', '#clarification-reply-button', function() {
+                replaceClarificationReplyButton();
+            });
+
+            /* Show the notification options if the browser supports it */
+            if ('Notification' in window) {
+                $('#notify_disable').click(disableNotifications);
+                $('#notify_enable').click(enableNotifications);
+                if (getCookie('domjudge_notify') != 1) {
+                    $('#notify_enable').removeClass('d-none');
+                } else {
+                    $('#notify_disable').removeClass('d-none');
+                }
+            }
+            updateClarifications();
+            setInterval(updateClarifications, 20000);
+        });
+
+    </script>
+    <script>
+        var $flash = null;
+
+        function saveFlash() {
+            $flash = $('[data-flash-messages]').children();
+        }
+
+        function setFlashAndProgress() {
+            var $newProgress = $('[data-ajax-refresh-target] > [data-progress-bar]');
+            if ($newProgress.length) {
+                var $oldProgress = $('body > [data-progress-bar]');
+                $oldProgress.html($newProgress.children());
+                $newProgress.remove();
+            }
+
+            $('[data-flash-messages]').html($flash);
+        }
+
+        window.initModalClarificationPreviewAdd = function() {
+            setupPreviewClarification($('#team_clarification_message') , $('#messagepreview'), false);
+        };
+
+        function markSeen($elem) {
+            $elem.closest('tr').removeClass('unseen');
+
+            // Also preview the clarification reply
+            setupPreviewClarification($('#team_clarification_message') , $('#messagepreview'), true);
+        }
+    </script>
+</body>
+</html>

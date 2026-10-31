@@ -1,0 +1,93 @@
+<nav class="navbar navbar-expand-md navbar-dark bg-dark fixed-top">
+  <div class="container-fluid">
+    <a class="navbar-brand hidden-sm-down" href="/team">DOMjudge</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#menuDefault"
+            aria-controls="menuDefault" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+    </button>
+
+    
+    <div class="collapse navbar-collapse" id="menuDefault" data-update-url="/team/updates">
+        <ul class="navbar-nav me-auto">
+            <li class="nav-item">
+                <a class="nav-link active"
+                    href="/team"><i class="fas fa-home"></i> Home</a>
+            </li>
+            <li class="nav-item">
+                                    <a class="nav-link"
+                        href="/team/problems">
+                        <i class="fas fa-book-open"></i> Problemset
+                    </a>
+                            </li>
+                                                    <li class="nav-item">
+                    <a class="nav-link"
+                        href="/team/scoreboard"><i class="fas fa-list-ol"></i> Scoreboard</a>
+                </li>
+                        
+                    </ul>
+
+        <div class="ml-auto me-3">
+            <a class="nav-link d-none" id="notify_enable">
+                <span class="btn btn-warning btn-sm">
+                    <i class="fas fa-bell fa-fw"></i> Enable Notifications
+                </span>
+            </a>
+            <a class="nav-link d-none" id="notify_disable">
+                <span class="btn btn-secondary btn-sm">
+                    <i class="fas fa-bell-slash fa-fw"></i> Disable Notifications
+                </span>
+            </a>
+
+        </div>
+        <div class="ml-auto me-3">
+                            <a class="nav-link" data-ajax-modal data-ajax-modal-after="initSubmitModal" href="/team/submit">
+                    <span class="btn btn-success btn-sm">
+                        <i class="fas fa-cloud-upload-alt"></i> Submit
+                    </span>
+                </a>
+                    </div>
+
+            <a class="btn btn-info btn-sm me-2" href="/logout"
+            onclick="return confirmLogout();"
+    >
+        <i class="fas fa-sign-out-alt"></i> Logout
+    </a>
+
+        <ul class="navbar-nav">
+                            <li class="nav-item dropdown">
+    <a class="nav-link dropdown-toggle" href="#" id="navbarDropdownContests" role="button" data-bs-toggle="dropdown"
+       aria-haspopup="true" aria-expanded="false">
+        <i class="fas fa-trophy"></i> qoj-vp-xian-reference
+    </a>
+    <div class="dropdown-menu scrollable-menu" aria-labelledby="navbarDropdown" data-current-contest="">
+        <a class="dropdown-item disabled" href="#">Change Contest</a>
+                            <a class="dropdown-item"
+               href="/team/change-contest/1">demo</a>
+            </div>
+</li>
+                    </ul>
+
+        <div class="navbar-text" style="white-space:nowrap;">
+    <span style="padding-left: 10px;">
+        <i class="fas fa-clock loading-indicator"></i>
+    </span>
+        <span id="timeleft">3:45:30</span>
+</div>
+
+<script>
+    var initial = 1793462891;
+    var localInitial = new Date().getTime();
+    var activatetime = 1793456622;
+    var starttime = 1793458422;
+    var endtime = 1793476422;
+    var clientOffset = localInitial - new Date(initial * 1000).getTime();
+    var timeleftelt = document.getElementById("timeleft");
+
+    setInterval(function () {
+        updateClock();
+    }, 1000);
+    updateClock();
+</script>
+    </div>
+  </div>
+</nav>

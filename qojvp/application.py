@@ -18,8 +18,11 @@ import uuid
 
 from bs4 import BeautifulSoup
 
-from .history import detail_verdict, parse_history
+from .account import current_account
+from .history import detail_verdict, parse_history, submission_time_metadata
+from .inline_samples import statement_sample_files
 from .ledger import Ledger
+from .resources import ResourceCache, ResourceError, problem_id
 from .transport import BASE, BrowserSession, MAX_SOURCE_BYTES
 
 MAX_ZIP_BYTES = 512 * 1024
@@ -80,6 +83,7 @@ class Application:
         self.clock = clock
         default_state = Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local/share')) / 'qoj-vp'
         self.ledger = Ledger(state_dir or os.environ.get('QOJ_VP_STATE_DIR') or default_state)
+        self.resources = ResourceCache(self.ledger.directory)
         self.qoj_path = Path(qoj_path or os.environ.get('QOJ_VP_QOJ_PATH') or Path(__file__).resolve().parents[1] / 'vendor/qoj-submitter')
         # Test routing is supplied by installation/environment, never by a UI
         # task that might silently turn a real submission into a fake receipt.
@@ -107,7 +111,7 @@ class Application:
             raise ApplicationError('VALIDATION_ERROR', 'Task arguments must be an object')
         try:
             if method == 'hello':
-                return {'version': '0.1.0', 'capabilities': ['qoj', 'sessions', 'samples', 'submission-history', 'rankland-outbox'],
+                return {'version': '0.1.0', 'capabilities': ['qoj', 'sessions', 'samples', 'resource-cache', 'submission-history', 'rankland-outbox'],
                         'helperPid': os.getpid(), 'stateDir': str(self.ledger.directory), 'fixture': bool(self.fixture_origin)}
             if method == 'create_session':
                 return self.create_session(args)
@@ -119,11 +123,14 @@ class Application:
                 return {'items': self.ledger.queue(args.get('sessionId'))}
             if method == 'rankland_ack':
                 return self.ledger.ack(args.get('sessionId'), args)
+            if method in {'resource_manifest', 'resource_chunk'}:
+                session = self.ledger.session(args.get('sessionId'))
+                return self.resources.manifest(session) if method == 'resource_manifest' else self.resources.chunk(session, args)
             if method == 'qoj_submissions' and args.get('refresh') is False:
                 session = self.ledger.session(args.get('sessionId'))
                 return {'submissions': self.ledger.submissions(session['sessionId']), 'account': session.get('account'),
                         'coverage': {'complete': False, 'pages': 0, 'warning': 'Cached history; refresh to query QOJ'}}
-            if method not in {'qoj_contest', 'qoj_problem_form', 'qoj_samples', 'qoj_submit', 'qoj_submissions', 'qoj_reconcile'}:
+            if method not in {'qoj_contest', 'qoj_problem_form', 'qoj_samples', 'qoj_submit', 'qoj_submissions', 'qoj_reconcile', 'prepare_resource'}:
                 raise ApplicationError('UNKNOWN_METHOD', 'Unknown application method')
             if not callable(exchange):
                 raise ApplicationError('HTTP_BRIDGE_REQUIRED', 'This operation requires a Firefox QOJ tab')
@@ -132,52 +139,119 @@ class Application:
             client = modules[0].QojClient(BASE, session=transport)
             try:
                 if method == 'qoj_contest':
-                    account = client.status()
+                    account, _ = current_account(client)
                     contest = client.contest(modules[0].contest_id(str(args.get('contestId', ''))))
                     return {**contest, 'account': account, 'problems': self.problem_list(contest),
                             'source': 'fixture' if self.fixture_origin else 'real-qoj-browser'}
                 session = self.ledger.session(args.get('sessionId'))
                 if method == 'qoj_submit':
                     return self.submit(session, args, client, modules)
+                if method == 'prepare_resource':
+                    return self.prepare_resource(session, args, client, modules, transport)
                 self.authenticate(client, session)
                 contest = client.contest(session['contestId'])
                 if method == 'qoj_problem_form':
                     problem = self.problem(contest, args)
                     form = client.form(contest['id'], problem['id'])
                     response = transport.last_response
-                    return {'problemId': problem['id'], 'languages': form.languages, 'csrfPresent': bool(form.token),
+                    return {'problemId': problem['id'], 'problemName': problem['name'],
+                            'problemLabel': next(label for label, item in contest['problems'].items() if item['id'] == problem['id']),
+                            'languages': form.languages, 'csrfPresent': bool(form.token),
                             'pdfCandidates': self.pdf_candidates(response.text, response.url),
                             'statementUrl': BASE + f"/contest/{contest['id']}/problem/{problem['id']}"}
                 if method == 'qoj_samples':
                     problem = self.problem(contest, args)
-                    label = next(label for label, value in contest['problems'].items() if value['id'] == problem['id'])
-                    with contextlib.redirect_stdout(sys.stderr):
-                        samples, extras, warnings = modules[1].download(client, {**contest, 'problems': {label: problem}})
-                    files = {**samples, **extras}
-                    data = modules[1].zip_bytes(files)
+                    metadata, data = self.extract_resource(contest, problem, client, modules, transport,
+                                                           interactive_hint=args.get('interactiveHint', False))
                     if len(data) > MAX_ZIP_BYTES:
                         raise ApplicationError('ARTIFACT_TOO_LARGE', 'This attachment exceeds the current 512 KiB download limit; use QOJ directly')
-                    return {'zipFilename': f'samples-{label}.zip', 'zipBase64': base64.b64encode(data).decode('ascii'),
-                            'files': [{'name': name, 'bytes': len(content), 'sha256': hashlib.sha256(content).hexdigest()}
-                                      for name, content in files.items()], 'warnings': warnings, 'extraFiles': list(extras)}
-                refreshed = self.refresh(session, contest, client)
+                    return {'zipFilename': f"samples-{metadata['problemLabel']}.zip",
+                            'zipBase64': base64.b64encode(data).decode('ascii'),
+                            **{key: metadata[key] for key in ('files', 'warnings', 'extraFiles', 'sampleSource')}}
+                refreshed = self.refresh(session, contest, client,
+                                         preferred_sid=str(args.get('submissionId', '')) if method == 'qoj_reconcile' else None)
                 if method == 'qoj_reconcile':
                     return self.reconcile(session, args, refreshed)
                 return refreshed
             except modules[0].QojError as exc:
-                message = str(exc)
-                code = 'LOGIN_REQUIRED' if any(x in message.lower() for x in ('logged in', 'login', 'session expired')) else 'QOJ_ERROR'
-                cause = exc
-                while cause:
-                    if getattr(cause, 'bridge_code', None):
-                        code = cause.bridge_code
-                        break
-                    cause = cause.__cause__
-                raise ApplicationError(code, message) from exc
+                raise self.upstream_error(exc) from exc
+        except ResourceError as exc:
+            raise ApplicationError(exc.code, str(exc)) from exc
         except (ValueError, TypeError) as exc:
             raise ApplicationError('VALIDATION_ERROR', str(exc)) from exc
         except KeyError as exc:
             raise ApplicationError('NOT_FOUND', str(exc)) from exc
+
+    @staticmethod
+    def upstream_error(exc):
+        message = str(exc)
+        code = 'LOGIN_REQUIRED' if any(x in message.lower() for x in ('logged in', 'login', 'session expired')) else 'QOJ_ERROR'
+        cause = exc
+        while cause:
+            if getattr(cause, 'bridge_code', None):
+                code = cause.bridge_code
+                break
+            cause = cause.__cause__
+        return ApplicationError(code, message)
+
+    @staticmethod
+    def extract_resource(contest, problem, client, modules, transport, *, interactive_hint=False):
+        if not isinstance(interactive_hint, bool):
+            raise ValueError('interactiveHint must be a boolean')
+        label = next(label for label, item in contest['problems'].items() if item['id'] == problem['id'])
+        with contextlib.redirect_stdout(sys.stderr):
+            samples, extras, warnings = modules[1].download(client, {**contest, 'problems': {label: problem}})
+        sample_source = 'attachment'
+        attachment_response = transport.last_response
+        if attachment_response is not None and attachment_response.status_code != 404:
+            body = attachment_response.content
+            content_type = attachment_response.headers.get('Content-Type', '').lower()
+            if (not body or 'text/html' in content_type
+                    or body.lstrip().lower().startswith((b'<!doctype html', b'<html', b'<body', b'<form', b'<script'))):
+                raise ApplicationError('SAMPLES_UNAVAILABLE', 'The attachment response is empty or is not a verified resource')
+        if (not interactive_hint and not samples and not extras and attachment_response is not None
+                and attachment_response.status_code == 404):
+            response = client.get(f"/contest/{contest['id']}/problem/{problem['id']}")
+            if urlparse(response.url).path.startswith('/login'):
+                raise ApplicationError('LOGIN_REQUIRED', 'The QOJ session expired while reading statement samples')
+            raw_files = statement_sample_files(response.text)
+            if raw_files:
+                organized, special, count, pairs = modules[1].organize(raw_files)
+                if not special and count > 0 and count == pairs:
+                    samples = {f'samples-{label}/{name}': content for name, content in organized.items()}
+                    sample_source = 'inline-statement'
+                    warnings.append(f'{label}: using verified labelled statement samples; attachment availability remains unconfirmed')
+        files = {**samples, **extras}
+        if not files:
+            raise ApplicationError('SAMPLES_UNAVAILABLE', 'No resource could be verified from this response; absence is not confirmed')
+        inputs = {name[:-3] for name in samples if name.endswith('.in')}
+        answers = {name[:-4] for name in samples if name.endswith('.ans')}
+        kind = 'samples' if inputs and inputs == answers and not extras else 'attachment'
+        metadata = {'problemLabel': label, 'kind': kind,
+                    'filename': f"{'samples' if kind == 'samples' else 'attachments'}-{label}.zip",
+                    'sampleCount': len(inputs), 'pairCount': len(inputs & answers),
+                    'files': [{'name': name, 'bytes': len(value), 'sha256': hashlib.sha256(value).hexdigest()}
+                              for name, value in files.items()],
+                    'extraFiles': list(extras), 'sampleSource': sample_source, 'warnings': warnings,
+                    'interactiveHint': interactive_hint}
+        return metadata, modules[1].zip_bytes(files)
+
+    def prepare_resource(self, session, args, client, modules, transport):
+        pid = problem_id(args.get('problemId'))
+        hint = args.get('interactiveHint', False)
+        if not isinstance(hint, bool):
+            raise ValueError('interactiveHint must be a boolean')
+        label = None
+        try:
+            self.authenticate(client, session)
+            contest = client.contest(session['contestId'])
+            problem = self.problem(contest, {'problemId': pid})
+            label = next(key for key, item in contest['problems'].items() if str(item['id']) == pid)
+            metadata, payload = self.extract_resource(contest, problem, client, modules, transport, interactive_hint=hint)
+            return self.resources.store(session, pid, metadata, payload, self.clock())
+        except (ApplicationError, modules[0].QojError, ResourceError) as exc:
+            code = self.upstream_error(exc).code if isinstance(exc, modules[0].QojError) else exc.code
+            return self.resources.unknown(session, pid, code, self.clock(), label=label, interactive_hint=hint)
 
     def create_session(self, args):
         cid = str(args.get('contestId', '')).strip()
@@ -220,6 +294,13 @@ class Application:
                     parsed = urlparse(record['ranklandUrl'])
                     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
                     elapsed = self.view(record)['elapsedMs']
+                    # The original replay rejects from >= its duration. For
+                    # a first opening after this local session has ended,
+                    # enter its final second; keep the local finished clock
+                    # and every previously frozen URL unchanged. Contest
+                    # durations still need to match the selected RankLand.
+                    if elapsed >= record['durationMs']:
+                        elapsed = max(0, record['durationMs'] - 1000)
                     # RankLand's play=1 path starts at `from` even when `at`
                     # is in the past. Freeze this offset once: changing it on
                     # reopening would select a different localStorage slot.
@@ -265,11 +346,11 @@ class Application:
         return candidates[0]
 
     def authenticate(self, client, session):
-        account = client.status()
+        account, logged_in = current_account(client)
         if not account:
+            if logged_in:
+                raise ApplicationError('ACCOUNT_UNKNOWN', 'QOJ did not expose an unambiguous account in its navigation menu')
             raise ApplicationError('LOGIN_REQUIRED', 'Log in to QOJ in Firefox before continuing')
-        if account == '(account name unavailable)':
-            raise ApplicationError('ACCOUNT_UNKNOWN', 'QOJ did not expose the current account name')
         if session.get('account') and session['account'].casefold() != account.casefold():
             raise ApplicationError('ACCOUNT_MISMATCH', 'The Firefox account differs from this VP session account')
         session.update(self.ledger.bind_account(session['sessionId'], account))
@@ -361,10 +442,14 @@ class Application:
         view = self.ledger.submission_view(operation['sessionId'], self.ledger.operation_view(operation))
         return {'submission': view, 'state': view['state']}
 
-    def refresh(self, session, contest, client):
+    def refresh(self, session, contest, client, *, preferred_sid=None):
         warnings, pages, seen = [], 0, set()
         complete = False
         deadline = time.monotonic() + 35
+        time_candidates, time_attempts, known_time_ids = {}, {}, set()
+        backfill_times = session.get('startAt') is not None and session.get('state') == 'running'
+        linked_ids = {str(item['id']) for item in self.ledger.submissions(session['sessionId'])
+                      if item.get('id') and item.get('operationId')}
         for page in range(1, 11):
             if time.monotonic() >= deadline:
                 warnings.append('History refresh reached its time budget; refresh again to continue')
@@ -390,10 +475,27 @@ class Application:
                     continue
                 page_new += 1
                 seen.add(item['id'])
-                if item['score'] is not None and item['score'] < 100 and not item['pending']:
+                previous = self.ledger.provider_submission(session['account'], item['id']) or {}
+                if item.get('submittedAt') is None and previous.get('submittedAt') is not None:
+                    item.update(submittedAt=previous['submittedAt'], timeSource=previous['timeSource'])
+                if item.get('submittedAt') is not None:
+                    known_time_ids.add(item['id'])
+                elif backfill_times:
+                    retry_at = previous.get('timeProbeAfter')
+                    if not isinstance(retry_at, (int, float)) or retry_at <= self.clock():
+                        time_candidates[item['id']] = item
+                        time_attempts[item['id']] = previous.get('timeProbeAttemptAt')
+                start, at = session.get('startAt'), item.get('submittedAt')
+                in_window = start is not None and at is not None and 0 <= at - start < session['durationMs']
+                if (item['score'] is not None and item['score'] < 100 and not item['pending']
+                        and (in_window or str(item['id']) in linked_ids)):
                     if time.monotonic() < deadline:
                         try:
                             detail = client.get(item['url'] + '?locale=en')
+                            metadata = submission_time_metadata(detail.text, contest['id'], session['account'], item['id'], item['problemId'])
+                            if metadata:
+                                item.update(metadata, timeProbeAfter=None, timeProbeStatus='verified')
+                                known_time_ids.add(item['id'])
                             item.update(detail_verdict(detail.text, item['score']))
                         except Exception:
                             item.update(verdict='UNKNOWN', rawVerdict='Detailed verdict unavailable', pending=False)
@@ -409,6 +511,55 @@ class Application:
                 break
         else:
             warnings.append('History exceeded ten pages; earlier submissions remain unverified')
+        # Import known current facts before spending any requests on historical
+        # timestamps. This stage never guesses an official VP's start from a
+        # relative clock and never refines old out-of-window verdicts.
+        probe_count = 0
+        def time_priority(sid):
+            attempt = time_attempts[sid]
+            tried = isinstance(attempt, (int, float))
+            # New/untried IDs first, then oldest retries. A minute-only alarm
+            # must not retry the same latest three failures forever.
+            return sid == preferred_sid, not tried, -attempt if tried else 0, int(sid)
+        for sid in sorted(time_candidates, key=time_priority, reverse=True):
+            if probe_count >= 3 or time.monotonic() >= deadline:
+                break
+            item = time_candidates[sid]
+            attempt_at = self.clock()
+            # Claim a short negative-cache window before the GET. Concurrent
+            # helpers and a killed helper cannot turn each UI refresh into
+            # another unbounded burst of old detail requests.
+            with self.ledger.transaction():
+                latest = self.ledger.provider_submission(session['account'], sid) or {}
+                if latest.get('submittedAt') is not None:
+                    item.update(submittedAt=latest['submittedAt'], timeSource=latest['timeSource'])
+                    known_time_ids.add(sid)
+                    self.ledger.save_submission(session['sessionId'], item)
+                    continue
+                retry_at = latest.get('timeProbeAfter')
+                if isinstance(retry_at, (int, float)) and retry_at > attempt_at:
+                    continue
+                item.update(timeProbeAfter=attempt_at + 60000, timeProbeAttemptAt=attempt_at, timeProbeStatus='pending')
+                self.ledger.save_submission(session['sessionId'], item)
+            probe_count += 1
+            try:
+                detail = client.get(item['url'] + '?locale=en')
+                metadata = submission_time_metadata(detail.text, contest['id'], session['account'], sid, item['problemId'])
+                if metadata:
+                    item.update(metadata, timeProbeAfter=None, timeProbeStatus='verified')
+                    known_time_ids.add(sid)
+                    start, at = session.get('startAt'), item['submittedAt']
+                    in_window = start is not None and 0 <= at - start < session['durationMs']
+                    if (item['score'] is not None and item['score'] < 100 and not item['pending']
+                            and (in_window or sid in linked_ids)):
+                        item.update(detail_verdict(detail.text, item['score']))
+                else:
+                    item['timeProbeStatus'] = 'missing'
+            except Exception:
+                item['timeProbeStatus'] = 'unavailable'
+            self.ledger.save_submission(session['sessionId'], item)
+        verified_warnings = {f'#{sid}: absolute submission time is not verified' for sid in known_time_ids}
+        warnings = [warning for warning in warnings if warning not in verified_warnings]
         return {'submissions': self.ledger.submissions(session['sessionId']), 'account': session['account'],
                 'coverage': {'complete': complete and not warnings, 'pages': pages,
                              **({'warning': '; '.join(dict.fromkeys(warnings))} if warnings else {})}}

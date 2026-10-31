@@ -1,0 +1,207 @@
+from __future__ import annotations
+
+import base64
+from datetime import datetime
+from html import escape
+from pathlib import Path
+import re
+import tempfile
+import unittest
+
+from qojvp import Application, ApplicationError
+from qojvp.history import parse_history, verdict
+from tests.support import QojFixture
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SUBMITTED_AT = int(datetime.fromisoformat('2026-11-01T02:20:57+08:00').timestamp() * 1000)
+
+
+def actual_schema_history(*, cid='1051', owner='LittleDrinks', score='100.000000', result='AC ✓',
+                          time='2026-11-01T02:20:57+08:00', outside_owner=''):
+    """Minimal raw-GET structure from safe-provider-probe.json; no source/token."""
+    return ('<table><thead><tr><th>ID</th><th>Problem</th><th>Submitter</th><th>Result</th>'
+            '<th>Language</th><th>File size</th><th>Submit time</th></tr></thead><tbody><tr>'
+            '<td><a href="/submission/3331061">#3331061</a>' + outside_owner + '</td>'
+            '<td><a href="/contest/' + cid + '/problem/5115">C. Clone Ranran</a></td>'
+            '<td><span class="uoj-username">' + escape(owner) + '</span></td>'
+            '<td><a href="/submission/3331061" class="uoj-score" data-score="' + escape(score) + '">'
+            + escape(result) + '</a></td><td>C++20</td><td>537b</td><td><small>'
+            '<time class="uoj-time" datetime="' + escape(time) + '">2026-11-01 02:20:57</time>'
+            '</small></td></tr></tbody></table>')
+
+
+def native_vp_schema_history(*, cid='1051'):
+    html = actual_schema_history(cid=cid, score='0.000000', result='0').replace('3331061', '1511772')
+    html = html.replace('<span class="uoj-username">LittleDrinks</span>',
+                        '<span class="uoj-username">LittleDrinks</span><sup><a href="/contest/' + cid + '">#</a></sup>')
+    return re.sub(r'<time[^>]*>[^<]*</time>', '04:13:36', html)
+
+
+class RealHistorySchemaTests(unittest.TestCase):
+    def parse(self, html):
+        return parse_history(html, '1051', 'LittleDrinks', {'C': {'id': '5115'}})
+
+    def test_raw_username_span_score_attribute_and_explicit_time_import(self):
+        result = self.parse(actual_schema_history())
+        self.assertEqual(result['malformedRows'], 0)
+        self.assertEqual(result['warnings'], [])
+        row = result['submissions'][0]
+        self.assertEqual((row['account'], row['id'], row['problemId'], row['language']),
+                         ('LittleDrinks', '3331061', '5115', 'C++20'))
+        self.assertEqual((row['verdict'], row['score'], row['submittedAt']), ('CORRECT', 100, SUBMITTED_AT))
+        self.assertFalse(row['pending'])
+        self.assertEqual(row['rawVerdict'], 'AC ✓')
+
+    def test_other_owner_cannot_be_overridden_by_current_profile_in_another_column(self):
+        html = actual_schema_history(owner='OtherUser', outside_owner='<a href="/user/profile/LittleDrinks">My Profile</a>')
+        self.assertEqual(self.parse(html)['submissions'], [])
+        self.assertEqual(self.parse(actual_schema_history(owner='LittleDrinks#', time='02:20:57'))['submissions'], [])
+        html = actual_schema_history(owner='OtherUser').replace(
+            '<span class="uoj-username">OtherUser</span>',
+            '<a href="/user/profile/OtherUser">OtherUser</a>')
+        self.assertEqual(self.parse(html)['submissions'], [])
+
+    def test_ambiguous_owner_is_not_imported(self):
+        html = actual_schema_history().replace('</span></td>', '</span><a href="/user/profile/OtherUser">OtherUser</a></td>')
+        result = self.parse(html)
+        self.assertEqual(result['submissions'], [])
+        self.assertEqual(result['malformedRows'], 1)
+
+    def test_zero_partial_or_ambiguous_verdict_cannot_become_ac(self):
+        for score in ('0.000000', '42.500000'):
+            with self.subTest(score=score):
+                row = self.parse(actual_schema_history(score=score))['submissions'][0]
+                self.assertEqual(row['score'], float(score))
+                self.assertNotEqual(row['verdict'], 'CORRECT')
+        for text in ('AC, TL', 'AC / WA', 'AC WRONG ANSWER'):
+            with self.subTest(text=text):
+                self.assertNotEqual(verdict(text), 'CORRECT')
+                self.assertNotEqual(verdict(text, 100), 'CORRECT')
+        self.assertEqual(verdict('AC ✓'), 'CORRECT')
+        self.assertNotEqual(verdict('AC ✓', 0), 'CORRECT')
+
+    def test_no_zone_or_native_vp_relative_clock_remains_unverified(self):
+        for raw in ('2026-11-01T02:20:57', '02:20:57'):
+            with self.subTest(raw=raw):
+                html = actual_schema_history(time=raw) + '<footer>Server Time: 2026-11-01 02:30:00 (UTC+8)</footer>'
+                row = self.parse(html)['submissions'][0]
+                self.assertIsNone(row['submittedAt'])
+                self.assertEqual(row['timeSource'], 'unverified-display')
+
+    def test_actual_native_vp_sup_marker_does_not_fabricate_an_absolute_clock(self):
+        row = self.parse(native_vp_schema_history())['submissions'][0]
+        self.assertEqual((row['account'], row['id'], row['score']), ('LittleDrinks', '1511772', 0))
+        self.assertEqual(row['rawTime'], '04:13:36')
+        self.assertIsNone(row['submittedAt'])
+        self.assertEqual(row['timeSource'], 'unverified-display')
+
+
+class HistoryApplicationIntegrationTests(unittest.TestCase):
+    def test_only_current_window_zero_scores_fetch_details_and_other_accounts_never_queue(self):
+        (ROOT / '.scratch').mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / '.scratch', prefix='history-window-') as state, QojFixture() as fixture:
+            fixture.account = 'LittleDrinks'
+            fixture.contest_html = ('<title>Synthetic practice fixture</title><table><tr><td>C</td><td>'
+                '<a href="/contest/3387/problem/5115">Clone Ranran</a></td></tr></table>')
+            current = actual_schema_history(cid='3387', score='0.000000', result='0')
+            old = ''.join(native_vp_schema_history(cid='3387').replace('1511772', str(1511772 + i)) for i in range(13))
+            other = actual_schema_history(cid='3387', owner='OtherUser', score='0', result='0').replace('3331061', '3331062')
+            outside = actual_schema_history(cid='3387', time='2026-10-31T02:20:57+08:00', score='0', result='0').replace('3331061', '3331063')
+            fixture.history_html = current + old + other + outside
+            fixture.detail_overrides['3331061'] = '<div class="card"><div class="card-header">Details</div><div class="col-sm-2">Wrong Answer</div></div>'
+            requests = []
+            def exchange(message):
+                requests.append(message['logicalUrl'])
+                return fixture.exchange(message)
+            with Application(state, fixture_origin=fixture.origin, clock=lambda: SUBMITTED_AT) as app:
+                session = app.dispatch('create_session', {'contestId': '3387', 'account': 'LittleDrinks',
+                    'startAt': SUBMITTED_AT - 60000, 'ranklandUrl': 'https://vp.xcpc.link/?contest=synthetic-history'})
+                probed_old_ids = set()
+                for _ in range(2):
+                    requests.clear()
+                    result = app.dispatch('qoj_submissions', {'sessionId': session['sessionId']}, exchange)
+                    details = [url for url in requests if '/submission/' in url]
+                    self.assertEqual(details[0], 'https://qoj.ac/submission/3331061?locale=en')
+                    # Unknown absolute clocks now get at most three metadata
+                    # probes after current verdicts. They are not old-verdict
+                    # refinement, and negative probes do not repeat next poll.
+                    self.assertEqual(len(details), 4)
+                    old_ids = set(details[1:])
+                    self.assertEqual(len(old_ids), 3)
+                    self.assertTrue(old_ids.isdisjoint(probed_old_ids))
+                    self.assertTrue(all('/submission/15117' in url for url in old_ids))
+                    probed_old_ids.update(old_ids)
+                    rows = {row['id']: row for row in result['submissions']}
+                    self.assertEqual(rows['3331061']['verdict'], 'WRONG-ANSWER')
+                    self.assertEqual(rows['1511772']['verdict'], 'UNKNOWN')
+                    self.assertIsNone(rows['1511772']['submittedAt'])
+                    self.assertNotIn('3331062', rows)
+                    queue = app.dispatch('rankland_queue', {'sessionId': session['sessionId']})['items']
+                    self.assertEqual({row['submissionId'] for row in queue}, {'3331061'})
+                self.assertEqual(fixture.posts, [])
+
+    def test_raw_get_import_and_explicit_reconcile_use_existing_receipt_without_repost(self):
+        (ROOT / '.scratch').mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / '.scratch', prefix='history-real-schema-') as state, QojFixture() as fixture:
+            fixture.account = 'LittleDrinks'
+            fixture.contest_html = ('<title>Synthetic practice fixture</title><table><tr><td>C</td><td>'
+                '<a href="/contest/3387/problem/5115">Clone Ranran</a></td></tr></table>')
+            fixture.problem_html['5115'] = ('<form id="form-answer"><input name="_token" value="fixture-only">'
+                '<select name="answer_answer_language"><option value="C++20">C++20</option></select></form>')
+            fixture.history_html = actual_schema_history(cid='3387')
+            with Application(state, fixture_origin=fixture.origin, clock=lambda: SUBMITTED_AT - 10000) as app:
+                session = app.dispatch('create_session', {'contestId': '3387', 'account': 'LittleDrinks',
+                    'startAt': SUBMITTED_AT - 60000, 'ranklandUrl': 'https://vp.xcpc.link/?contest=synthetic-history'})
+                args = {'sessionId': session['sessionId'], 'operationId': 'synthetic-lost-receipt',
+                        'problemId': '5115', 'problemLabel': 'C', 'language': 'C++20', 'filename': 'C.cpp',
+                        'contentsBase64': base64.b64encode(b'int main() { return 0; }\n').decode()}
+                fixture.disconnect = True
+                unknown = app.dispatch('qoj_submit', args, fixture.exchange)
+                self.assertEqual(unknown['state'], 'unknown')
+                self.assertEqual(len(fixture.posts), 1, 'Only the loopback synthetic POST may have occurred')
+                fixture.disconnect = False
+                imported = app.dispatch('qoj_submissions', {'sessionId': session['sessionId']}, fixture.exchange)
+                row = next(row for row in imported['submissions'] if row['id'] == '3331061')
+                self.assertEqual((row['verdict'], row['submittedAt']), ('CORRECT', SUBMITTED_AT))
+                self.assertEqual(app.ledger.operation(args['operationId'])['state'], 'unknown')
+                reconciled = app.dispatch('qoj_reconcile', {'sessionId': session['sessionId'],
+                    'operationId': args['operationId'], 'submissionId': '3331061'}, fixture.exchange)
+                self.assertEqual((reconciled['state'], reconciled['submission']['id']), ('confirmed', '3331061'))
+                self.assertEqual(reconciled['submission']['operationId'], args['operationId'])
+                # An explicitly reconciled receipt remains eligible for
+                # details if a later list rendering exposes only a clock.
+                fixture.history_html = actual_schema_history(cid='3387', score='0', result='0', time='02:20:57')
+                fixture.detail_overrides['3331061'] = '<div class="card"><div class="card-header">Details</div><div class="col-sm-2">Wrong Answer</div></div>'
+                linked = app.dispatch('qoj_submissions', {'sessionId': session['sessionId']}, fixture.exchange)
+                fact = next(row for row in linked['submissions'] if row.get('id') == '3331061')
+                self.assertEqual(fact['verdict'], 'WRONG-ANSWER')
+                self.assertEqual(fact['operationId'], args['operationId'])
+                self.assertEqual(len(fixture.posts), 1, 'History refresh and reconciliation must never POST again')
+
+    def test_unverified_absolute_or_relative_time_is_never_queued_to_rankland(self):
+        (ROOT / '.scratch').mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / '.scratch', prefix='history-unverified-time-') as state, QojFixture() as fixture:
+            fixture.account = 'LittleDrinks'
+            fixture.contest_html = ('<title>Synthetic practice fixture</title><table><tr><td>C</td><td>'
+                '<a href="/contest/3387/problem/5115">Clone Ranran</a></td></tr></table>')
+            with Application(state, fixture_origin=fixture.origin, clock=lambda: SUBMITTED_AT) as app:
+                session = app.dispatch('create_session', {'contestId': '3387', 'account': 'LittleDrinks',
+                    'startAt': SUBMITTED_AT - 60000, 'ranklandUrl': 'https://vp.xcpc.link/?contest=synthetic-history'})
+                for time in ('02:20:57', '2026-11-01T02:20:57'):
+                    fixture.history_html = actual_schema_history(cid='3387', time=time)
+                    result = app.dispatch('qoj_submissions', {'sessionId': session['sessionId']}, fixture.exchange)
+                    self.assertIsNone(result['submissions'][0]['submittedAt'])
+                    self.assertEqual(app.dispatch('rankland_queue', {'sessionId': session['sessionId']})['items'], [])
+                fixture.history_html = native_vp_schema_history(cid='3387')
+                result = app.dispatch('qoj_submissions', {'sessionId': session['sessionId']}, fixture.exchange)
+                old = next(row for row in result['submissions'] if row['id'] == '1511772')
+                self.assertEqual(old['account'], 'LittleDrinks')
+                self.assertIsNone(old['submittedAt'])
+                self.assertFalse(old['inSession'])
+                self.assertEqual(app.dispatch('rankland_queue', {'sessionId': session['sessionId']})['items'], [])
+                self.assertEqual(fixture.posts, [])
+
+
+if __name__ == '__main__':
+    unittest.main()

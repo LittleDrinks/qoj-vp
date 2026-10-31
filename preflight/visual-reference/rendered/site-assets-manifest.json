@@ -1,0 +1,170 @@
+{
+  "providerVersion": "9.0.1",
+  "sourceBaseUrl": "http://127.0.0.1:19081",
+  "replayKind": "Original service response snapshots and original complete assets; replay is not a running DOMjudge backend.",
+  "credentialsOrRequestHeadersSaved": false,
+  "resources": {
+    "/css/bootstrap.min.css": {
+      "requestPath": "/css/bootstrap.min.css?v=9.0.1",
+      "mirrorPath": "site-assets/css/bootstrap.min.css",
+      "bytes": 232018,
+      "sha256": "cd1826581e4f2b80af4f1e05897b316c7698441063cffaefbbdeec382ee4cd72",
+      "contentType": "text/css",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/css/bootstrap.min.css"
+    },
+    "/css/fontawesome-all.min.css": {
+      "requestPath": "/css/fontawesome-all.min.css?v=9.0.1",
+      "mirrorPath": "site-assets/css/fontawesome-all.min.css",
+      "bytes": 103009,
+      "sha256": "5ceaaba22d75b58e04150311f596306562a3e595e27ed4b1dfa451b82dda9e50",
+      "contentType": "text/css",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/css/fontawesome-all.min.css"
+    },
+    "/favicon.ico": {
+      "requestPath": "/favicon.ico?v=9.0.1",
+      "mirrorPath": "site-assets/favicon.ico",
+      "bytes": 3638,
+      "sha256": "e71d19dc8463b1bb4768d346eafa274ee4eab2266b538e63937284e9a65041de",
+      "contentType": "image/x-icon",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/favicon.ico"
+    },
+    "/flags/4x3/nl.svg": {
+      "requestPath": "/flags/4x3/nl.svg?v=9.0.1",
+      "mirrorPath": "site-assets/flags/4x3/nl.svg",
+      "bytes": 221,
+      "sha256": "54b194d90de3e6f979a8ae032fec2a246291724b5f14b8578c186d81b1fa65b4",
+      "contentType": "image/svg+xml",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/flags/4x3/nl.svg"
+    },
+    "/js/bootstrap.bundle.min.js": {
+      "requestPath": "/js/bootstrap.bundle.min.js?v=9.0.1",
+      "mirrorPath": "site-assets/js/bootstrap.bundle.min.js",
+      "bytes": 80821,
+      "sha256": "35f4547d9364111aca4850347356bc5660a994f0d8b694d88f995098a7b547fa",
+      "contentType": "application/javascript",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/js/bootstrap.bundle.min.js"
+    },
+    "/js/domjudge.js": {
+      "requestPath": "/js/domjudge.js?v=9.0.1",
+      "mirrorPath": "site-assets/js/domjudge.js",
+      "bytes": 44521,
+      "sha256": "622651b17016509c138ffe4fb839eeebc7061eb9c5f738c632e322faeaf320d3",
+      "contentType": "application/javascript",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/js/domjudge.js"
+    },
+    "/js/jquery.debounce.min.js": {
+      "requestPath": "/js/jquery.debounce.min.js?v=9.0.1",
+      "mirrorPath": "site-assets/js/jquery.debounce.min.js",
+      "bytes": 686,
+      "sha256": "71a5dbee5f036e0b4b86141968df8b577a83e7c2f9d898619d4f3bf845323aa0",
+      "contentType": "application/javascript",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/js/jquery.debounce.min.js"
+    },
+    "/js/jquery.min.js": {
+      "requestPath": "/js/jquery.min.js?v=9.0.1",
+      "mirrorPath": "site-assets/js/jquery.min.js",
+      "bytes": 87533,
+      "sha256": "fc9a93dd241f6b045cbff0481cf4e1901becd0e12fb45166a8f17f95823f0b1a",
+      "contentType": "application/javascript",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/js/jquery.min.js"
+    },
+    "/public/scoreboard-category-color.css": {
+      "requestPath": "/public/scoreboard-category-color.css",
+      "mirrorPath": "site-assets/public/scoreboard-category-color.css",
+      "bytes": 1444,
+      "sha256": "3790fb2d3710f6b6d0645224137331f28e3087e23edd5a06f61c6be955be30d9",
+      "contentType": "text/css; charset=UTF-8",
+      "sourceKind": "Actual DOMjudge dynamic CSS GET",
+      "imagePath": null
+    },
+    "/style_domjudge.css": {
+      "requestPath": "/style_domjudge.css?v=9.0.1",
+      "mirrorPath": "site-assets/style_domjudge.css",
+      "bytes": 13316,
+      "sha256": "93672f48177b91344d9a83baaa94b9eaefdd0b3f47c58422b43ac42e6d1ae988",
+      "contentType": "text/css",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/style_domjudge.css"
+    },
+    "/webfonts/fa-brands-400.ttf": {
+      "requestPath": "/webfonts/fa-brands-400.ttf",
+      "mirrorPath": "site-assets/webfonts/fa-brands-400.ttf",
+      "bytes": 209128,
+      "sha256": "e28096fa75a96ac77020155ea3a6dd7312983e84115366d4cf49a0c312ec6d51",
+      "contentType": "application/octet-stream",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/webfonts/fa-brands-400.ttf"
+    },
+    "/webfonts/fa-brands-400.woff2": {
+      "requestPath": "/webfonts/fa-brands-400.woff2",
+      "mirrorPath": "site-assets/webfonts/fa-brands-400.woff2",
+      "bytes": 117852,
+      "sha256": "232c6f6a7678304f9efaa26f30b1610debc2ba9f4cd636b5e6751c8d73761b92",
+      "contentType": "font/woff2",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/webfonts/fa-brands-400.woff2"
+    },
+    "/webfonts/fa-regular-400.ttf": {
+      "requestPath": "/webfonts/fa-regular-400.ttf",
+      "mirrorPath": "site-assets/webfonts/fa-regular-400.ttf",
+      "bytes": 67860,
+      "sha256": "9174757efc83e072436e873c22be1663d3c103b0a16d7fb73569af4918d4d351",
+      "contentType": "application/octet-stream",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/webfonts/fa-regular-400.ttf"
+    },
+    "/webfonts/fa-regular-400.woff2": {
+      "requestPath": "/webfonts/fa-regular-400.woff2",
+      "mirrorPath": "site-assets/webfonts/fa-regular-400.woff2",
+      "bytes": 25392,
+      "sha256": "c27da6f833431da5aa295c44540bfac0fd8270ba6a3c4346427006d8a7b34b76",
+      "contentType": "font/woff2",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/webfonts/fa-regular-400.woff2"
+    },
+    "/webfonts/fa-solid-900.ttf": {
+      "requestPath": "/webfonts/fa-solid-900.ttf",
+      "mirrorPath": "site-assets/webfonts/fa-solid-900.ttf",
+      "bytes": 420332,
+      "sha256": "b4990d0d0c5f5d38d62e936eea120674e584c7eea8dcee38a975c0cf9a37539b",
+      "contentType": "application/octet-stream",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/webfonts/fa-solid-900.ttf"
+    },
+    "/webfonts/fa-solid-900.woff2": {
+      "requestPath": "/webfonts/fa-solid-900.woff2",
+      "mirrorPath": "site-assets/webfonts/fa-solid-900.woff2",
+      "bytes": 156400,
+      "sha256": "ae17c16afbea216707b2203ea1cf9bdb45b9bfe47d0f4ae3258ddbc6294dd02f",
+      "contentType": "font/woff2",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/webfonts/fa-solid-900.woff2"
+    },
+    "/webfonts/fa-v4compatibility.ttf": {
+      "requestPath": "/webfonts/fa-v4compatibility.ttf",
+      "mirrorPath": "site-assets/webfonts/fa-v4compatibility.ttf",
+      "bytes": 10832,
+      "sha256": "ff8f525fb050c5d24519ccc8f5723d85b2e51edd3f9bc6548af55aebadd4f269",
+      "contentType": "application/octet-stream",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/webfonts/fa-v4compatibility.ttf"
+    },
+    "/webfonts/fa-v4compatibility.woff2": {
+      "requestPath": "/webfonts/fa-v4compatibility.woff2",
+      "mirrorPath": "site-assets/webfonts/fa-v4compatibility.woff2",
+      "bytes": 4792,
+      "sha256": "c7a869faca299d15be10a01f19d0765a7c4d46d8922d9b9317235c1e4a6f0982",
+      "contentType": "font/woff2",
+      "sourceKind": "Actual DOMjudge HTTP GET, byte-verified against running official image file",
+      "imagePath": "/opt/domjudge/domserver/webapp/public/webfonts/fa-v4compatibility.woff2"
+    }
+  }
+}

@@ -68,3 +68,9 @@ Cookie 或认证字段。单次 probeFetch 只返回阶段、状态及长度，�
 `String.fromCharCode(...bytes.subarray(...))`，改为逐索引读取 `bytes[i]`
 构造普通字符串，再调用 btoa，不使用 typed-array iterator / spread。
 待单次 probe 真正到达 done 后再跑完整流程。
+
+0.1.6 的实际单次 GET 已绿：
+`../artifacts/vm-preflight/bridge-diag-7-fixed-bytes/summary.json` 为 HTTP 200、
+bodyBytes=649、encodedLength=868、stage=done。它确认索引编码修复了该请求的
+转换失败；完整 preflight 与生产 MVP 浏览器验收仍需分别看主代理后续结果，
+本记录不把单次 probe 当作完整验收。

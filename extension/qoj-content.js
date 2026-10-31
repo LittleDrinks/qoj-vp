@@ -36,9 +36,9 @@
       try {
         const response = await fetch(request.url, options);
         if (response.type === "opaqueredirect") return {opaqueRedirect: true, pageOrigin: location.origin, transport: "content-script-same-origin"};
-        if (Number(response.headers.get("content-length") || 0) > 32 * 1024 * 1024) throw new Error("RESPONSE_TOO_LARGE");
+        if (Number(response.headers.get("content-length") || 0) > 64 * 1024 * 1024) throw new Error("RESPONSE_TOO_LARGE");
         const bytes = new Uint8Array(await response.arrayBuffer());
-        if (bytes.length > 32 * 1024 * 1024) throw new Error("RESPONSE_TOO_LARGE");
+        if (bytes.length > 64 * 1024 * 1024) throw new Error("RESPONSE_TOO_LARGE");
         const safeHeaders = {};
         // Firefox content-script Xrays can expose a Headers iterator without
         // making it iterable. Read only the fields the QOJ client needs.

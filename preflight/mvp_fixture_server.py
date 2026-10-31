@@ -124,8 +124,12 @@ class MvpFixtureServer(FixtureServer):
                 if path == "/":
                     return self.respond(200, (
                         '<!doctype html><title>SYNTHETIC MVP QOJ fixture</title>'
-                        '<h1>Loopback acceptance fixture</h1><a href="/logout">Logout</a>'
-                        f'<a href="/user/profile/{owner.account}">My Profile</a>'
+                        '<h1>Loopback acceptance fixture</h1><ul class="nav nav-pills float-right">'
+                        '<li class="nav-item dropdown"><a class="nav-link dropdown-toggle">'
+                        f'<a href="//qoj.ac/user/profile/{owner.account}">{owner.account}</a></a>'
+                        '<ul class="dropdown-menu"><li>'
+                        f'<a href="//qoj.ac/user/profile/{owner.account}">个人信息</a></li></ul></li>'
+                        '<li class="nav-item"><a href="//qoj.ac/logout?_token=synthetic-fixture-logout">退出登录</a></li></ul>'
                         '<a href="/contest/3387">Fixture contest</a>').encode())
                 if path == "/contest/3387":
                     return self.respond(200, (FIXTURES / "contest-3387.html").read_bytes())

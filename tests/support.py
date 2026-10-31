@@ -14,6 +14,20 @@ import requests
 FIXTURES = Path(__file__).resolve().parents[1] / 'preflight/fixtures'
 
 
+def account_menu(account, *, body=''):
+    """Synthetic account links shaped like the observed Chinese QOJ menu.
+
+    Includes the protocol-relative profile URL and a footer author link;
+    navigation ancestry is supplied only from the live compatibility evidence.
+    """
+    return (f'<ul class="nav nav-pills float-right"><li class="nav-item dropdown">'
+            f'<a class="nav-link dropdown-toggle"><a href="//qoj.ac/user/profile/{account}">{account}</a></a>'
+            f'<ul class="dropdown-menu"><li><a href="//qoj.ac/user/profile/{account}">个人信息</a></li></ul></li>'
+            '<li class="nav-item"><a href="//qoj.ac/logout?_token=synthetic-logout-query">退出登录</a></li></ul>'
+            f'<main>{body}</main><div class="container"><div class="uoj-footer">'
+            '<p><a href="/user/profile/FooterAuthor">FooterAuthor✦</a></p></div></div>')
+
+
 class QojFixture:
     def __init__(self):
         self.posts = []
@@ -21,6 +35,10 @@ class QojFixture:
         self.reject = False
         self.disconnect = False
         self.account = 'FixtureUser'
+        self.root_html = None
+        self.contest_html = None
+        self.problem_html = {}
+        self.attachment_overrides = {}
         self.receipt = '/submission/1000001'
         self.history_html = None
         self.detail_overrides = {}
@@ -50,12 +68,19 @@ class QojFixture:
                 parsed = urlsplit(self.path)
                 path, query = parsed.path, parse_qs(parsed.query)
                 if path == '/':
-                    data = f'<a href="/logout">Logout</a><a href="/user/profile/{owner.account}">My Profile</a>'.encode()
+                    if owner.root_html is not None:
+                        return self.respond(200, owner.root_html.encode())
+                    data = account_menu(owner.account).encode()
                     return self.respond(200, data)
                 if path == '/contest/3387':
+                    if owner.contest_html is not None:
+                        return self.respond(200, owner.contest_html.encode())
                     name = 'contest-3387.html'
                 elif path.startswith('/contest/3387/problem/'):
-                    name = f"problem-{path.split('/')[4]}.html"
+                    pid = path.split('/')[4]
+                    if pid in owner.problem_html:
+                        return self.respond(200, owner.problem_html[pid].encode())
+                    name = f"problem-{pid}.html"
                 elif path == '/contest/3387/submissions':
                     owner.history_reads.append(query)
                     if owner.history_html is not None and query.get('page', ['1'])[0] == '1':
@@ -67,6 +92,10 @@ class QojFixture:
                         return self.respond(200, owner.detail_overrides[sid].encode())
                     name = f'submission-{sid}.html'
                 elif path == '/download.php':
+                    pid = query.get('id', [''])[0]
+                    if pid in owner.attachment_overrides:
+                        status, data, content_type = owner.attachment_overrides[pid]
+                        return self.respond(status, data, content_type)
                     name = f"attachment-{query.get('id', [''])[0]}.zip"
                     return self.respond(200, (FIXTURES / name).read_bytes(), 'application/zip')
                 elif path == '/fixture-statements/A.pdf':

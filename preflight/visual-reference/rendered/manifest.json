@@ -1,0 +1,83 @@
+{
+  "providerVersion": "9.0.1",
+  "sourceBaseUrl": "http://127.0.0.1:19081",
+  "sourceImage": "domjudge/domserver:9.0.1",
+  "sourceImageId": "sha256:e9704bdae8e08440eb0042c9817116dc9767a511f577e9318c4f0710ad5b5727",
+  "sourceRepoDigests": [
+    "domjudge/domserver@sha256:e9704bdae8e08440eb0042c9817116dc9767a511f577e9318c4f0710ad5b5727"
+  ],
+  "contestId": "qoj-vp-xian-reference",
+  "teamId": "exteam",
+  "firstProblemId": 4,
+  "configuration": {
+    "sourcefiles_limit": 1,
+    "show_public_stats": false,
+    "show_limits_on_team_page": false
+  },
+  "problemMetadata": {
+    "count": 12,
+    "color": null,
+    "colorRendering": "Original DOMjudge NULL-color fallback: white #ffffff / border #bfbfbf / text #000000"
+  },
+  "tokenRedaction": "Only token values replaced by CSRF_TOKEN_REDACTED; literal element classes, styles, whitespace preserved.",
+  "captures": {
+    "home": {
+      "requestPath": "/team",
+      "xhr": false,
+      "status": 200,
+      "bytes": 45235,
+      "sha256": "be1bc632e226851ba84166c3cf64e9a984176a60c1c6143833d9796fe5384c7d"
+    },
+    "problemset": {
+      "requestPath": "/team/problems",
+      "xhr": false,
+      "status": 200,
+      "bytes": 50913,
+      "sha256": "77be0afab6974934cf3f9de7240b447441b40f7cca6e2e22590729f8e0c646ff"
+    },
+    "submit-page": {
+      "requestPath": "/team/submit",
+      "xhr": false,
+      "status": 200,
+      "bytes": 16260,
+      "sha256": "fab75d24f337b6efe0ab2f4bb35b3e9db173fc56c7a5671d32cba862a7ebda88"
+    },
+    "submit-modal-generic": {
+      "requestPath": "/team/submit",
+      "xhr": true,
+      "status": 200,
+      "bytes": 5021,
+      "sha256": "d4597eca16f276ac2fc1482524ab71926b5b6edb7e7e4fa29313f5c944e1fa16"
+    },
+    "submit-modal-a": {
+      "requestPath": "/team/submit/4",
+      "xhr": true,
+      "status": 200,
+      "bytes": 5037,
+      "sha256": "c0763abfbdefbd6550a04ea3ed8a718da246fbe477b41cd4fa703700dafe378c"
+    },
+    "navbar": {
+      "bytes": 3661,
+      "sha256": "e5e2825ccbc80d23fede331789e315c8814335b50d300d5d7371f18edf5ea273"
+    },
+    "navbar-submit": {
+      "bytes": 275,
+      "sha256": "6e4a344893a29f1f2a49d7590e189102ef5561eb88a6dc768548b648fea86922"
+    },
+    "card-a": {
+      "bytes": 2904,
+      "sha256": "b9975e3b6c974e2cf8521f71df54b8f9e4ea0876efb1608d4e5f31e365339779"
+    },
+    "card-submit": {
+      "bytes": 428,
+      "sha256": "35389e2f11d59cf75f0e728249f53ad80fbbde966b30ce9513382e5893485315"
+    }
+  },
+  "offlineResources": {
+    "manifest": "site-assets-manifest.json",
+    "directory": "site-assets",
+    "archive": "site-assets.tar.gz",
+    "resourceCount": 18,
+    "replayKind": "Original service response snapshots and original complete assets; replay is not a running DOMjudge backend."
+  }
+}

@@ -13,11 +13,11 @@ Source byte/Git-blob verification is in `preflight/domjudge-reference/source-man
 | Upstream file under webapp/ | Extension use |
 | --- | --- |
 | `templates/base.html.twig` | Local CSS/script ordering and container structure in `ui.html`; dynamic server routes become extension actions. |
-| `templates/team/menu.html.twig` | Dark fixed navbar, Home/Problemset/Scoreboard navigation, green Submit button and countdown. Out-of-scope menu items omitted. |
+| `templates/team/menu.html.twig` | Dark fixed navbar, Home/Problemset/Scoreboard navigation, literal `a.nav-link > span.btn.btn-success.btn-sm` Submit control and countdown. Out-of-scope menu items omitted. |
 | `templates/team/partials/index_content.html.twig` | Top team's progress, teamoverview heading and submissions region. Clarifications are omitted; the right column contains VP controls. |
 | `templates/team/partials/submission_list.html.twig` | `data-table table table-hover table-striped table-sm` and time/problem/lang/result columns. Added QOJ receipt link and explicit unknown-outcome reconciliation. |
-| `templates/partials/problem_list.html.twig` | Actual responsive card grid, badge/title/card-subtitle structure and Submit/statement/samples actions. Added a distinct PDF action; unknown time/memory/type metadata is omitted instead of invented. |
-| `templates/team/submit_modal.html.twig` | Large Bootstrap modal, single source-file input, problem/language fields, file size/mtime notice, Cancel/Submit. QOJ only accepts one source in this adapter. |
+| `templates/partials/problem_list.html.twig` | Actual responsive card grid, badge/title/card-subtitle and ordinary-flow layout. Submit retains literal `a.justify-content-center > span.btn.btn-success`; statement/samples remain the original two secondary anchors. Ordinary statement click opens/downloads the PDF; modifier/middle-click retains the raw QOJ link. Unknown time/memory/type metadata is omitted instead of invented. |
+| `templates/team/submit_modal.html.twig` | Original `h5.modal-title`, single source-file input, form row classes, file size/mtime `alert` without a gray background, Cancel/Submit. Per-problem modal hides the selected Problem row and uses the actual problem name in its title. QOJ does not expose entry-point input, which remains hidden. |
 | `templates/team/partials/submit_scripts.html.twig` | File-basename problem detection only while autodetect is selected, selectable language, file/problem/language confirmation. No QOJ Java/Kotlin entry-point field is invented. |
 | `public/js/domjudge.js` | `humanReadableTimeDiff` and `humanReadableBytes` adapted with the same interval thresholds. The rest of the server AJAX code is not loaded. |
 | `src/Twig/TwigExtension.php`, `printResult` | Same `sol`, `sol_correct`, `sol_incorrect`, `sol_queued` styles. UI keeps QOJ's unknown state separate from a rejected verdict. |
@@ -35,9 +35,13 @@ These are local byte-for-byte copies of the actual files, not the symlink text f
 | --- | --- | --- |
 | DOMjudge | 9.0.1 / `90bbb727906efb438ac2ec7512c09f17824cfc41` | `assets/licenses/DOMjudge-COPYING` (GPL-2.0-or-later as declared by upstream README) |
 | Bootstrap | 5.3.7 / `e0032ae6a5a628a51a8552091816cec09b6434df` | `assets/licenses/Bootstrap-LICENSE` (MIT) |
-| Font Awesome Free | 6.5.2 / `c0f460dca7f7688761120415ff3c9cf7f73119be` | `assets/licenses/FontAwesome-LICENSE.txt` (CSS/code MIT, fonts SIL OFL 1.1, icons CC BY 4.0) |
+| Font Awesome Free | 6.5.2 CSS/license at `c0f460dca7f7688761120415ff3c9cf7f73119be`; WOFF2 from the official DOMjudge image below | `assets/licenses/FontAwesome-LICENSE.txt` (CSS/code MIT, fonts SIL OFL 1.1, icons CC BY 4.0) |
 
 Bootstrap and Font Awesome versions match the fixed DOMjudge `webapp/composer.lock`. Reference manifests are `third-party-manifest.json`, `fontawesome-manifest.json`, and `composer-frontend-lock-extract.json` in `preflight/domjudge-reference/`.
+
+The three packaged Font Awesome WOFF2 files are copied from the actual official `domjudge/domserver:9.0.1` image at immutable digest `sha256:e9704bdae8e08440eb0042c9817116dc9767a511f577e9318c4f0710ad5b5727`, not the previously downloaded Git-tag font binaries. The declared Font Awesome version is the same, but these font bytes differ. `assets/UPSTREAM.json` records their new hashes, official image digest, extraction paths and local reference copies; the license is unchanged. CSS/Bootstrap assets are unchanged and have been independently compared byte-for-byte with the official image.
+
+`preflight/visual-reference/rendered/` contains sanitized literal HTML from that real server. The current Navbar/card/submit markup follows those captures, with the original reference configured to `sourcefiles_limit=1` to match QOJ's single-source capability. Disabled Submit retains the original inner `.disabled` class and attribute; the outer anchor additionally has `aria-disabled`, is removed from the tab order, and its handler refuses activation. These structural/source checks do not by themselves establish screenshot or computed-style equivalence.
 
 The derived UI files carry `GPL-2.0-or-later` notices. The per-package licenses remain separate. The root project must retain these files when building an XPI/source distribution.
 
@@ -50,7 +54,7 @@ The UI calls the message contract in `MVP_CONTRACT.md`. Additional agreed method
 3. Submit: select the source file; infer exact problem/available language; allow manual overrides; the original DOMjudge-style browser `confirm` shows the chosen file/account/contest/problem/language before sending. Cancel does not send a native submit task.
 4. Confirmed receipts display the provider ID and poll detailed verdicts. The UI updates only the history and progress row, preserving any open file input and selected language.
 5. Uncertain delivery retains a stable operation ID and source digest in extension storage, with no source-code copy. A matching unresolved intent cannot be re-sent by the UI. The backend ledger remains the authority and independently prevents duplicate POSTs.
-6. RankLand opens the durable exact original-site URL stored with the session. Sync failure does not re-submit source code. Problemset offers original statement, PDF action and each problem's own samples ZIP.
+6. RankLand opens the durable exact original-site URL stored with the session. Sync failure does not re-submit source code. Problemset offers the original three controls: Submit, statement (the PDF entry), and each problem's own samples ZIP.
 
 For submit errors, `LOGIN_REQUIRED`, `ACCOUNT_UNKNOWN`, `ACCOUNT_MISMATCH`, and `SESSION_NOT_RUNNING` are definitive pre-send failures: `Application.submit` raises them before creating the durable send intent and calling `QojClient.submit`. The local UI metadata is marked rejected, allowing a fresh explicit attempt after fixing login/account/session state. Generic `QOJ_ERROR`, `INTERNAL_ERROR`, and transport disconnection remain uncertain. An HTTP 503 outcome also stays unknown and requires explicit reconciliation.
 

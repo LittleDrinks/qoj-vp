@@ -1,63 +1,81 @@
-# Active goal checkpoint — 2026-10-31
+# 当前工作状态
 
-User authorized implementation and explicitly requested a goal. It is active: deliver and verify QOJ MVP in VMware Firefox. Continue autonomously, CF/Gym excluded, keep Windows focus unchanged. Source/evidence stay under this workspace.
+更新：2026-11-01（Asia/Shanghai）。本阶段实现和验收已完成：VMware Firefox 中的 QOJ
+提交、题目资源、原版 RankLand 联动和 DOMjudge 9.0.1 参考回归。CF/Gym 不接入。
+以下是当前状态；历史失败与旧 checkpoint 留在各自 artifacts 中，不作为当前结论。
 
-## Verified and fixed
+## 已验证
 
-- Reboot readiness all6 passed. Full preflight round4 all22 required checks passed (23 total including independent real-QOJ403 observation); cleanup passed.
-- Production MVP round2 run92dcb28e76bb400384f5ad4f07fbbe36 already passed25 main checks through actual Firefox: visible UI, cancel0POST/confirm1POST, file hash, observed original302/Location, finalAC, samples/form, original RankLand form/own-row, first board opened2h late, tab/browser restart and repeated sync. Final demo/cleanup still needs collection.
-- Actual official DOMjudge pages captured during round1, version10.0.0DEV/96199cbe3. Source pinned9.0.1, not pixel-equivalence. Images: artifacts/vm-mvp/round1/results/mvp/8f7e87b1a70b48d3aa2cca8989b84d11/.
-- Backend13 meaningful integrations passed, including terminating actual helper after POST acceptance and proving restart does not repeat. Later no-op URL and prepare_rankland clock regressions passed.
-- Selenium base64-uploaded addon could not load content files; persistent INSTALL_ADDON path works. Do not claim proven premature file deletion.
-- Firefox Xray Headers iterators and TypedArray.subarray spread failed. Use response headers allowlist.get and indexed bytes; final probe7 returned200/649B/stage done.
-- First late RankLand open uses prepare_rankland to persist actual elapsed fractional minutes in from once. Reopens use the exact URL.
-- RankLand full identity includes origin/contest/run/rule/count/ratio/at/from. Receipt scoped to destination. Opening serialized, duplicate writers block sync, content checks unique writer before click. RTE/NOUT mapping fixed; rejudge requires review.
-- PDF checks active tab/final URL and truthful save/cancel status. UI probe now waits Bootstrap animations before Cancel; product Bootstrap unchanged.
+- Python 完整测试 63 项通过：`artifacts/backend-final-tests.txt`。五个前端脚本由
+  Node 测试运行器报告 23 项通过、0 失败：`artifacts/frontend-final-tests.txt`；
+  各脚本内部断言计数不另加总为测试数量。
+- 资源浏览器验收 run `1dc0a29b66334aaf819e8db48b3ae041`：12 项及 cleanup 全通过，
+  证据 `artifacts/resources-browser/accepted/`。真实 UI 准备普通样例、extras-only
+  interactor、unknown 资源；浏览器下载 ZIP 并逐字节核对。在线重载/选择后保留 UI
+  上下文，再关闭 fixture，清单和缓存下载没有新增 QOJ 请求。整页离线启动未实现。
+- 干净当前扩展与官方 DOMjudge 9.0.1 原始渲染快照回放 run
+  `2813b23be5ac42fcad10176b42bb6b74`：27 项及 5 项 cleanup 全通过，归档
+  `artifacts/visual-parity/current/`。
+  computed styles、visible fields、modal interactions 相等；navbar 原始 DOMRect
+  仍有约 `1.5e-5 px` 浮点差异，16/20 组控件截图像素完全相同，导航字形仍有差异；整页像素一致未认证。
+  基准 `preflight/visual-reference/rendered/` 来自真正 9.0.1 服务。
+- Home 专门采集 run `ace102929829499a9875db8840f59b8b`：7 项及 cleanup 通过，
+  状态为 `captured-not-parity-certified`。原版 Clarifications 在工作台适配为 Contest
+  信息与操作，因此 Home 没有宣称 1:1；截图及独立复核见 `artifacts/home-parity/accepted/`。
+- 真实原站 RankLand no-team 验收 run `50d8283d22ca474db464c803154be3e9`：
+  6 项及 cleanup 全通过，证据 `artifacts/verified-reference-and-rankland/`。
+  这是独立测试 run 的原站兼容证据，不替代下面真实 QOJ 提交的投递验收。
+- 真实 QOJ 1051 / C（5115）仅发送过一次源码 POST：submission `3331061` 已 AC，
+  源文件 SHA 匹配。首次回执曾为 UNKNOWN，已通过正常核对 UI 明确关联为
+  `confirmed / CORRECT`；不得把此结果描述成真实自动回执全链路已重新测试。
+- 原生 VP 旧提交可从严格核验的详情页补回绝对提交时间，不猜原生 VP 起点。
+  真实 `1511772` 已由生产 refresh 回填 `2025-10-14T21:37:53+08:00`；源码操作仍为
+  1 次，当前队列仍仅 `3331061 / synced`：
+  `artifacts/live-acceptance/native-time-backfill-proof.json`。
+- 回执诊断 run `d48017f4139f4c1aa62e5a32e86d7767` 的 8 项及 cleanup 通过：
+  302 有 Location 确认回执，503 / 无 Location 的 302 不确认、不重发；安全诊断可恢复。
+  证据 `artifacts/receipt-diagnostics/accepted/`；首次真实丢回执根因仍未证实。
+- 上述真实提交的 RankLand outbox 已 `synced`。关闭原榜单 tab 9、重新打开为 tab 10
+  后，exact URL/key 不变、C 的 manual AC 恰好一条、计时继续、本队得分 1 / 用时 77：
+  `artifacts/live-acceptance/reopen-proof.json`、`real-rankland-sync-ledger.json`。
+- PDF 隔离实引擎 5 项及 root URI 审计通过：`artifacts/pdf-isolation/accepted/`。
+- 真实 C 题重新导出的 `Clone-Ranran.pdf` 为 165025 B，URI 0 / 敏感 URI 0；中文、
+  公式、样例已渲染核对：`artifacts/live-acceptance/real-C-pdf-host-audit.json`、
+  `real-C-pdf-text-checks.json`、`real-C-pdf-page1.png`。真实 `samples-C.zip` 为
+  289 B，`1.in` / `1.ans` 内容精确匹配，原 H3 样例提取缺口已修复。
+- 真实长春 4582 原生 Start 旁准备入口已完成 13/13、unknown 0；会话保持 prepared、
+  `startAt=null`，原生表单提交次数 0，原 Start 仍启用。证据
+  `artifacts/live-acceptance/live-reopened-and-resources.json`。
+- 实际附件核验是 I / 22918：`attachments-I.zip` 4448 B，包含原样例与
+  `triplet_testing_tool.py`。另用 GET 取得 3651 B 原包，所有原始成员字节均被缓存包
+  保留。审计 `artifacts/live-acceptance/real-resource-artifact-audit.json` 全部 verified；
+  不把旧 D / 22913 的网页工具 PDF 线索作为附件通过证据。
+- XPI 已生成，22 个扩展文件逐字节等于当前源码；wheel 的 9 个 Python 模块均一致且
+  含 LICENSE，标准 isolated build 成功。大小、SHA 见 `artifacts/extension-package-final.json`
+  与 `artifacts/wheel-package-final.json`。
 
-## Current work and remaining gate
+## 交付清单
 
-MVP round2 final status to collect from guest results/mvp-summary.json. UI main path passed; original DOMjudge capture/cleanup was still running at last read.
+产物位于 `dist/`；共享交付目录为 `E:\shared\qoj-vp-mvp-release`。
+完整源码包、文件哈希、部署读回及本地 commit 由 `artifacts/release-final.json` 记录，
+以该清单的最终状态为准。
 
-Agents backend_mvp and ui_mvp are extending controller/probe for --scenario unknown503, --skip-domjudge-reference, actual unknown no-repeat + explicit UI reconciliation, and duplicate-tab/concurrent-open safety. They never operate VM. bridge_fix completed review and documentation; can handle concrete QA findings.
+## 当前部署与操作边界
 
-Async user question pending: complete real QOJ security verification/login in ordinary VM Firefox, and give practice contest/problem/source or manually submit. No QOJ password/cookie import. No real-QOJ source POST occurred. Do all independent work first and keep goal active; fixture success alone is insufficient for completion.
+- 当前 XPI SHA-256：`2bdf7fb5fd35c2975b5fdfbf2848ebadbb0225df8b7670aea4c7790bb5451ff2`。
+  wheel SHA-256：`1772e0874062d8b44b06d9380f68a7adf256cb8f3301c09bf817b48607588001`。
+  XPI 未签名，Firefox 临时加载在重启后仍需重新载入。
+- 代码与证据：`/home/q2635/wsl-workspace/qoj-vp`。
+  来宾项目：`/home/csj/.local/share/qoj-vp-mvp/2026-10-31`。
+  来宾真实状态：`/home/csj/.local/share/qoj-vp`；QA 使用独立 host/profile/状态。
+  交换目录：`E:\shared\qoj-vp-preflight-stage`。
+- 后台操作 VM，不改变 Windows 焦点。不再向真实 QOJ 发送源码 POST，不创建官方
+  VP，不点击原生 Start/Finish/register。已有 accepted submission 只允许 GET、核对、同步。
+- 原生准备入口仅支持已确认的 `form#form-regvir` 结构，两个新增按钮是表单外的
+  `type=button`；未知后续服务端确认页没有推断或实现。
+- 来宾临时 QA debug 模块已移除并用 F5 清理上下文；本地四个一次性探针/收集器已删。
+  唯一可选 GET timing 探针放在 `preflight/debug/`，不载入产品。
+  不把真实 profile、凭据、Cookie、CSRF 值写入报告或发布包。
 
-## Paths and transport
-
-Workspace /home/q2635/wsl-workspace/qoj-vp, local Git main initialized, submodule vendor/qoj-submitter pinned807ce1be13d67916b2716f8221a10a12731977fe. No remote push requested.
-
-Preflight guest /home/csj/.local/share/qoj-vp-preflight/2026-10-31; product guest /home/csj/.local/share/qoj-vp-mvp/2026-10-31. Exchange E:\shared\qoj-vp-preflight-stage. VMX E:\VirtualBox VMs\hydro-contest-os-2026\hydro contest os.vmx; vmrun D:\Program Files\VMware\VMware Workstation\vmrun.exe.
-
-Functions store qojVmNativePrefix contains ephemeral user-authorized guest credentials: never print/save it. PowerShell encoded in memory, timeout errors omit argv. VIX inline script quoting is broken; copy durable files then runProgramInGuest. Jobs use -noWait and atomic status. No host activation or GUI launching.
-
-Deployed artifacts/mvp-payload.tar.gz SHA1bdbfaa7d885d9dd8dd70d5d6a8c1f10969d9273369d10a9bf981412764282c3, then round2 overlay extension/ui.js+preflight/mvp_ui_probe.py. Build/overlay again for new QA changes.
-
-QA creates an owned fixture native manifest and unique DB per run, removes manifest afterward. Do not install permanent product registration until QA ends; controller refuses to overwrite it. Final install uses scripts/install_native.py --dependencies <guest-root>/preflight/vendor_py. User can temporary-load extension/manifest.json in normal Firefox; XPI unsigned. Persistent user state separate from QA.
-
-## Latest follow-up
-
-MVP accepted round2 finished: all28 required checks passed; optional official-demo reference and all cleanup passed. Full archive artifacts/vm-mvp/round2/results.tar.gz collected. Current backend full suite15 tests passed independently, artifacts/backend-tests.txt.
-
-Unknown503 VM run e8b34deb349446389fa542bc3092cd54: real UI unknown/reopen/no-repeat/explicit reconciliation and source503/noLocation checks passed. RankLand delivery then failed a unique-writer guard; later snapshots cascaded from that failure. It is not yet proven whether transient duplicate creation or sender identity caused the guard. Root added safe guard decision metadata and made open coalescing wait until Tab.url commits. Next accepted QA must include this fix, UI pre-POST error classification fix, duplicate/concurrent checks and account-mismatch probe. If failing, inspect vp.diagnostics.ranklandGuards before guessing. Backend agent is making dependent-check gating to avoid repeated50s waits after same sync failure.
-
-Host PowerShell Get-Content -Raw must specify -Encoding UTF8 before ConvertFrom-Json; default ANSI corrupted interpretation of Chinese JSON messages. Files themselves were valid UTF8; Python readback verified. Unknown QA launch was retried only after this host parsing failure, not after any sourcePOST.
-
-Safety QA accepted rerun launched with overlay mvp-safety-overlay.tar.gz (hash manifest in artifacts) after unknown QA cleanup finished. It includes UI deterministic-no-POST error classification and controller account-mismatch probe, all RankLand guards and safe diagnostic events, plus open coalescing held until Tab.url commits. The unknown UI/503/no-repeat/reconcile path itself passed, but its overall run remained failed due later scoreboard guard. Need rerun unknown after guard fix.
-
-A final local UI type guard now excludes null/unverified elapsedMs from the own-team score; Number(null) had counted it as0. This one-line fix is not yet deployed to currently running QA. Preserve in final overlay/package.
-
-## Independent implementation and delivery complete
-
-Safety accepted run c8f60e0edf454263aa2cd9ac1d967883 passed all30 checks including account mismatch/no native intent, duplicate-tab stop and concurrent-open coalescing. Final unknown503 run6d1d889976e149dd8ae526c75a5272e1 passed all29 with no skipped checks, after open coalescing waited for Tab.url commit. All Firefox/fixture/native-helper cleanup passed. Archives collected locally. No more routine testing needed absent new failures or real-account changes.
-
-Permanent real-mode helper installed in VM, app state /home/csj/.local/share/qoj-vp. Installed smoke passed fixture=false, helper PID11450 exited, Firefox PID11190 exited, saveAsPDF API exists. Latest real-QOJ read reaches LOGIN_REQUIRED rather than earlier403; real authenticated source submission still not done. Do not run fixture QA controller over this permanent registration without explicit owned-registration handling (it correctly refuses).
-
-Final XPI dist/qoj-vp-firefox-0.1.0.xpi SHA eab96db6b1ec1c729577da8ca62dac5d144e681280ed4c8442613eaa87b32b17, unsigned. Copied to VM root/qoj-vp-firefox-0.1.0.xpi and E:\shared\qoj-vp-mvp-release with Chinese instructions and report. Final source/README/report copied to guest; foregroundUnchanged=true recorded artifacts/installed-smoke/delivery-status.json. Universal Python wheel build passed. docs/MVP_RESULT.md is current concise acceptance report.
-
-Only required remaining gate: user must log into QOJ in ordinary VM Firefox and supply practice contest/problem/source or manually submit. Async question already pending; do not repeat permission requests. Goal remains active; this is the first goal turn reaching the final external blocker. Under goal rules do not mark blocked until the same blocker recurs for3 consecutive goal turns. Do not claim complete from fixture success. Human OS PDF dialog/real statement layout is also not yet manually verified.
-
-## PDF continuation completed
-
-Second goal turn at the real-account gate completed independent PDF verification instead of repeating passing suites. Read installed Firefox source from omni.ja; a disposable headless Firefox/profile/QA extension then called the real tabs.saveAsPDF with only nsIFilePicker controlled. Saved real75,302B PDF, cancel/no-write, invalid directory/not_saved all passed. Chinese/MathML/sample layout visually checked after Poppler rendering. Firefox PID12019 exited; installed native registration unchanged. Evidence artifacts/pdf-smoke/accepted/summary.json and preflight/PDF_RESULT.md. Earlier two flag errors and negative-fixture correction retained. No product extension changes, XPI hash unchanged.
-
-Real QOJ login/target/source question is still pending and no authenticated source submission has been made. Full production problem.pdf action against real QOJ and native picker human interaction remain unverified. Do not invent a test contest or use user cookies from files. This is the second consecutive goal turn reaching that same external gate; leave active now, and if a third continuation finds the same blocker and no meaningful independent work, mark goal blocked under the tool rule rather than cycling routine checks.
+验收详情见 [MVP_RESULT.md](MVP_RESULT.md)，协议见 [MVP_CONTRACT.md](MVP_CONTRACT.md)。
+工作区证据不包含账号凭据；实际最终交付状态以发布清单为准。
