@@ -22,6 +22,7 @@
 | 实际 Python helper 在 POST 已接收后被终止，恢复后不重复 POST；历史/判定/时钟/队列等 | 15 项集成测试通过 | `artifacts/backend-tests.txt` |
 | 普通受控 UI 正常提交与官方 DOMjudge 页面参考 | 28 项必要检查及官方参考通过 | `artifacts/vm-mvp/round2/summary.json` |
 | 真实模式助手安装、Firefox 往返和按需退出 | 通过，fixture=false；Firefox/助手均已退出 | `artifacts/installed-smoke/summary.json` |
+| Firefox 原生 PDF API：保存、取消、写入失败 | 3 项通过，真实 PDF 引擎；仅文件选择器受控 | `artifacts/pdf-smoke/accepted/summary.json` |
 
 所有源码 POST 都只发给来宾 loopback 受控评测 fixture，已校验实际 multipart 字段、选中文件 SHA-256 和一次 POST 数量。正常路径读取 webRequest 原始 302/Location；未知回执路径确认的是原始 503/无 Location，随后通过真实 UI 核对已存在的 provider ID，未伪造 302。
 
@@ -33,7 +34,7 @@ RankLand 使用真实公网原站，在独立测试 run 中经其可见控件记
 
 真实模式最新 GET 已返回登录提示；此前隔离 profile 曾返回 403。没有导入 QOJ Cookie 或密码，没有向真实 QOJ 提交源码，因此真实登录账号的提交回执、详细判定和真实题面 PDF 排版仍需用户登录后验证。
 
-原始 PDF 的发现、合成 PDF 下载和 Firefox WebDriver HTML 打印已通过；生产扩展的 saveAsPDF API 在目标 Firefox 存在，但 OS 保存对话框和真实题面数学公式/分页尚未做人工验收。
+原始 PDF 的发现、合成 PDF 下载和 Firefox WebDriver HTML 打印已通过。补测还实际调用了目标 Firefox 的 `tabs.saveAsPDF`：生成 75,302 字节 PDF，中文/MathML 公式/样例经渲染检查，取消不写文件，错误目标返回 `not_saved`。测试仅在独立无界面浏览器中控制文件选择器，未改写 PDF API 或打印引擎，未改变已安装助手；这不等于完整生产 `problem.pdf` 链路、真实 QOJ 题面排版或 OS 对话框的人工作业已验收。复现与边界见 `preflight/PDF_RESULT.md`。
 
 实际源码/内联 samples ZIP 目前各限 512 KiB。临时扩展重启后需重新载入；当前 XPI 未签名，尚未发布到 AMO。CLI 独立提交若只有未经核实的相对时间，不猜测所属 VP 时间，也不自动投递榜单。已同步结果的重判需要核对旧记录。
 
