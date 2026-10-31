@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<!-- Adapted from DOMjudge 9.0.1 team templates; GPL-2.0-or-later. See docs/UI_UPSTREAM.md. -->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>QOJ VP — DOMjudge workbench</title>
+  <link rel="stylesheet" href="assets/bootstrap/bootstrap.min.css">
+  <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
+  <link rel="stylesheet" href="assets/domjudge/style_domjudge.css">
+  <link rel="stylesheet" href="ui.css">
+  <script src="assets/bootstrap/bootstrap.bundle.min.js" defer></script>
+  <script src="ui.js" defer></script>
+</head>
+<body>
+  <nav class="navbar navbar-expand-md navbar-dark bg-dark fixed-top" aria-label="Main navigation">
+    <div class="container-fluid">
+      <a class="navbar-brand" href="#home">DOMjudge <span class="vp-brand-note">QOJ VP</span></a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#menuDefault" aria-controls="menuDefault" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button>
+      <div class="collapse navbar-collapse" id="menuDefault">
+        <ul class="navbar-nav me-auto">
+          <li class="nav-item"><a id="nav-home" class="nav-link active" href="#home"><i class="fas fa-home" aria-hidden="true"></i> Home</a></li>
+          <li class="nav-item"><a id="nav-problems" class="nav-link" href="#problems"><i class="fas fa-book-open" aria-hidden="true"></i> Problemset</a></li>
+          <li class="nav-item"><button id="nav-scoreboard" class="nav-link" type="button" disabled><i class="fas fa-list-ol" aria-hidden="true"></i> Scoreboard <i class="fas fa-external-link-alt vp-external" aria-hidden="true"></i></button></li>
+        </ul>
+        <div class="me-3"><button id="open-submit" class="btn btn-success btn-sm" type="button" disabled><i class="fas fa-cloud-upload-alt" aria-hidden="true"></i> Submit</button></div>
+        <div class="vp-session-select me-3"><label class="visually-hidden" for="session-select">VP session</label><select id="session-select" class="form-select form-select-sm" disabled><option value="">No contest</option></select></div>
+        <button id="new-session" class="btn btn-outline-light btn-sm me-3" type="button" disabled><i class="fas fa-plus" aria-hidden="true"></i> 新建 VP</button>
+        <div class="navbar-text vp-clock"><i class="fas fa-clock" aria-hidden="true"></i> <span id="timeleft">no contest</span></div>
+      </div>
+    </div>
+  </nav>
+  <div class="progress vp-progress" data-progress-bar><div id="contest-progress" class="progress-bar" role="progressbar" aria-label="比赛进度" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div></div>
+  <main class="container-fluid">
+    <div id="notice" class="alert d-none mt-3" role="status" aria-live="polite"></div>
+    <div id="connection" class="alert alert-secondary mt-3" role="status">正在连接…</div>
+    <section id="empty-state" class="text-center" hidden>
+      <h1 id="teamwelcome">Welcome team <span id="teamwelcometeam">QOJ</span>!</h1>
+      <h2 id="contestnotstarted">请选择已保存的 VP，或准备一场新比赛。</h2>
+      <button id="empty-new-session" class="btn btn-success mt-4" type="button"><i class="fas fa-plus" aria-hidden="true"></i> 准备 VP</button>
+    </section>
+    <div id="contest-view" hidden>
+      <div id="teamscoresummary" class="table-responsive mt-3" aria-label="本次 VP 的提交进度"></div>
+      <section id="home-view">
+        <div class="row">
+          <div class="col-lg-8">
+            <h1 class="teamoverview">Submissions</h1>
+            <div class="d-flex align-items-center gap-3 my-2 vp-refresh-bar">
+              <button id="refresh-submissions" class="btn btn-outline-secondary btn-sm" type="button"><i class="fas fa-sync-alt" aria-hidden="true"></i> 刷新判定</button>
+              <span id="refresh-status" class="small text-muted" role="status" aria-live="polite">尚未同步</span>
+            </div>
+            <div id="history-warning" class="alert alert-warning d-none" role="status"></div>
+            <div id="submissions-empty" class="alert alert-warning">No submissions</div>
+            <div class="table-responsive">
+              <table id="submissions-table" class="data-table table table-hover table-striped table-sm submissions-table" hidden>
+                <thead class="thead-light"><tr><th scope="col">time</th><th scope="col">problem</th><th scope="col">lang</th><th scope="col">result</th><th scope="col" class="vp-source-column">QOJ</th></tr></thead>
+                <tbody id="submissions-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <aside class="col-lg-4">
+            <h2 class="teamoverview">Virtual contest</h2>
+            <dl class="row vp-session-details">
+              <dt class="col-4">Contest</dt><dd id="contest-name" class="col-8"></dd>
+              <dt class="col-4">Account</dt><dd id="account-name" class="col-8"></dd>
+              <dt class="col-4">State</dt><dd id="session-state" class="col-8"></dd>
+              <dt class="col-4">Started</dt><dd id="started-at" class="col-8"></dd>
+            </dl>
+            <div class="d-flex flex-wrap gap-2">
+              <button id="start-session" class="btn btn-success btn-sm" type="button" hidden><i class="fas fa-play" aria-hidden="true"></i> 开始本次 VP</button>
+              <a id="qoj-contest-link" class="btn btn-outline-secondary btn-sm" href="https://qoj.ac/" target="_blank" rel="noopener noreferrer">打开 QOJ</a>
+              <button id="rankland-settings" class="btn btn-outline-secondary btn-sm" type="button">榜单设置</button>
+              <button id="archive-session" class="btn btn-outline-secondary btn-sm" type="button">归档</button>
+            </div>
+            <p id="prepared-note" class="small text-muted mt-3">这里记录本次练习的计时。若比赛要求 QOJ 原站虚拟参赛，请先在原站开始比赛。</p>
+            <h2 class="teamoverview mt-4">Scoreboard</h2>
+            <p class="small">在原版 RankLand 中看榜；重开时恢复这场 VP 的同一进度。</p>
+            <button id="open-scoreboard" class="btn btn-secondary btn-sm" type="button"><i class="fas fa-list-ol" aria-hidden="true"></i> 打开 RankLand</button>
+            <button id="sync-scoreboard" class="btn btn-outline-secondary btn-sm" type="button"><i class="fas fa-sync-alt" aria-hidden="true"></i> 同步判定</button>
+            <p id="rankland-status" class="small text-muted mt-2" role="status" aria-live="polite"></p>
+          </aside>
+        </div>
+      </section>
+      <section id="problems-view" hidden>
+        <h1 id="problemset-title" class="mt-4 text-center">Contest problems</h1>
+        <div class="container"><div id="problems-list" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3 problem-list"></div></div>
+      </section>
+    </div>
+  </main>
+
+  <div id="session-modal" class="modal fade" tabindex="-1" aria-labelledby="session-modal-title" aria-hidden="true">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h2 id="session-modal-title" class="modal-title fs-5">准备 VP</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <form id="session-form">
+        <div class="modal-body">
+          <div id="session-error" class="alert alert-danger d-none" role="alert"></div>
+          <div class="mb-3"><label for="contest-input" class="form-label">QOJ 比赛 ID 或链接</label><div class="input-group"><input id="contest-input" class="form-control" placeholder="3387 或 https://qoj.ac/contest/3387" required autocomplete="off"><button id="load-contest" class="btn btn-outline-secondary" type="button">读取比赛</button></div><div class="form-text">使用 Firefox 中的 QOJ 登录状态。</div></div>
+          <div id="contest-preview" class="alert alert-secondary d-none" role="status"></div>
+          <div class="mb-3"><label for="session-title" class="form-label">本次 VP 名称</label><input id="session-title" class="form-control" maxlength="160" autocomplete="off"></div>
+          <div class="mb-3"><label for="rankland-input" class="form-label">RankLand 比赛链接 <span class="text-muted">（可稍后设置）</span></label><input id="rankland-input" class="form-control" type="url" placeholder="https://vp.xcpc.link/?contest=…" autocomplete="off"><div class="form-text">从 RankLand 选好比赛后复制链接。每场 VP 单独保存，重开即可继续。</div></div>
+          <div class="row"><div class="col-sm-5 mb-3"><label for="duration-input" class="form-label">比赛时长（分钟）</label><input id="duration-input" class="form-control" type="number" value="300" min="1" max="20160" required></div><div class="col-sm-7 mb-3"><label for="start-input" class="form-label">恢复已有开始时间 <span class="text-muted">（选填）</span></label><input id="start-input" class="form-control" type="datetime-local"><div class="form-text">留空将先准备，之后点击“开始本次 VP”。</div></div></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button id="prepare-session" class="btn btn-success" type="submit" disabled>准备 VP</button></div>
+      </form>
+    </div></div>
+  </div>
+
+  <div id="submit-modal" class="modal fade" tabindex="-1" aria-labelledby="submit-title" aria-hidden="true">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h2 id="submit-title" class="modal-title fs-5">Submit</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <form id="submit-form" name="submit_problem">
+        <div class="modal-body">
+          <div id="submit-error" class="alert alert-danger d-none" role="alert"></div>
+          <div class="mb-3"><label for="submit_problem_code" class="form-label required">Source code</label><input id="submit_problem_code" class="form-control" type="file" required><div class="form-text">选择单个源文件；例如 A.cpp 可推断题号和语言。</div></div>
+          <div id="files_selected" class="alert alert-secondary d-none"></div>
+          <div class="mb-3"><label for="submit_problem_problem" class="form-label required">Problem</label><select id="submit_problem_problem" class="form-select" required><option value="">autodetect</option></select></div>
+          <div class="mb-3"><label for="submit_problem_language" class="form-label required">Language</label><select id="submit_problem_language" class="form-select" required disabled><option value="">先选择题目</option></select><div id="language-status" class="form-text" role="status"></div></div>
+        </div>
+        <div class="modal-footer"><button id="submit-cancel" type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button id="submit-send" type="submit" class="btn btn-success"><i class="fas fa-cloud-upload-alt" aria-hidden="true"></i> <span>Submit</span></button></div>
+      </form>
+    </div></div>
+  </div>
+
+  <div id="rankland-modal" class="modal fade" tabindex="-1" aria-labelledby="rankland-title" aria-hidden="true">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h2 id="rankland-title" class="modal-title fs-5">榜单设置</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <form id="rankland-form"><div class="modal-body"><div id="rankland-error" class="alert alert-danger d-none" role="alert"></div><label for="rankland-url" class="form-label">RankLand 比赛链接</label><input id="rankland-url" class="form-control" type="url" required autocomplete="off" placeholder="https://vp.xcpc.link/?contest=…"><p class="form-text">使用原站同一场 VP 的链接。设置后从这里打开，避免重新建立默认进度。</p></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">保存</button></div></form>
+    </div></div>
+  </div>
+
+  <div id="reconcile-modal" class="modal fade" tabindex="-1" aria-labelledby="reconcile-title" aria-hidden="true">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h2 id="reconcile-title" class="modal-title fs-5">核对原站提交</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <form id="reconcile-form"><div class="modal-body"><div id="reconcile-error" class="alert alert-danger d-none" role="alert"></div><p id="reconcile-description"></p><p class="small">先在 QOJ 确认账号、题目、语言与源码均相同，再关联原站提交。此操作不会重新发送源码。</p><label for="reconcile-id" class="form-label">QOJ submission ID</label><input id="reconcile-id" class="form-control" inputmode="numeric" pattern="[0-9]+" list="submission-candidates" required autocomplete="off"><datalist id="submission-candidates"></datalist></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" type="submit">确认关联</button></div></form>
+    </div></div>
+  </div>
+  <footer class="container-fluid mt-5 small text-muted">QOJ VP · <a href="https://github.com/DOMjudge/domjudge/tree/90bbb727906efb438ac2ec7512c09f17824cfc41" target="_blank" rel="noopener noreferrer">界面源自 DOMjudge 9.0.1</a> · <a href="assets/licenses/DOMjudge-COPYING" target="_blank">GPL-2.0-or-later</a></footer>
+</body>
+</html>

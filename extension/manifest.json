@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "QOJ VP Workbench",
+  "version": "0.1.0",
+  "description": "DOMjudge team pages for QOJ, with durable VP sessions and the original RankLand scoreboard.",
+  "browser_specific_settings": {"gecko": {"id": "qoj-vp@littledrinks.local", "strict_min_version": "128.0"}},
+  "permissions": ["nativeMessaging", "storage", "tabs", "scripting", "webRequest", "alarms"],
+  "host_permissions": ["https://qoj.ac/*", "https://vp.xcpc.link/*", "http://127.0.0.1/*", "http://localhost/*"],
+  "background": {"scripts": ["transport.js", "background.js"], "persistent": false},
+  "content_scripts": [
+    {"matches": ["https://qoj.ac/*", "http://127.0.0.1/*", "http://localhost/*"], "js": ["qoj-content.js"], "run_at": "document_start"},
+    {"matches": ["https://vp.xcpc.link/*"], "js": ["rankland-content.js"], "run_at": "document_idle"}
+  ],
+  "action": {"default_title": "Open QOJ VP Workbench"},
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'"}
+}

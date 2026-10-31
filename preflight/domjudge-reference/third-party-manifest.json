@@ -1,0 +1,115 @@
+{
+  "locked_by": "webapp/composer.lock at DOMjudge 90bbb727906efb438ac2ec7512c09f17824cfc41",
+  "files": [
+    {
+      "package": "components/jquery",
+      "version": "v3.7.1",
+      "source_commit": "8edc7785239bb8c2ad2b83302b856a1d61de60e7",
+      "path": "jquery.min.js",
+      "source_url": "https://raw.githubusercontent.com/components/jquery/8edc7785239bb8c2ad2b83302b856a1d61de60e7/jquery.min.js",
+      "local_path": "third-party/components/jquery/jquery.min.js",
+      "sha256": "fc9a93dd241f6b045cbff0481cf4e1901becd0e12fb45166a8f17f95823f0b1a",
+      "bytes": 87533,
+      "license_as_declared": [
+        "MIT"
+      ]
+    },
+    {
+      "package": "components/jquery",
+      "path": "MIT-LICENSE.txt",
+      "source_url": "https://raw.githubusercontent.com/components/jquery/8edc7785239bb8c2ad2b83302b856a1d61de60e7/MIT-LICENSE.txt",
+      "error": "HTTP Error 404: Not Found"
+    },
+    {
+      "package": "twbs/bootstrap",
+      "version": "v5.3.7",
+      "source_commit": "e0032ae6a5a628a51a8552091816cec09b6434df",
+      "path": "dist/js/bootstrap.bundle.min.js",
+      "source_url": "https://raw.githubusercontent.com/twbs/bootstrap/e0032ae6a5a628a51a8552091816cec09b6434df/dist/js/bootstrap.bundle.min.js",
+      "local_path": "third-party/twbs/bootstrap/dist/js/bootstrap.bundle.min.js",
+      "sha256": "35f4547d9364111aca4850347356bc5660a994f0d8b694d88f995098a7b547fa",
+      "bytes": 80821,
+      "license_as_declared": [
+        "MIT"
+      ]
+    },
+    {
+      "package": "twbs/bootstrap",
+      "version": "v5.3.7",
+      "source_commit": "e0032ae6a5a628a51a8552091816cec09b6434df",
+      "path": "dist/css/bootstrap.min.css",
+      "source_url": "https://raw.githubusercontent.com/twbs/bootstrap/e0032ae6a5a628a51a8552091816cec09b6434df/dist/css/bootstrap.min.css",
+      "local_path": "third-party/twbs/bootstrap/dist/css/bootstrap.min.css",
+      "sha256": "cd1826581e4f2b80af4f1e05897b316c7698441063cffaefbbdeec382ee4cd72",
+      "bytes": 232018,
+      "license_as_declared": [
+        "MIT"
+      ]
+    },
+    {
+      "package": "twbs/bootstrap",
+      "version": "v5.3.7",
+      "source_commit": "e0032ae6a5a628a51a8552091816cec09b6434df",
+      "path": "LICENSE",
+      "source_url": "https://raw.githubusercontent.com/twbs/bootstrap/e0032ae6a5a628a51a8552091816cec09b6434df/LICENSE",
+      "local_path": "third-party/twbs/bootstrap/LICENSE",
+      "sha256": "4620c84ad5ce8602ff65640ed6b7c8b78ebb9e036584f0ebc1ccc88206a4bb51",
+      "bytes": 1093,
+      "license_as_declared": [
+        "MIT"
+      ]
+    },
+    {
+      "package": "symfony/twig-bridge",
+      "version": "v6.4.22",
+      "source_commit": "04ab306a2f2c9dbd46f4363383812954f704af9d",
+      "path": "Resources/views/Form/bootstrap_5_layout.html.twig",
+      "source_url": "https://raw.githubusercontent.com/symfony/twig-bridge/04ab306a2f2c9dbd46f4363383812954f704af9d/Resources/views/Form/bootstrap_5_layout.html.twig",
+      "local_path": "third-party/symfony/twig-bridge/Resources/views/Form/bootstrap_5_layout.html.twig",
+      "sha256": "9037e38464a88c83971e42590fbc0d661da3e04d5398793fb709339130d2717c",
+      "bytes": 14524,
+      "license_as_declared": [
+        "MIT"
+      ]
+    },
+    {
+      "package": "symfony/twig-bridge",
+      "version": "v6.4.22",
+      "source_commit": "04ab306a2f2c9dbd46f4363383812954f704af9d",
+      "path": "Resources/views/Form/bootstrap_base_layout.html.twig",
+      "source_url": "https://raw.githubusercontent.com/symfony/twig-bridge/04ab306a2f2c9dbd46f4363383812954f704af9d/Resources/views/Form/bootstrap_base_layout.html.twig",
+      "local_path": "third-party/symfony/twig-bridge/Resources/views/Form/bootstrap_base_layout.html.twig",
+      "sha256": "0c5941adf9569f46f492a7c1d68b070f2574d84efd3a85e139d2b73474063656",
+      "bytes": 8797,
+      "license_as_declared": [
+        "MIT"
+      ]
+    },
+    {
+      "package": "symfony/twig-bridge",
+      "version": "v6.4.22",
+      "source_commit": "04ab306a2f2c9dbd46f4363383812954f704af9d",
+      "path": "Resources/views/Form/form_div_layout.html.twig",
+      "source_url": "https://raw.githubusercontent.com/symfony/twig-bridge/04ab306a2f2c9dbd46f4363383812954f704af9d/Resources/views/Form/form_div_layout.html.twig",
+      "local_path": "third-party/symfony/twig-bridge/Resources/views/Form/form_div_layout.html.twig",
+      "sha256": "e85a825c93bb29be14072dacbb39355729dce8ba93c18900df054160c76e1b43",
+      "bytes": 18180,
+      "license_as_declared": [
+        "MIT"
+      ]
+    },
+    {
+      "package": "symfony/twig-bridge",
+      "version": "v6.4.22",
+      "source_commit": "04ab306a2f2c9dbd46f4363383812954f704af9d",
+      "path": "LICENSE",
+      "source_url": "https://raw.githubusercontent.com/symfony/twig-bridge/04ab306a2f2c9dbd46f4363383812954f704af9d/LICENSE",
+      "local_path": "third-party/symfony/twig-bridge/LICENSE",
+      "sha256": "18da7e490d2aa77197a0619b25bcc771a0110132a9d76071665718d3295e73cb",
+      "bytes": 1068,
+      "license_as_declared": [
+        "MIT"
+      ]
+    }
+  ]
+}

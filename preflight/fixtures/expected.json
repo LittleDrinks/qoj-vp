@@ -1,0 +1,89 @@
+{
+  "sourceCommit": "807ce1be13d67916b2716f8221a10a12731977fe",
+  "synthetic": true,
+  "contestId": "3387",
+  "problems": {
+    "A": {
+      "id": "15419",
+      "name": "New Gomoku"
+    },
+    "B": {
+      "id": "15420",
+      "name": "Abstract Portal"
+    }
+  },
+  "languages": [
+    "C++20",
+    "Python3"
+  ],
+  "samplePaths": [
+    "samples-A/1.in",
+    "samples-A/1.ans",
+    "samples-A/2.in",
+    "samples-A/2.ans",
+    "samples-B/1.in",
+    "samples-B/1.ans",
+    "samples-B/2.in"
+  ],
+  "specialProblem": "B",
+  "specialHasMissingAnswer": true,
+  "pdfIsSynthetic": true,
+  "assets": {
+    "problem-15419.html": {
+      "bytes": 1270,
+      "sha256": "004ff9e09fc9ec9799d61219418e47ade004026473d86afe6a2e0b138b97babb"
+    },
+    "submission-1000004.html": {
+      "bytes": 286,
+      "sha256": "b9d15e69f9d234dc1a25b95f9c8776dae75c9f359357f159d4e0d2da5d93a278"
+    },
+    "problem-15420.html": {
+      "bytes": 1412,
+      "sha256": "74a0620b0bae3f51f2402d488c226e132cf2e528cf3c96b7ca6f4d767359c9ca"
+    },
+    "submission-1000001.html": {
+      "bytes": 222,
+      "sha256": "0a2026af5450cee3520a941597899f5ddf1f81d3b30c722e43d1e69b54f48876"
+    },
+    "submissions-empty.html": {
+      "bytes": 267,
+      "sha256": "6b92f8b6a13878172018ae68c0a99387a0eb620d28aeeb0cf6ea1956171f739d"
+    },
+    "submissions-3387.html": {
+      "bytes": 1345,
+      "sha256": "f8b91f7cf2292b5e26c6fa5d02f9ce8700dfb8b73a9a3431145342b6f4a1ea77"
+    },
+    "index.html": {
+      "bytes": 393,
+      "sha256": "eea761f404c786cfbeb03ac0905306a6caa67dd0fcc5db4a9df8acc07c5abfcd"
+    },
+    "attachment-unsafe.zip": {
+      "bytes": 151,
+      "sha256": "38680df70f95cb8abe0b4ae34e8d086c059d5e6f5151ec84b939cda8407bbf71"
+    },
+    "submission-1000003.html": {
+      "bytes": 253,
+      "sha256": "6e662add11502aedf51c31d58ef1cd46fba746d23c129609b2077135180413db"
+    },
+    "submission-1000002.html": {
+      "bytes": 360,
+      "sha256": "2735414605bc755d7e8da565a9b5c5ebf69ff3b5d4fac251312c1ef2d7eb6d27"
+    },
+    "contest-3387.html": {
+      "bytes": 649,
+      "sha256": "fed3cd88a880ade911156aa0fb8fcec9a20e39a2259cde753b92c0a5940e6343"
+    },
+    "attachment-15419.zip": {
+      "bytes": 412,
+      "sha256": "39fc0a74a1bf630cef922c97160f269e71fb2f1d95c3f56494c331c438d149d2"
+    },
+    "statement-A.pdf": {
+      "bytes": 761,
+      "sha256": "5fe13cb0603f5aae210f40ccd75386c27680b00fd66b89b39582b18e13336b73"
+    },
+    "attachment-15420.zip": {
+      "bytes": 598,
+      "sha256": "a71cfed64064cd75ad34fff419f7115fc78b9cdc44fbe43dc4492639195bb5f5"
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "repository": "https://github.com/LittleDrinks/qoj-submitter",
+  "commit": "807ce1be13d67916b2716f8221a10a12731977fe",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 3386,
+      "sha256": "ca3242ec4201529267831e5654015e501f759dbee47b005a22a29e5e3749aa4c"
+    },
+    {
+      "path": "pyproject.toml",
+      "bytes": 574,
+      "sha256": "c79d51dfc7bdea51c6e4a729088edd732be5d5ab702bfd5d399c818bc15df647"
+    },
+    {
+      "path": "qoj_submitter/__init__.py",
+      "bytes": 33,
+      "sha256": "551a413ed3f12f1a5d106d7f8e37acb64bf774c68030ac21f4665276ca508991"
+    },
+    {
+      "path": "qoj_submitter/client.py",
+      "bytes": 9816,
+      "sha256": "59462626522eb6a511b6ccfbaf7e93ee1adb422d0dc6ace9bf6946edc75d0211"
+    },
+    {
+      "path": "qoj_submitter/samples.py",
+      "bytes": 5579,
+      "sha256": "5485486d32e8f6cd880bf130d50d962c3dc9cabd1efd4781a50bb18a0c02366b"
+    },
+    {
+      "path": "qoj_submitter/curl_adapter.py",
+      "bytes": 2925,
+      "sha256": "8e99e4f32e40fe225497ecdcb3438e6d5bbe0d48515e1796f24f8c727be77970"
+    },
+    {
+      "path": "qoj_submitter/cli.py",
+      "bytes": 9997,
+      "sha256": "ec873c139e7fcb2b1e2c2fc958387bb74b86e7c869f743cc0a278f9c1259e6a4"
+    },
+    {
+      "path": "tests/test_client.py",
+      "bytes": 6259,
+      "sha256": "aeeb06c1bed27cc199c9b5c4293ebb3aeed7a048fd62e4bad039860fb042675d"
+    },
+    {
+      "path": "tests/test_samples.py",
+      "bytes": 3407,
+      "sha256": "3cb40503341f677f1c3c578a5ffa71fb0c957336d1bc8b76202057233e29dd9a"
+    }
+  ]
+}

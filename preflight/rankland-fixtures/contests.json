@@ -1,0 +1,84 @@
+{
+  "success": true,
+  "code": 0,
+  "data": {
+    "contests": [
+      {
+        "_id": "900000000000000001",
+        "uk": "qoj-preflight-fixture",
+        "name": "QOJ preflight synthetic VP fixture",
+        "status": 99,
+        "title": {
+          "fallback": "QOJ preflight synthetic VP fixture",
+          "zh-CN": "QOJ 前置测试：合成 VP"
+        },
+        "startAt": "2026-01-01T00:00:00Z",
+        "duration": [
+          18000,
+          "s"
+        ],
+        "frozenDuration": [
+          3600,
+          "s"
+        ],
+        "banner": null,
+        "refLinks": null,
+        "problems": [
+          {
+            "alias": "A",
+            "title": "Synthetic A",
+            "style": {
+              "backgroundColor": "#ee7777",
+              "textColor": "#000000"
+            }
+          },
+          {
+            "alias": "B",
+            "title": "Synthetic B",
+            "style": {
+              "backgroundColor": "#7777ee",
+              "textColor": "#ffffff"
+            }
+          }
+        ],
+        "users": [],
+        "markers": [],
+        "series": [
+          {
+            "title": "#",
+            "rule": {
+              "preset": "Normal"
+            }
+          }
+        ],
+        "sorter": {
+          "algorithm": "ICPC",
+          "config": {
+            "noPenaltyResults": [
+              "FB",
+              "AC",
+              "?",
+              "CE",
+              "UKE",
+              null
+            ],
+            "penalty": [
+              20,
+              "min"
+            ],
+            "timePrecision": "min",
+            "timeRounding": "floor"
+          }
+        },
+        "contributors": [
+          "Local synthetic preflight fixture; not a real contest"
+        ],
+        "srkFileID": "900000000000000002",
+        "viewCount": 0,
+        "redirectUK": null,
+        "createdAt": "2026-01-01T00:00:00Z",
+        "updatedAt": "2026-01-01T00:00:00Z"
+      }
+    ]
+  }
+}

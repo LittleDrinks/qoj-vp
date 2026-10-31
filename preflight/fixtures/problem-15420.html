@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>B - QOJ PRE-FLIGHT FIXTURE</title>
+<style>@page{size:A4;margin:18mm}body{font:16px sans-serif;max-width:52em;margin:2em auto}@media print{nav,form{display:none}}</style></head>
+<body><nav><a href="/contest/3387">Fixture contest</a></nav>
+<article id="problem-statement"><h1>B — synthetic HTML-only statement fixture</h1>
+<p>This fixture deliberately has no PDF link. It demonstrates that HTML and a sample attachment do not guarantee an original PDF exists.</p>
+<p>The attachment has an incomplete answer set and a synthetic tool, which must remain extras.</p></article>
+<form id="form-answer" action="/contest/3387/problem/15420/statement/zh_cn" method="post" enctype="multipart/form-data">
+<input type="hidden" name="_token" value="fixture-only-B-not-real-csrf"><div id="form-group-answer_answer"></div>
+<input type="file" name="answer_answer_file"><button type="submit" disabled>Read-only fixture: submission disabled</button></form>
+<script>
+const fixtureForm = {source_code_form_group(name, label, options) {
+  document.getElementById('form-group-answer_answer').innerHTML = '<select name="answer_answer_language">' + options + '</select>';
+}};
+fixtureForm.source_code_form_group('answer_answer', 'Source code:answer', "<option value=\"C++20\">C++ 20<\/option><option value=\"Python3\">Python 3<\/option>", true);
+</script></body></html>

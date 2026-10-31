@@ -1,0 +1,77 @@
+{
+  "domjudgeCommit": "90bbb727906efb438ac2ec7512c09f17824cfc41",
+  "bootstrapVersion": "5.3.7",
+  "fontAwesomeVersion": "6.5.2",
+  "files": [
+    {
+      "path": "assets/domjudge/style_domjudge.css",
+      "reference": "preflight/domjudge-reference/upstream/webapp/public/style_domjudge.css",
+      "bytes": 13316,
+      "sha256": "93672f48177b91344d9a83baaa94b9eaefdd0b3f47c58422b43ac42e6d1ae988",
+      "modified": false
+    },
+    {
+      "path": "assets/licenses/DOMjudge-COPYING",
+      "reference": "preflight/domjudge-reference/upstream/COPYING",
+      "bytes": 18001,
+      "sha256": "e5fc7c9bd6d497732375d09fd2301bb1baca604188eedbe5c9d4c5d31781826f",
+      "modified": false
+    },
+    {
+      "path": "assets/bootstrap/bootstrap.min.css",
+      "reference": "preflight/domjudge-reference/third-party/twbs/bootstrap/dist/css/bootstrap.min.css",
+      "bytes": 232018,
+      "sha256": "cd1826581e4f2b80af4f1e05897b316c7698441063cffaefbbdeec382ee4cd72",
+      "modified": false
+    },
+    {
+      "path": "assets/bootstrap/bootstrap.bundle.min.js",
+      "reference": "preflight/domjudge-reference/third-party/twbs/bootstrap/dist/js/bootstrap.bundle.min.js",
+      "bytes": 80821,
+      "sha256": "35f4547d9364111aca4850347356bc5660a994f0d8b694d88f995098a7b547fa",
+      "modified": false
+    },
+    {
+      "path": "assets/licenses/Bootstrap-LICENSE",
+      "reference": "preflight/domjudge-reference/third-party/twbs/bootstrap/LICENSE",
+      "bytes": 1093,
+      "sha256": "4620c84ad5ce8602ff65640ed6b7c8b78ebb9e036584f0ebc1ccc88206a4bb51",
+      "modified": false
+    },
+    {
+      "path": "assets/fontawesome/css/all.min.css",
+      "reference": "preflight/domjudge-reference/third-party/fortawesome/font-awesome/css/all.min.css",
+      "bytes": 103009,
+      "sha256": "5ceaaba22d75b58e04150311f596306562a3e595e27ed4b1dfa451b82dda9e50",
+      "modified": false
+    },
+    {
+      "path": "assets/licenses/FontAwesome-LICENSE.txt",
+      "reference": "preflight/domjudge-reference/third-party/fortawesome/font-awesome/LICENSE.txt",
+      "bytes": 7427,
+      "sha256": "9b914eae88817d63b576eab5aafde7068c7a1abae125d7cdfb034f1da43a9afc",
+      "modified": false
+    },
+    {
+      "path": "assets/fontawesome/webfonts/fa-solid-900.woff2",
+      "reference": "preflight/domjudge-reference/third-party/fortawesome/font-awesome/webfonts/fa-solid-900.woff2",
+      "bytes": 156404,
+      "sha256": "599b18f9b0aa0bd7a76b01e724a7a189422fb20fb233a4586d420c777d3c2c23",
+      "modified": false
+    },
+    {
+      "path": "assets/fontawesome/webfonts/fa-regular-400.woff2",
+      "reference": "preflight/domjudge-reference/third-party/fortawesome/font-awesome/webfonts/fa-regular-400.woff2",
+      "bytes": 25392,
+      "sha256": "a766b0ec6782888c8a7c3927b9cf25e472953f09dd839bb820354b1591f5c88b",
+      "modified": false
+    },
+    {
+      "path": "assets/fontawesome/webfonts/fa-brands-400.woff2",
+      "reference": "preflight/domjudge-reference/third-party/fortawesome/font-awesome/webfonts/fa-brands-400.woff2",
+      "bytes": 117860,
+      "sha256": "255ce3bdbe420b5f6dbaae6649d7d2480dcd8604f64c1d9e33c5d57db0d9edd1",
+      "modified": false
+    }
+  ]
+}

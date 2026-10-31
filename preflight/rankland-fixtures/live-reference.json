@@ -1,0 +1,23 @@
+{
+  "contest_key": "icpc2025nanjing",
+  "contest_endpoint": "https://rl.algoux.cn/api/v2/public/contests/icpc2025nanjing",
+  "file_endpoint": "https://rl.algoux.cn/api/v2/public/files/94031839248867328",
+  "srk_url": "https://cdn.algoux.cn/rankland/file/94031839248867328/icpc2025nanjing.srk.json",
+  "srk_version": "0.3.9",
+  "contest": {
+    "title": {
+      "zh-CN": "「华为杯」第 50 届 ICPC 国际大学生程序设计竞赛区域赛南京站",
+      "fallback": "「华为杯」第 50 届 ICPC 国际大学生程序设计竞赛区域赛南京站"
+    },
+    "startAt": "2025-11-09T09:30:00+08:00",
+    "duration": [
+      5,
+      "h"
+    ],
+    "frozenDuration": [
+      0,
+      "h"
+    ]
+  },
+  "row_count": 359
+}

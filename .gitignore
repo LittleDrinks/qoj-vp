@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+*.egg-info/
+artifacts/
+preflight/vendor_py/
+preflight/vendor/
+preflight/tools/geckodriver
+preflight/tools/*.tar.gz
+preflight/state/
+preflight/results/
+dist/
+state/
+results/
+.scratch/

@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qoj-vp-workbench"
+version = "0.1.0"
+description = "QOJ VP workbench with DOMjudge team pages and RankLand compatibility"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.31", "beautifulsoup4>=4.12", "pycurl>=7.45"]
+license = "GPL-2.0-or-later"
+
+[tool.setuptools.packages.find]
+include = ["qojvp*"]

@@ -1,0 +1,119 @@
+{
+  "fixtureServerContextClosed": true,
+  "postRejectedWith405": true,
+  "rejectedPostCount": 1,
+  "zipFiles": {
+    "15419": [
+      "ex_1.in",
+      "ex_1.ans",
+      "ex_10.in",
+      "ex_10.ans"
+    ],
+    "15420": [
+      "G0a.in",
+      "G0a.ans",
+      "G0b.in",
+      "run.sh",
+      "judge.cpp"
+    ]
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/healthz",
+      "query": {},
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/contest/3387",
+      "query": {},
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/contest/3387/problem/15419",
+      "query": {},
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/contest/3387/problem/15420",
+      "query": {},
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/download.php",
+      "query": {
+        "type": [
+          "problem"
+        ],
+        "id": [
+          "15419"
+        ],
+        "contest_id": [
+          "3387"
+        ]
+      },
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/download.php",
+      "query": {
+        "type": [
+          "problem"
+        ],
+        "id": [
+          "15420"
+        ],
+        "contest_id": [
+          "3387"
+        ]
+      },
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/fixture-statements/A.pdf",
+      "query": {},
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/download.php",
+      "query": {
+        "type": [
+          "problem"
+        ],
+        "id": [
+          "15419"
+        ],
+        "contest_id": [
+          "3387"
+        ],
+        "case": [
+          "html"
+        ]
+      },
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "POST",
+      "path": "/contest/3387/problem/15419",
+      "query": {},
+      "status": 405,
+      "rejected": true
+    }
+  ],
+  "scope": "local synthetic HTTP fixture; real QOJ/Firefox not claimed"
+}

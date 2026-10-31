@@ -1,0 +1,197 @@
+{
+  "sourceCommit": "807ce1be13d67916b2716f8221a10a12731977fe",
+  "sourceClientSha256": "59462626522eb6a511b6ccfbaf7e93ee1adb422d0dc6ace9bf6946edc75d0211",
+  "usesOriginalUnmodifiedQojClient": true,
+  "realPycurlImported": true,
+  "pycurlVersion": "PycURL/7.49.0 libcurl/8.23.0 OpenSSL/3.6.5 zlib/1.3 brotli/1.2.1 libpsl/0.21.5 libssh2/1.11.1_DEV nghttp2/1.70.0 ngtcp2/1.25.0 nghttp3/1.18.0 mit-krb5/1.22.2",
+  "logicalResponseOrigin": "https://qoj.ac",
+  "httpDestination": "ephemeral loopback FixtureServer",
+  "statusAccount": "FixtureUser",
+  "contest": {
+    "id": "3387",
+    "name": "QOJ PRE-FLIGHT FIXTURE",
+    "problems": {
+      "A": {
+        "id": "15419",
+        "name": "New Gomoku"
+      },
+      "B": {
+        "id": "15420",
+        "name": "Abstract Portal"
+      }
+    }
+  },
+  "forms": {
+    "A": {
+      "action": "https://qoj.ac/contest/3387/problem/15419/statement/zh_cn",
+      "languages": [
+        "C++20",
+        "Python3"
+      ],
+      "dummyTokenParsed": true
+    },
+    "B": {
+      "action": "https://qoj.ac/contest/3387/problem/15420/statement/zh_cn",
+      "languages": [
+        "C++20",
+        "Python3"
+      ],
+      "dummyTokenParsed": true
+    }
+  },
+  "samples": {
+    "samples-A/1.ans": "1121cfccd5913f0a63fec40a6ffd44ea64f9dc135c66634ba001d10bcf4302a2",
+    "samples-A/1.in": "f251ddc12234e0da8d3b778bd0f7463fb477f16f47757f5617dc8b4ff4d4f14a",
+    "samples-A/2.ans": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+    "samples-A/2.in": "2df23f1167a9ca936a6dffca88024590a34432a7fbdf9b561e8b010c5eac6cb8",
+    "samples-B/1.ans": "7de1555df0c2700329e815b93b32c571c3ea54dc967b89e81ab73b9972b72d1d",
+    "samples-B/1.in": "7de1555df0c2700329e815b93b32c571c3ea54dc967b89e81ab73b9972b72d1d",
+    "samples-B/2.in": "f0b5c2c2211c8d67ed15e75e656c7862d086e9245420892a7de62cd9ec582a06"
+  },
+  "extras": [
+    "attachment-extras/problem-B/G0a.ans",
+    "attachment-extras/problem-B/G0a.in",
+    "attachment-extras/problem-B/G0b.in",
+    "attachment-extras/problem-B/judge.cpp",
+    "attachment-extras/problem-B/run.sh"
+  ],
+  "warnings": [
+    "B: 2 inputs, 1 paired answers; extra or incomplete attachment"
+  ],
+  "progress": [
+    "A: 2 inputs, 2 answers",
+    "B: 2 inputs, 1 answers"
+  ],
+  "safetyObservations": {
+    "missing": "observed404",
+    "html": "observedHTML",
+    "unsafe": "unsafePathRejectedByOriginalParser"
+  },
+  "httpRequests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "query": {},
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/contest/3387",
+      "query": {},
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/contest/3387/problem/15419",
+      "query": {},
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/contest/3387/problem/15420",
+      "query": {},
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/download.php",
+      "query": {
+        "type": [
+          "problem"
+        ],
+        "id": [
+          "15419"
+        ],
+        "contest_id": [
+          "3387"
+        ]
+      },
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/download.php",
+      "query": {
+        "type": [
+          "problem"
+        ],
+        "id": [
+          "15420"
+        ],
+        "contest_id": [
+          "3387"
+        ]
+      },
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/download.php",
+      "query": {
+        "type": [
+          "problem"
+        ],
+        "id": [
+          "15419"
+        ],
+        "contest_id": [
+          "3387"
+        ],
+        "case": [
+          "missing"
+        ]
+      },
+      "status": 404,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/download.php",
+      "query": {
+        "type": [
+          "problem"
+        ],
+        "id": [
+          "15419"
+        ],
+        "contest_id": [
+          "3387"
+        ],
+        "case": [
+          "html"
+        ]
+      },
+      "status": 200,
+      "rejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/download.php",
+      "query": {
+        "type": [
+          "problem"
+        ],
+        "id": [
+          "15419"
+        ],
+        "contest_id": [
+          "3387"
+        ],
+        "case": [
+          "unsafe"
+        ]
+      },
+      "status": 200,
+      "rejected": false
+    }
+  ],
+  "postCount": 0,
+  "scope": "Host-side original parser over actual local HTTP; real QOJ login/submission and VMware Firefox not claimed",
+  "fixtureServerContextClosed": true
+}

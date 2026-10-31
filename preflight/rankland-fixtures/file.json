@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "code": 0,
+  "data": {
+    "id": "900000000000000002",
+    "contestId": "900000000000000001",
+    "category": "RankMain",
+    "name": "preflight.srk.json",
+    "path": "feed.srk.json",
+    "size": 1454,
+    "hashType": "sha256",
+    "hashValue": "fixture",
+    "url": "/feed.srk.json",
+    "createdAt": "2026-01-01T00:00:00Z",
+    "updatedAt": "2026-01-01T00:00:00Z"
+  }
+}

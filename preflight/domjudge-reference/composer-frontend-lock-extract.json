@@ -1,0 +1,223 @@
+{
+  "source_url": "https://raw.githubusercontent.com/DOMjudge/domjudge/90bbb727906efb438ac2ec7512c09f17824cfc41/webapp/composer.lock",
+  "commit": "90bbb727906efb438ac2ec7512c09f17824cfc41",
+  "packages": [
+    {
+      "name": "components/jquery",
+      "version": "v3.7.1",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/components/jquery.git",
+        "reference": "8edc7785239bb8c2ad2b83302b856a1d61de60e7"
+      },
+      "dist": {
+        "type": "zip",
+        "url": "https://api.github.com/repos/components/jquery/zipball/8edc7785239bb8c2ad2b83302b856a1d61de60e7",
+        "reference": "8edc7785239bb8c2ad2b83302b856a1d61de60e7",
+        "shasum": ""
+      },
+      "type": "component",
+      "extra": {
+        "component": {
+          "files": [
+            "jquery.min.js",
+            "jquery.min.map",
+            "jquery.slim.js",
+            "jquery.slim.min.js",
+            "jquery.slim.min.map"
+          ],
+          "scripts": [
+            "jquery.js"
+          ]
+        }
+      },
+      "notification-url": "https://packagist.org/downloads/",
+      "license": [
+        "MIT"
+      ],
+      "authors": [
+        {
+          "name": "JS Foundation and other contributors"
+        }
+      ],
+      "description": "jQuery JavaScript Library",
+      "homepage": "http://jquery.com",
+      "support": {
+        "forum": "http://forum.jquery.com",
+        "irc": "irc://irc.freenode.org/jquery",
+        "issues": "https://github.com/jquery/jquery/issues",
+        "source": "https://github.com/jquery/jquery",
+        "wiki": "http://docs.jquery.com/"
+      },
+      "time": "2023-09-22T01:43:46+00:00"
+    },
+    {
+      "name": "fortawesome/font-awesome",
+      "version": "6.5.2",
+      "dist": {
+        "type": "zip",
+        "url": "https://github.com/FortAwesome/Font-Awesome/releases/download/6.5.2/fontawesome-free-6.5.2-web.zip"
+      },
+      "type": "library"
+    },
+    {
+      "name": "symfony/twig-bridge",
+      "version": "v6.4.22",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/symfony/twig-bridge.git",
+        "reference": "04ab306a2f2c9dbd46f4363383812954f704af9d"
+      },
+      "dist": {
+        "type": "zip",
+        "url": "https://api.github.com/repos/symfony/twig-bridge/zipball/04ab306a2f2c9dbd46f4363383812954f704af9d",
+        "reference": "04ab306a2f2c9dbd46f4363383812954f704af9d",
+        "shasum": ""
+      },
+      "require": {
+        "php": ">=8.1",
+        "symfony/deprecation-contracts": "^2.5|^3",
+        "symfony/translation-contracts": "^2.5|^3",
+        "twig/twig": "^2.13|^3.0.4"
+      },
+      "conflict": {
+        "phpdocumentor/reflection-docblock": "<3.2.2",
+        "phpdocumentor/type-resolver": "<1.4.0",
+        "symfony/console": "<5.4",
+        "symfony/form": "<6.3",
+        "symfony/http-foundation": "<5.4",
+        "symfony/http-kernel": "<6.4",
+        "symfony/mime": "<6.2",
+        "symfony/serializer": "<6.4",
+        "symfony/translation": "<5.4",
+        "symfony/workflow": "<5.4"
+      },
+      "require-dev": {
+        "egulias/email-validator": "^2.1.10|^3|^4",
+        "league/html-to-markdown": "^5.0",
+        "phpdocumentor/reflection-docblock": "^3.0|^4.0|^5.0",
+        "symfony/asset": "^5.4|^6.0|^7.0",
+        "symfony/asset-mapper": "^6.3|^7.0",
+        "symfony/console": "^5.4|^6.0|^7.0",
+        "symfony/dependency-injection": "^5.4|^6.0|^7.0",
+        "symfony/expression-language": "^5.4|^6.0|^7.0",
+        "symfony/finder": "^5.4|^6.0|^7.0",
+        "symfony/form": "^6.4.20|^7.2.5",
+        "symfony/html-sanitizer": "^6.1|^7.0",
+        "symfony/http-foundation": "^5.4|^6.0|^7.0",
+        "symfony/http-kernel": "^6.4|^7.0",
+        "symfony/intl": "^5.4|^6.0|^7.0",
+        "symfony/mime": "^6.2|^7.0",
+        "symfony/polyfill-intl-icu": "~1.0",
+        "symfony/property-info": "^5.4|^6.0|^7.0",
+        "symfony/routing": "^5.4|^6.0|^7.0",
+        "symfony/security-acl": "^2.8|^3.0",
+        "symfony/security-core": "^5.4|^6.0|^7.0",
+        "symfony/security-csrf": "^5.4|^6.0|^7.0",
+        "symfony/security-http": "^5.4|^6.0|^7.0",
+        "symfony/serializer": "^6.4.3|^7.0.3",
+        "symfony/stopwatch": "^5.4|^6.0|^7.0",
+        "symfony/translation": "^6.1|^7.0",
+        "symfony/web-link": "^5.4|^6.0|^7.0",
+        "symfony/workflow": "^5.4|^6.0|^7.0",
+        "symfony/yaml": "^5.4|^6.0|^7.0",
+        "twig/cssinliner-extra": "^2.12|^3",
+        "twig/inky-extra": "^2.12|^3",
+        "twig/markdown-extra": "^2.12|^3"
+      },
+      "type": "symfony-bridge",
+      "autoload": {
+        "psr-4": {
+          "Symfony\\Bridge\\Twig\\": ""
+        },
+        "exclude-from-classmap": [
+          "/Tests/"
+        ]
+      },
+      "notification-url": "https://packagist.org/downloads/",
+      "license": [
+        "MIT"
+      ],
+      "authors": [
+        {
+          "name": "Fabien Potencier",
+          "email": "fabien@symfony.com"
+        },
+        {
+          "name": "Symfony Community",
+          "homepage": "https://symfony.com/contributors"
+        }
+      ],
+      "description": "Provides integration for Twig with various Symfony components",
+      "homepage": "https://symfony.com",
+      "support": {
+        "source": "https://github.com/symfony/twig-bridge/tree/v6.4.22"
+      },
+      "funding": [
+        {
+          "url": "https://symfony.com/sponsor",
+          "type": "custom"
+        },
+        {
+          "url": "https://github.com/fabpot",
+          "type": "github"
+        },
+        {
+          "url": "https://tidelift.com/funding/github/packagist/symfony/symfony",
+          "type": "tidelift"
+        }
+      ],
+      "time": "2025-05-16T08:23:44+00:00"
+    },
+    {
+      "name": "twbs/bootstrap",
+      "version": "v5.3.7",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/twbs/bootstrap.git",
+        "reference": "e0032ae6a5a628a51a8552091816cec09b6434df"
+      },
+      "dist": {
+        "type": "zip",
+        "url": "https://api.github.com/repos/twbs/bootstrap/zipball/e0032ae6a5a628a51a8552091816cec09b6434df",
+        "reference": "e0032ae6a5a628a51a8552091816cec09b6434df",
+        "shasum": ""
+      },
+      "replace": {
+        "twitter/bootstrap": "self.version"
+      },
+      "type": "library",
+      "notification-url": "https://packagist.org/downloads/",
+      "license": [
+        "MIT"
+      ],
+      "authors": [
+        {
+          "name": "Mark Otto",
+          "email": "markdotto@gmail.com"
+        },
+        {
+          "name": "Jacob Thornton",
+          "email": "jacobthornton@gmail.com"
+        }
+      ],
+      "description": "The most popular front-end framework for developing responsive, mobile first projects on the web.",
+      "homepage": "https://getbootstrap.com/",
+      "keywords": [
+        "JS",
+        "css",
+        "framework",
+        "front-end",
+        "mobile-first",
+        "responsive",
+        "sass",
+        "web"
+      ],
+      "support": {
+        "issues": "https://github.com/twbs/bootstrap/issues",
+        "source": "https://github.com/twbs/bootstrap/tree/v5.3.7"
+      },
+      "time": "2025-06-10T15:44:49+00:00"
+    }
+  ]
+}

@@ -1,0 +1,146 @@
+{
+  "type": "general",
+  "version": "0.3.9",
+  "contest": {
+    "title": {
+      "fallback": "QOJ preflight synthetic VP fixture",
+      "zh-CN": "QOJ 前置测试：合成 VP"
+    },
+    "startAt": "2026-01-01T00:00:00Z",
+    "duration": [
+      5,
+      "h"
+    ],
+    "frozenDuration": [
+      1,
+      "h"
+    ]
+  },
+  "problems": [
+    {
+      "alias": "A",
+      "title": "Synthetic A",
+      "style": {
+        "backgroundColor": "#ee7777",
+        "textColor": "#000000"
+      }
+    },
+    {
+      "alias": "B",
+      "title": "Synthetic B",
+      "style": {
+        "backgroundColor": "#7777ee",
+        "textColor": "#ffffff"
+      }
+    }
+  ],
+  "series": [
+    {
+      "title": "#",
+      "rule": {
+        "preset": "Normal"
+      }
+    }
+  ],
+  "rows": [
+    {
+      "user": {
+        "id": "fixture-ghost-a",
+        "name": "Fixture ghost A",
+        "organization": "Synthetic fixtures",
+        "official": true
+      },
+      "score": {
+        "value": 1,
+        "time": [
+          30,
+          "min"
+        ]
+      },
+      "statuses": [
+        {
+          "result": null,
+          "solutions": []
+        },
+        {
+          "result": "AC",
+          "time": [
+            30,
+            "min"
+          ],
+          "tries": 1,
+          "solutions": [
+            {
+              "result": "AC",
+              "time": [
+                30,
+                "min"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user": {
+        "id": "fixture-ghost-b",
+        "name": "Fixture ghost B",
+        "organization": "Synthetic fixtures",
+        "official": true
+      },
+      "score": {
+        "value": 1,
+        "time": [
+          60,
+          "min"
+        ]
+      },
+      "statuses": [
+        {
+          "result": "AC",
+          "time": [
+            60,
+            "min"
+          ],
+          "tries": 1,
+          "solutions": [
+            {
+              "result": "AC",
+              "time": [
+                60,
+                "min"
+              ]
+            }
+          ]
+        },
+        {
+          "result": null,
+          "solutions": []
+        }
+      ]
+    }
+  ],
+  "sorter": {
+    "algorithm": "ICPC",
+    "config": {
+      "noPenaltyResults": [
+        "FB",
+        "AC",
+        "?",
+        "CE",
+        "UKE",
+        null
+      ],
+      "penalty": [
+        20,
+        "min"
+      ],
+      "timePrecision": "min",
+      "timeRounding": "floor"
+    }
+  },
+  "markers": [],
+  "contributors": [
+    "Local synthetic preflight fixture; not a real contest"
+  ]
+}

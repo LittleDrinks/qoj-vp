@@ -1,0 +1,3 @@
+[submodule "vendor/qoj-submitter"]
+	path = vendor/qoj-submitter
+	url = https://github.com/LittleDrinks/qoj-submitter.git

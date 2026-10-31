@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "QOJ VP Isolated Preflight",
+  "version": "0.1.6",
+  "description": "Read-only Firefox/native messaging preflight; no code submission.",
+  "browser_specific_settings": {
+    "gecko": {"id": "qoj-vp-preflight@littledrinks.local", "strict_min_version": "115.0"}
+  },
+  "permissions": ["nativeMessaging", "storage", "tabs", "scripting"],
+  "host_permissions": ["https://qoj.ac/*", "http://127.0.0.1/*", "http://localhost/*", "https://127.0.0.1/*", "https://localhost/*"],
+  "background": {"scripts": ["background.js"], "persistent": false},
+  "content_scripts": [{
+    "matches": ["https://qoj.ac/*", "http://127.0.0.1/*", "http://localhost/*", "https://127.0.0.1/*", "https://localhost/*"],
+    "js": ["http-content.js"],
+    "run_at": "document_start"
+  }],
+  "action": {"default_title": "Open isolated QOJ preflight"},
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'"}
+}

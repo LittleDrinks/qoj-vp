@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "code": 0,
+  "data": {
+    "_id": "900000000000000003",
+    "uk": "official",
+    "content": {
+      "root": {
+        "type": 2,
+        "name": "Preflight only",
+        "uniqueKey": "fixture-root",
+        "children": [
+          {
+            "type": 1,
+            "name": "QOJ preflight synthetic VP fixture",
+            "uniqueKey": "qoj-preflight-fixture"
+          }
+        ]
+      }
+    }
+  }
+}
