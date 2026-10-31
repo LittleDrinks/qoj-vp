@@ -13,6 +13,8 @@
   Firefox 原站会话执行 HTTP，Python Native Messaging 助手按任务运行并退出。
 - SQLite 保存会话、提交事实、未知回执和 RankLand 投递状态。未知提交不自动重发；
   原站未核实的相对时间不算作本次练习进度或榜单时间。
+- Home 默认表只显示本次时间窗内提交或本地 operation，完整历史仍在账本与原站入口。
+  越窗本地操作不隐藏，时间显示“—”并保留绝对日期提示，不显示旧提交的巨大负时。
 - 原生 VP 历史的绝对时间可从同一详情表严格匹配 SID、owner、contest/problem 和
   带时区 Submit time 后回填；成功持久复用，失败缓存 60 秒，每次 refresh 至多探测
   3 条并公平轮转。prepared 不探测，显式核对优先指定 SID；不猜 VP 起点、不自动关联 intent。
@@ -30,9 +32,9 @@
 | 验证 | 当前结论 | 证据 |
 | --- | --- | --- |
 | Python 完整后端测试 | 63 项通过 | `artifacts/backend-final-tests.txt` |
-| 五个前端脚本 | Node 运行器报告 23 项通过、0 失败；不另加内部断言数 | `artifacts/frontend-final-tests.txt` |
+| 六个前端脚本 | Node 运行器报告 28 项通过、0 失败；不另加内部断言数 | `artifacts/frontend-final-tests.txt` |
 | 资源真实浏览器 UI、准备、缓存 ZIP 下载、离线文件读取 | run `1dc0a29b66334aaf819e8db48b3ae041`，12 项及 cleanup 全通过 | `artifacts/resources-browser/accepted/` |
-| 当前源码与官方 9.0.1 原始渲染快照/资产在同一 VM Firefox 回放 | run `2813b23be5ac42fcad10176b42bb6b74`，27 项及 5 项 cleanup 全通过 | `artifacts/visual-parity/current/`；来源 `preflight/visual-reference/rendered/` |
+| 当前源码与官方 9.0.1 原始渲染快照/资产在同一 VM Firefox 回放 | run `1d1e1f01316e4afd8f7681f78c95b6f2`，27 项及 5 项 cleanup 全通过 | `artifacts/visual-parity/current/`；来源 `preflight/visual-reference/rendered/` |
 | Home 专门采集 | run `ace102929829499a9875db8840f59b8b`，7 项及 cleanup 通过；`captured-not-parity-certified` | `artifacts/home-parity/accepted/`；不作为 Home 1:1 证明 |
 | 原站 RankLand 无本队时建立队伍、记录及恢复 | run `50d8283d22ca474db464c803154be3e9`，6 项及 cleanup 全通过 | `artifacts/verified-reference-and-rankland/` |
 | 真实 QOJ 单次训练提交 | 1051 / C / 5115，submission `3331061` 已 AC，源 SHA 匹配，正常核对 UI 明确关联 `confirmed / CORRECT` | `artifacts/live-acceptance/reconciled-source-ledger.json` |
@@ -60,10 +62,12 @@ Home 的 Clarifications→Contest 属于功能适配；七项采集检查证明�
 首次真实丢回执的根因仍未证实；隔离诊断验收的通过不等于复现或修复了该次根因。
 后续只做 GET、核对与原站榜单同步，不重发源码，不新建官方 VP。
 
-上述五个前端脚本为 `preflight/test_ui_resources.cjs`、
+上述六个前端脚本为 `preflight/test_ui_resources.cjs`、
 `preflight/test_qoj_prepare_entry.cjs`、`preflight/test_ui_history_notice.cjs`、
-`preflight/test_transport_receipts.cjs`、`tests/test_qoj_response_limits.cjs`；
-23 是 Node 运行器的实际汇总，不拼接各脚本内部资源/入口/notice/限额/回执断言数。
+`preflight/test_transport_receipts.cjs`、`preflight/test_ui_submissions.cjs`、
+`tests/test_qoj_response_limits.cjs`；28 是 Node 运行器的实际汇总，不拼接各脚本内部断言数。
+新增五项生产 renderer 回归先复现巨大负时/旧记录混入，再验证当前 AC、unknown 核对、
+越窗 own operation、sending/rejected 与 prepared 空表；不修改账本事实或全局时间格式。
 
 真实附件通过证据来自长春 I / 22918，不是旧 D / 22913 的网页工具 PDF 解析。
 C 的 H3 标签样例提取缺口已修复，并通过真实下载与新增后端测试核验。
@@ -72,7 +76,7 @@ C 的 H3 标签样例提取缺口已修复，并通过真实下载与新增后�
 
 | 产物 | 已核验结果 | SHA-256 |
 | --- | --- | --- |
-| `qoj-vp-firefox-0.1.0.xpi` | 440416 B；22 文件逐字节等于当前扩展源码；未签名 | `2bdf7fb5fd35c2975b5fdfbf2848ebadbb0225df8b7670aea4c7790bb5451ff2` |
+| `qoj-vp-firefox-0.1.0.xpi` | 440472 B；22 文件逐字节等于当前扩展源码；未签名 | `b4b8043403aa06efdd38552deb3b578dd2eaeaba3402f89e7d2150f3b762e0c6` |
 | `qoj_vp_workbench-0.1.0-py3-none-any.whl` | 35806 B；9 个 Python 模块一致，含 LICENSE | `1772e0874062d8b44b06d9380f68a7adf256cb8f3301c09bf817b48607588001` |
 
 证据为 `artifacts/extension-package-final.json`、`artifacts/wheel-package-final.json`。

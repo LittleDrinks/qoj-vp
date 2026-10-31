@@ -33,6 +33,14 @@ Session: `{sessionId,contestId,title,account,startAt,durationMs,state,effectiveS
 
 Submission: `{id,operationId?,problemId,problemLabel,language,filename?,submittedAt,elapsedMs,verdict,rawVerdict,score?,pending,url,state}`. `id` is provider submission ID when confirmed. DOMjudge verdicts include CORRECT, WRONG-ANSWER, TIMELIMIT, RUN-ERROR, COMPILER-ERROR, NO-OUTPUT, OUTPUT-LIMIT, JUDGING, UNKNOWN. Preserve raw observations; 0 score alone is insufficient to select WA.
 
+The default Home table renders only `inSession === true` or a nonempty
+`operationId`, without mutating the full history/ledger. Own unknown, sending,
+rejected and confirmed operations stay visible even outside the local window.
+Outside-window rows display no elapsed time (an em dash); the title retains the
+absolute date and the reconciliation/details entry stays available. Remaining
+history is accessible through the original-site history link. A prepared session
+without current/local operations keeps the original No submissions state.
+
 Additional browser methods root provides: `rankland.open {sessionId}` (restore exact original-site URL), `rankland.sync {sessionId}`, `problem.pdf {sessionId,problemId}` (prefer original PDF; HTML invokes Firefox's save-as-PDF flow). UI never labels a missing attachment as an existing PDF.
 
 Scoreboard identity includes origin, contest, run, rule, count, ratio, at and from. Opening is serialized. Automatic delivery stops when more than one tab can write the same original-site storage slot; the user keeps one before continuing. Acknowledgements are scoped to both source submission and destination, and rejudging an already delivered result requires review.
@@ -135,6 +143,6 @@ observation is not the verified attachment case. Real old native submission
 1511772 also obtained a verified absolute timestamp through production refresh;
 the current queue still contains only 3331061, synced. The original real receipt
 loss remains unexplained; no later real source POST re-tested automatic receipt.
-Python 63 and Node 23 tests pass. Temporary product diagnostics were removed;
+Python 63 and Node 28 tests pass. Temporary product diagnostics were removed;
 XPI/wheel are built and byte-verified. Final captures/source inventory, source
 archive, delivery copies and local commit are still being finalized.

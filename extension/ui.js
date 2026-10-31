@@ -319,9 +319,10 @@
   }
   function renderSubmissions() {
     const body = $("submissions-body"); body.replaceChildren();
-    $("submissions-empty").hidden = Boolean(state.submissions.length);
-    $("submissions-table").hidden = !state.submissions.length;
-    const sorted = [...state.submissions].sort((a, b) => (epoch(b.submittedAt) || 0) - (epoch(a.submittedAt) || 0));
+    const visible = state.submissions.filter(item => item.inSession === true || Boolean(item.operationId));
+    $("submissions-empty").hidden = Boolean(visible.length);
+    $("submissions-table").hidden = !visible.length;
+    const sorted = visible.sort((a, b) => (epoch(b.submittedAt) || 0) - (epoch(a.submittedAt) || 0));
     for (const submission of sorted) {
       const row = node("tr", submission.pending ? "unseen" : "");
       if (submission.operationId) row.dataset.operationId = submission.operationId;
@@ -336,8 +337,8 @@
       };
       const time = node("td");
       const elapsed = submission.elapsedMs ?? (epoch(submission.submittedAt) !== null && epoch(state.session.startAt) !== null ? epoch(submission.submittedAt) - epoch(state.session.startAt) : null);
-      const timeLink = detailLink(); timeLink.textContent = formatElapsed(elapsed); time.append(timeLink);
-      time.title = formatDate(submission.submittedAt);
+      const timeLink = detailLink(); timeLink.textContent = submission.inSession === true ? formatElapsed(elapsed) : "—"; time.append(timeLink);
+      time.title = formatDate(submission.submittedAt) + (submission.inSession === false && epoch(submission.submittedAt) !== null ? " · 时间窗外" : "");
       const problem = node("td", "probid"), problemLink = detailLink(); problemLink.append(badge(submission.problemLabel)); problem.append(problemLink);
       const language = node("td", "langid"), languageLink = detailLink(); languageLink.textContent = submission.language || "—"; language.append(languageLink);
       const result = node("td");

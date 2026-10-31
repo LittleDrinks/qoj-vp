@@ -74,8 +74,10 @@ python3 preflight/guest_resource_cache.py --project /path/to/guest/project
 再 fresh query/单次 click；关闭复用 `VisualHarness.close_modal` 等待 backdrop 清理。
 不 catch/reclick 来掩盖 stale。
 
-Home 保留全部历史，不默认丢弃旧记录。大量未核实时间 warning 压缩为一条计数中文
-说明，其余读取缺口归并短提示；“原站记录”提供当前比赛/账号的原生历史入口。
+账本保留全部历史；Home 默认只显示本次时间窗内提交与本地 operation，旧原生 VP
+记录不再挤满默认表。越窗本地操作仍可核对，time 显示“—”并在提示中保留绝对日期。
+大量未核实时间 warning 压缩为一条计数中文说明，其余读取缺口归并短提示；
+“原站记录”提供当前比赛/账号的完整原生历史入口。
 
 实际隔离 Firefox 资源 run `1dc0a29b66334aaf819e8db48b3ae041` 的 12 项及 cleanup
 已通过，归档 `artifacts/resources-browser/accepted/`。认证普通 Firefox 中，长春 4582

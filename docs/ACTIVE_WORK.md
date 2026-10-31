@@ -6,15 +6,18 @@
 
 ## 已验证
 
-- Python 完整测试 63 项通过：`artifacts/backend-final-tests.txt`。五个前端脚本由
-  Node 测试运行器报告 23 项通过、0 失败：`artifacts/frontend-final-tests.txt`；
+- Python 完整测试 63 项通过：`artifacts/backend-final-tests.txt`。六个前端脚本由
+  Node 测试运行器报告 28 项通过、0 失败：`artifacts/frontend-final-tests.txt`；
   各脚本内部断言计数不另加总为测试数量。
+- Home 默认只显示 `inSession===true` 或带 `operationId` 的记录，账本不删历史。
+  越窗本地操作时间显示“—”，保留绝对日期和核对入口；prepared 无当前操作时
+  保持 No submissions。生产 renderer 五项回归先红后绿，末次真实 GUI 已核对为单条本次 AC，历史账本仍完整保留。
 - 资源浏览器验收 run `1dc0a29b66334aaf819e8db48b3ae041`：12 项及 cleanup 全通过，
   证据 `artifacts/resources-browser/accepted/`。真实 UI 准备普通样例、extras-only
   interactor、unknown 资源；浏览器下载 ZIP 并逐字节核对。在线重载/选择后保留 UI
   上下文，再关闭 fixture，清单和缓存下载没有新增 QOJ 请求。整页离线启动未实现。
 - 干净当前扩展与官方 DOMjudge 9.0.1 原始渲染快照回放 run
-  `2813b23be5ac42fcad10176b42bb6b74`：27 项及 5 项 cleanup 全通过，归档
+  `1d1e1f01316e4afd8f7681f78c95b6f2`：27 项及 5 项 cleanup 全通过，归档
   `artifacts/visual-parity/current/`。
   computed styles、visible fields、modal interactions 相等；navbar 原始 DOMRect
   仍有约 `1.5e-5 px` 浮点差异，16/20 组控件截图像素完全相同，导航字形仍有差异；整页像素一致未认证。
@@ -62,7 +65,7 @@
 
 ## 当前部署与操作边界
 
-- 当前 XPI SHA-256：`2bdf7fb5fd35c2975b5fdfbf2848ebadbb0225df8b7670aea4c7790bb5451ff2`。
+- 当前 XPI SHA-256：`b4b8043403aa06efdd38552deb3b578dd2eaeaba3402f89e7d2150f3b762e0c6`。
   wheel SHA-256：`1772e0874062d8b44b06d9380f68a7adf256cb8f3301c09bf817b48607588001`。
   XPI 未签名，Firefox 临时加载在重启后仍需重新载入。
 - 代码与证据：`/home/q2635/wsl-workspace/qoj-vp`。
