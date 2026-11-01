@@ -11,6 +11,14 @@ import uuid
 from .history import FINAL_VERDICTS
 
 
+def session_duration(session):
+    """The local participation window can end before the configured duration."""
+    duration = session['durationMs']
+    if session.get('startAt') is not None and session.get('finishedAt') is not None:
+        duration = min(duration, max(0, session['finishedAt'] - session['startAt']))
+    return duration
+
+
 class Ledger:
     def __init__(self, directory):
         self.directory = Path(directory).expanduser().resolve()
@@ -38,6 +46,9 @@ class Ledger:
               account TEXT NOT NULL, submission_id TEXT NOT NULL, revision INTEGER NOT NULL,
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, record_json TEXT NOT NULL,
               UNIQUE(session_id,account,submission_id));
+            CREATE TABLE IF NOT EXISTS contest_snapshots (
+              account TEXT NOT NULL, contest_id TEXT NOT NULL, record_json TEXT NOT NULL,
+              PRIMARY KEY(account,contest_id));
         ''')
         os.chmod(self.path, 0o600)
 
@@ -70,6 +81,38 @@ class Ledger:
     def save_session(self, record):
         self.db.execute('UPDATE sessions SET record_json=? WHERE session_id=?', (json.dumps(record), record['sessionId']))
 
+    def save_contest(self, account, contest):
+        if account:
+            self.db.execute('''INSERT INTO contest_snapshots VALUES(?,?,?)
+                ON CONFLICT(account,contest_id) DO UPDATE SET record_json=excluded.record_json''',
+                (account.casefold(), str(contest['id']), json.dumps(contest)))
+
+    def contest(self, account, contest_id):
+        row = self.db.execute('SELECT record_json FROM contest_snapshots WHERE account=? AND contest_id=?',
+                              ((account or '').casefold(), str(contest_id))).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def has_unresolved_operations(self, session_id):
+        return self.db.execute('''SELECT 1 FROM operations WHERE session_id=?
+            AND state NOT IN ('confirmed','rejected') LIMIT 1''', (session_id,)).fetchone() is not None
+
+    def delete_session(self, session_id):
+        """Called inside the application's transaction after eligibility checks.
+
+        Resource objects and verified contest snapshots are account/contest
+        scoped. Deleting one local practice must not remove those shared data.
+        """
+        linked = self.db.execute('SELECT account,submission_id FROM session_submissions WHERE session_id=?',
+                                 (session_id,)).fetchall()
+        self.db.execute('DELETE FROM rankland_queue WHERE session_id=?', (session_id,))
+        self.db.execute('DELETE FROM operations WHERE session_id=?', (session_id,))
+        self.db.execute('DELETE FROM session_submissions WHERE session_id=?', (session_id,))
+        for account, submission_id in linked:
+            self.db.execute('''DELETE FROM submissions WHERE account=? AND submission_id=?
+                AND NOT EXISTS (SELECT 1 FROM session_submissions WHERE account=? AND submission_id=?)''',
+                (account, submission_id, account, submission_id))
+        self.db.execute('DELETE FROM sessions WHERE session_id=?', (session_id,))
+
     def bind_account(self, session_id, account):
         with self.transaction():
             record = self.session(session_id)
@@ -101,6 +144,10 @@ class Ledger:
                  ORDER BY created_at LIMIT 1''', (record['sessionId'], fingerprint)).fetchone()
             if row:
                 return self.operation(row[0]), False
+            current = self.session(record['sessionId'])
+            if (current['state'] != 'running' or current.get('startAt') is None
+                    or not 0 <= record['submittedAt'] - current['startAt'] < session_duration(current)):
+                raise ValueError('The local session ended before the submission could be sent')
             self.db.execute('INSERT INTO operations VALUES(?,?,?,?,?,?)',
                             (record['operationId'], record['sessionId'], fingerprint, 'preparing',
                              record['submittedAt'], json.dumps(record)))
@@ -147,7 +194,7 @@ class Ledger:
         session = self.session(session_id)
         start, at = session.get('startAt'), submission.get('submittedAt')
         eligible = (session.get('ranklandUrl') and start is not None and at is not None
-                    and 0 <= at - start < session['durationMs'])
+                    and 0 <= at - start < session_duration(session))
         verdict = submission.get('verdict')
         previous = self.db.execute('SELECT * FROM rankland_queue WHERE session_id=? AND account=? AND submission_id=?',
                                   (session_id, submission['account'].casefold(), submission['id'])).fetchone()
@@ -188,7 +235,7 @@ class Ledger:
         session = self.session(session_id)
         at, start = result.get('submittedAt'), session.get('startAt')
         result['elapsedMs'] = at - start if at is not None and start is not None else None
-        result['inSession'] = (result['elapsedMs'] is not None and 0 <= result['elapsedMs'] < session['durationMs'])
+        result['inSession'] = (result['elapsedMs'] is not None and 0 <= result['elapsedMs'] < session_duration(session))
         return result
 
     @staticmethod

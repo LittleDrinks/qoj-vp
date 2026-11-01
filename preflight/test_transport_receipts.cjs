@@ -202,6 +202,35 @@ test('503 diagnostics show a real returned status, without claiming a native rec
   assert.ok(!attempt.events.some(event => event.phase === 'receiptReturned'));
 });
 
+for (const observation of ['absent', 'late']) {
+  test(`503 remains a direct HTTP response when observational webRequest events are ${observation}`, async () => {
+    let delayed;
+    const h = harness(({before, headers}) => {
+      delayed = {before, headers};
+      return {status: 503, url: TARGET, headers: {}, bodyBase64: ''};
+    });
+    const response = await h.post();
+    assert.equal(response.status, 503);
+    assert.equal(response.receiptTransport, undefined);
+    if (observation === 'late') {
+      // Production has returned the actual response and removed this nonce;
+      // late observation callbacks must not invent a receipt or dispatch again.
+      delayed.before();
+      delayed.headers({statusCode: 503, responseHeaders: []});
+    }
+    await settleStorage();
+    const diagnostics = h.transport.diagnostics(), attempt = diagnostics.postAttempts[0];
+    assert.equal(attempt.finalCode, 'HTTP_RESPONSE');
+    assert.equal(attempt.phase, 'httpReturned');
+    assert.equal(attempt.events.at(-1).status, 503);
+    assert.equal(attempt.events.at(-1).urlMatches, true);
+    assert.ok(!attempt.events.some(event => ['beforeBound', 'headersObserved', 'receiptReturned', 'failed'].includes(event.phase)));
+    assert.equal(diagnostics.postObservations.length, 0);
+    assert.equal(h.storage['http-post-diagnostics-v1'].attempts[0].finalCode, 'HTTP_RESPONSE');
+    assert.equal(h.outgoing.length, 1);
+  });
+}
+
 test('storage failure does not change a valid redirect or repeat a dispatch', async () => {
   const h = harness(({before, headers}) => { before(); headers(); return {opaqueRedirect: true}; }, {failStorage: true});
   assert.equal((await h.post()).status, 302);

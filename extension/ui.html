@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Adapted from DOMjudge 9.0.1 team templates; GPL-2.0-or-later. See docs/UI_UPSTREAM.md. -->
+<!-- Adapted from DOMjudge 9.0.1 team and jury templates; GPL-2.0-or-later. See docs/UI_UPSTREAM.md. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -15,19 +15,23 @@
 <body>
   <nav class="navbar navbar-expand-md navbar-dark bg-dark fixed-top" aria-label="Main navigation">
     <div class="container-fluid">
-      <a class="navbar-brand hidden-sm-down" href="#home">DOMjudge</a>
+      <a id="navbar-brand" class="navbar-brand hidden-sm-down" href="#home">DOMjudge</a>
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#menuDefault" aria-controls="menuDefault" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button>
       <div class="collapse navbar-collapse" id="menuDefault">
-        <ul class="navbar-nav me-auto">
+        <ul id="team-navigation" class="navbar-nav me-auto">
           <li class="nav-item"><a id="nav-home" class="nav-link active" href="#home"><i class="fas fa-home" aria-hidden="true"></i> Home</a></li>
           <li class="nav-item"><a id="nav-problems" class="nav-link" href="#problems"><i class="fas fa-book-open" aria-hidden="true"></i> Problemset</a></li>
           <li class="nav-item"><a id="nav-scoreboard" class="nav-link" aria-disabled="true"><i class="fas fa-list-ol" aria-hidden="true"></i> Scoreboard</a></li>
         </ul>
-        <div class="ml-auto me-3"><a id="open-submit" class="nav-link" aria-disabled="true" tabindex="-1"><span class="btn btn-success btn-sm disabled" disabled><i class="fas fa-cloud-upload-alt" aria-hidden="true"></i> Submit</span></a></div>
+        <ul id="jury-navigation" class="navbar-nav me-auto" hidden><li class="nav-item"><a id="nav-contests" class="nav-link active" href="#jury"><i class="fas fa-trophy" aria-hidden="true"></i> Contests</a></li><li class="nav-item"><a id="nav-team" class="nav-link" href="#home"><i class="fas fa-arrow-right" aria-hidden="true"></i> Team</a></li></ul>
+        <ul id="jury-entry" class="navbar-nav me-3"><li class="nav-item"><a id="nav-jury" class="nav-link" href="#jury"><i class="fas fa-gavel" aria-hidden="true"></i> Jury</a></li></ul>
+        <div id="team-submit-controls" class="ml-auto me-3"><a id="open-submit" class="nav-link" aria-disabled="true" tabindex="-1"><span class="btn btn-success btn-sm disabled" disabled><i class="fas fa-cloud-upload-alt" aria-hidden="true"></i> Submit</span></a></div>
         <ul class="navbar-nav">
           <li class="nav-item dropdown">
             <a class="nav-link dropdown-toggle disabled" href="#" id="navbarDropdownContests" role="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false" aria-disabled="true" tabindex="-1"><i class="fas fa-trophy" aria-hidden="true"></i> <span id="session-label" class="vp-contest-label">no contest</span></a>
-            <div id="session-select" class="dropdown-menu scrollable-menu" aria-labelledby="navbarDropdownContests" data-current-contest=""><a class="dropdown-item disabled" href="#" tabindex="-1" aria-disabled="true">Change Contest</a></div>
+            <div id="session-select" class="dropdown-menu scrollable-menu" aria-labelledby="navbarDropdownContests" data-current-contest="">
+              <a class="dropdown-item disabled" href="#" tabindex="-1" aria-disabled="true">Change Contest</a>
+            </div>
           </li>
         </ul>
         <div class="navbar-text vp-clock"><i class="fas fa-clock" aria-hidden="true"></i> <span id="timeleft">no contest</span></div>
@@ -41,8 +45,8 @@
     <div id="connection" class="alert alert-secondary mt-3" role="status">正在连接…</div>
     <section id="empty-state" class="text-center" hidden>
       <h1 id="teamwelcome">Welcome team <span id="teamwelcometeam">QOJ</span>!</h1>
-      <h2 id="contestnotstarted">选择比赛，或新建练习。</h2>
-      <button id="empty-new-session" class="btn btn-success mt-4" type="button"><i class="fas fa-plus" aria-hidden="true"></i> New contest</button>
+      <h2 id="contestnotstarted">尚未选择比赛。</h2>
+      <a id="empty-jury-link" class="btn btn-secondary mt-4" href="#jury"><i class="fas fa-gavel" aria-hidden="true"></i> 比赛管理</a>
     </section>
     <div id="contest-view" hidden>
       <section id="home-view">
@@ -65,26 +69,7 @@
               </table>
             </div>
           </div>
-          <aside class="col">
-            <h2 class="teamoverview">Contest</h2>
-            <dl class="row vp-session-details">
-              <dt class="col-4">Contest</dt><dd id="contest-name" class="col-8"></dd>
-              <dt class="col-4">Account</dt><dd id="account-name" class="col-8"></dd>
-              <dt class="col-4">State</dt><dd id="session-state" class="col-8"></dd>
-              <dt class="col-4">Started</dt><dd id="started-at" class="col-8"></dd>
-            </dl>
-            <div class="d-flex flex-wrap gap-2">
-              <button id="start-session" class="btn btn-success btn-sm" type="button" hidden><i class="fas fa-play" aria-hidden="true"></i> Start</button>
-              <a id="qoj-contest-link" class="btn btn-outline-secondary btn-sm" href="https://qoj.ac/" target="_blank" rel="noopener noreferrer">打开 QOJ</a>
-              <button id="rankland-settings" class="btn btn-outline-secondary btn-sm" type="button">榜单设置</button>
-              <button id="open-resources" class="btn btn-secondary btn-sm" type="button">准备资源</button>
-              <button id="archive-session" class="btn btn-outline-secondary btn-sm" type="button">归档</button>
-              <button id="open-scoreboard" class="btn btn-secondary btn-sm" type="button"><i class="fas fa-list-ol" aria-hidden="true"></i> 打开榜单</button>
-              <button id="sync-scoreboard" class="btn btn-outline-secondary btn-sm" type="button"><i class="fas fa-sync-alt" aria-hidden="true"></i> 同步榜单</button>
-              <button id="new-session" class="btn btn-outline-secondary btn-sm" type="button" disabled><i class="fas fa-plus" aria-hidden="true"></i> New contest</button>
-            </div>
-            <p id="rankland-status" class="small text-muted mt-2" role="status" aria-live="polite"></p>
-          </aside>
+
         </div>
       </section>
       <section id="problems-view" hidden>
@@ -92,6 +77,49 @@
         <div class="container"><div id="problems-list" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3 problem-list"></div></div>
       </section>
     </div>
+    <section id="jury-view" hidden>
+      <section id="jury-list-view">
+        <h1 class="mt-4">Contests</h1>
+        <h3>All available contests</h3>
+        <div class="table-responsive"><table id="jury-contests-table" class="data-table table table-hover table-striped table-sm">
+          <thead><tr><th>QOJ</th><th>Name</th><th>Account</th><th>State</th><th>Start time</th><th>Duration</th></tr></thead>
+          <tbody id="jury-contests-body"></tbody>
+        </table></div>
+        <p id="jury-no-contests" class="alert alert-info" hidden>No contests</p>
+        <p><button id="new-session" class="btn btn-primary" type="button" disabled><i class="fas fa-plus" aria-hidden="true"></i> Add new contest</button></p>
+      </section>
+      <section id="jury-detail-view" hidden>
+        <p class="mt-3"><a href="#jury"><i class="fas fa-arrow-left" aria-hidden="true"></i> Contests</a></p>
+        <h1 id="jury-contest-title">Contest</h1>
+        <div class="row"><div class="col-lg-7">
+          <table class="table table-sm table-striped"><tbody>
+            <tr><th>QOJ</th><td><a id="qoj-contest-link" target="_blank" rel="noopener noreferrer"></a></td></tr>
+            <tr><th>Name</th><td id="contest-name"></td></tr>
+            <tr><th>Account</th><td id="account-name"></td></tr>
+            <tr><th>State</th><td id="session-state"></td></tr>
+            <tr><th>Start time</th><td id="started-at"></td></tr>
+            <tr><th>Duration</th><td id="jury-duration"></td></tr>
+          </tbody></table>
+          <form id="jury-config-form" class="mb-3">
+            <div id="jury-config-error" class="alert alert-danger d-none" role="alert"></div>
+            <div class="mb-3"><label class="form-label" for="jury-title-input">Name</label><input id="jury-title-input" class="form-control" maxlength="160" required></div>
+            <div class="mb-3"><label class="form-label" for="jury-duration-input">比赛时长（分钟）</label><input id="jury-duration-input" class="form-control" type="number" min="1" max="20160" required></div>
+            <button id="jury-config-save" class="btn btn-primary" type="submit">Save</button>
+            <span id="jury-config-note" class="small text-muted ms-2"></span>
+          </form>
+          <div class="d-flex flex-wrap gap-2">
+            <button id="start-session" class="btn btn-primary btn-sm" type="button" hidden><i class="fas fa-play" aria-hidden="true"></i> Start now</button>
+            <button id="finish-session" class="btn btn-primary btn-sm" type="button" hidden><i class="fas fa-stop" aria-hidden="true"></i> Finish now</button>
+            <button id="rankland-settings" class="btn btn-secondary btn-sm" type="button">榜单设置</button>
+            <button id="open-resources" class="btn btn-secondary btn-sm" type="button">题目资源与样例</button>
+            <button id="sync-scoreboard" class="btn btn-secondary btn-sm" type="button"><i class="fas fa-sync-alt" aria-hidden="true"></i> 同步榜单</button>
+            <button id="archive-session" class="btn btn-secondary btn-sm" type="button">归档</button>
+            <button id="delete-session" class="btn btn-danger btn-sm" type="button"><i class="fas fa-trash-alt" aria-hidden="true"></i> Delete</button>
+          </div>
+          <p id="rankland-status" class="small text-muted mt-2" role="status" aria-live="polite"></p>
+        </div></div>
+      </section>
+    </section>
     </div></div>
   </main>
 
@@ -148,6 +176,27 @@
     <div class="modal-dialog"><div class="modal-content">
       <div class="modal-header"><h2 id="rankland-title" class="modal-title fs-5">榜单设置</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
       <form id="rankland-form"><div class="modal-body"><div id="rankland-error" class="alert alert-danger d-none" role="alert"></div><label for="rankland-url" class="form-label">RankLand 比赛链接</label><input id="rankland-url" class="form-control" type="url" required autocomplete="off" placeholder="https://vp.xcpc.link/?contest=…"><p class="form-text">保存后可从 Scoreboard 恢复进度。</p></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">保存</button></div></form>
+    </div></div>
+  </div>
+
+  <div id="manual-samples-modal" class="modal fade" tabindex="-1" aria-labelledby="manual-samples-title" aria-hidden="true">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 id="manual-samples-title" class="modal-title">添加样例</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <form id="manual-samples-form"><div class="modal-body">
+        <div id="manual-samples-error" class="alert alert-danger d-none" role="alert"></div>
+        <p id="manual-samples-problem" class="fw-bold"></p>
+        <div class="mb-3"><label for="manual-samples-mode" class="form-label">添加方式</label><select id="manual-samples-mode" class="form-select"><option value="files">上传样例文件</option><option value="text">粘贴一组样例</option></select></div>
+        <div id="manual-samples-files-group" class="mb-3"><label for="manual-samples-files" class="form-label">样例 ZIP 或输入/输出文件</label><input id="manual-samples-files" class="form-control" type="file" multiple accept=".zip,.in,.ans,.out"><div class="form-text">选择一个 ZIP，或同名的 .in 与 .ans / .out 文件。总计不超过 8 MiB，单个样例文件不超过 4 MiB。</div></div>
+        <div id="manual-samples-text-group" hidden><div class="mb-3"><label for="manual-sample-input" class="form-label">Sample input</label><textarea id="manual-sample-input" class="form-control" rows="6" spellcheck="false"></textarea></div><div class="mb-3"><label for="manual-sample-output" class="form-label">Sample output</label><textarea id="manual-sample-output" class="form-control" rows="6" spellcheck="false"></textarea></div></div>
+        <div id="manual-samples-replace-group" class="form-check" hidden><input id="manual-samples-replace" class="form-check-input" type="checkbox"><label for="manual-samples-replace" class="form-check-label">替换这道题已有的样例；保留附件。</label></div>
+        <p class="form-text mb-0 mt-3">保存后可在选手 Problemset 下载。手动样例会保留，不会被自动准备覆盖。</p>
+      </div><div class="modal-footer"><button class="btn btn-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button id="manual-samples-save" class="btn btn-primary" type="submit">保存样例</button></div></form>
+    </div></div>
+  </div>
+
+  <div id="delete-contest-modal" class="modal fade" tabindex="-1" aria-labelledby="delete-contest-title" aria-hidden="true">
+    <div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 id="delete-contest-title" class="modal-title">Delete contest</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <form id="delete-contest-form"><div class="modal-body"><div id="delete-contest-error" class="alert alert-danger d-none" role="alert"></div><p id="delete-contest-description"></p><p>删除本地比赛、提交记录和同步队列。QOJ 与 RankLand 原站记录不会被删除。</p><div class="form-check"><input id="delete-contest-confirm" class="form-check-input" type="checkbox" required><label for="delete-contest-confirm" class="form-check-label">确认删除这场本地比赛</label></div></div><div class="modal-footer"><button class="btn btn-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button id="delete-contest-send" class="btn btn-danger" type="submit">Delete</button></div></form>
     </div></div>
   </div>
 

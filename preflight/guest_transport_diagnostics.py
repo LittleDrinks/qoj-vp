@@ -98,7 +98,8 @@ window.receiptQa = {
       'FIXTURE_ORIGIN_DENIED','FIXTURE_TAB_NOT_READY','FIXTURE_STATUS_MISMATCH',
       'OBSERVED_RECEIPT_MISSING','FALSE_SUCCESS_RECEIPT','MISSING_LOCATION_NOT_OBSERVED',
       'DIAGNOSTICS_NOT_PERSISTED','PERSISTED_ATTEMPT_COUNT','DIAGNOSTIC_STORAGE_FAILED',
-      'SENSITIVE_DIAGNOSTICS','REAL_REQUEST_BINDING_MISSING','REAL_HEADERS_MISSING']);
+      'SENSITIVE_DIAGNOSTICS','REAL_REQUEST_BINDING_MISSING','REAL_HEADERS_MISSING',
+      'DIRECT_HTTP_DIAGNOSTICS_MISMATCH']);
     return known.has(error?.message)?error.message:'QA_FAILED';
   },
   async settle() {
@@ -213,6 +214,9 @@ window.receiptQa = {
       }
       this.currentCase.phase='validated';
     }
+    // A later audit failure must not overwrite the last request's actual
+    // outcome (in particular its expected UNCONFIRMED_REDIRECT result).
+    this.currentCase=null;
     await this.settle();
     const diagnostics=VpTransport.diagnostics();
     const saved=(await browser.storage.local.get('http-post-diagnostics-v1'))['http-post-diagnostics-v1'];
@@ -221,6 +225,15 @@ window.receiptQa = {
     const serialized=JSON.stringify({diagnostics,saved});
     if(serialized.includes('FAKE_') || serialized.includes('contentsBase64') || serialized.includes('bodyBase64'))throw new Error('SENSITIVE_DIAGNOSTICS');
     for(const attempt of diagnostics.postAttempts) {
+      if(attempt.requestPath==='/contest/3387/problem/15420') {
+        // A normal Fetch response already supplies its HTTP status. Firefox
+        // may deliver the observational webRequest events after that response,
+        // when transport has correctly cleared the request's nonce binding.
+        const returned=attempt.events.filter(e=>e.phase==='httpReturned').at(-1);
+        if(attempt.finalCode!=='HTTP_RESPONSE' || returned?.status!==503 || returned.urlMatches!==true ||
+            attempt.events.some(e=>e.phase==='receiptReturned'))throw new Error('DIRECT_HTTP_DIAGNOSTICS_MISMATCH');
+        continue;
+      }
       if(!attempt.events.some(e=>e.phase==='beforeBound' && e.tabMatches && e.urlMatches && e.methodMatches))throw new Error('REAL_REQUEST_BINDING_MISSING');
       if(!attempt.events.some(e=>e.phase==='headersObserved'))throw new Error('REAL_HEADERS_MISSING');
     }

@@ -6,6 +6,8 @@
   const MAX_SOURCE_BYTES = 512 * 1024;
   const MAX_RESOURCE_BYTES = 64 * 1024 * 1024;
   const RESOURCE_CHUNK_BYTES = 256 * 1024;
+  const MAX_MANUAL_BYTES = 8 * 1024 * 1024;
+  const MAX_MANUAL_FILE_BYTES = 4 * 1024 * 1024;
   const INTENTS_KEY = "vpUiSubmissionIntents";
   const ACTIVE_KEY = "vpUiActiveSession";
   // Application.submit raises the account/session errors below before
@@ -26,6 +28,7 @@
     resourceManifestError: "", resourceSummary: "", resourceReadSequence: 0, resourceMutation: 0,
     ranklandSnapshot: null, ranklandSnapshotState: "unavailable", ranklandSnapshotMessage: "",
     ranklandRequestSequence: 0, ranklandRequest: null,
+    juryRequest: null, adminBusy: false, manualProblem: null, manualSessionId: null, manualBusy: false, deleteSessionId: null,
   };
   const modals = {};
 
@@ -107,6 +110,7 @@
   function sessionState(session = state.session) {
     if (!session) return "none";
     if (session.state === "archived") return "archived";
+    if (session.state === "finished") return "finished";
     const start = epoch(session.startAt);
     if (start === null) return "prepared";
     return Date.now() - start >= session.durationMs ? "finished" : "running";
@@ -179,7 +183,7 @@
   function renderNavigation() {
     const previous = state.session?.sessionId || "";
     const toggle = $("navbarDropdownContests"), menu = $("session-select");
-    const disabled = !state.sessions.length || !state.connected || state.submitting;
+    const disabled = !state.connected || state.submitting;
     const title = state.session ? state.session.title || "Contest " + state.session.contestId : "no contest";
     $("session-label").textContent = title;
     toggle.title = title;
@@ -196,7 +200,7 @@
       const label = session.title || "Contest " + session.contestId;
       const link = node("a", "dropdown-item" + (disabled ? " disabled" : ""), label + (session.state === "archived" ? " · 已归档" : ""));
       const url = new URL(browser.runtime.getURL("ui.html"));
-      url.searchParams.set("session", session.sessionId); url.hash = location.hash;
+      url.searchParams.set("session", session.sessionId); url.hash = isJuryRoute() ? "#jury/contest/" + session.sessionId : location.hash;
       link.href = url.href; link.dataset.sessionId = session.sessionId;
       if (disabled) { link.tabIndex = -1; link.setAttribute("aria-disabled", "true"); }
       link.addEventListener("click", event => {
@@ -204,17 +208,18 @@
         event.preventDefault();
         if (state.submitting || !state.connected) return;
         bootstrap.Dropdown.getInstance(toggle)?.hide();
+        if (isJuryRoute()) { location.hash = "#jury/contest/" + session.sessionId; return; }
         selectSession(session.sessionId).catch(fail);
       });
       menu.append(link);
     }
-    $("new-session").disabled = !state.connected || state.submitting;
+    $("new-session").disabled = disabled;
     $("open-resources").disabled = !state.connected || !state.contest;
-    $("empty-new-session").disabled = !state.connected;
     $("nav-scoreboard").setAttribute("aria-disabled", String(!state.session));
     if (state.session) $("nav-scoreboard").href = "#scoreboard"; else $("nav-scoreboard").removeAttribute("href");
-    $("empty-state").hidden = Boolean(state.session) || !state.connected;
-    $("contest-view").hidden = !state.session;
+    $("empty-state").hidden = Boolean(state.session) || !state.connected || isJuryRoute();
+    $("contest-view").hidden = !state.session || isJuryRoute();
+    renderJuryList();
     renderClock();
   }
   function renderClock() {
@@ -222,14 +227,21 @@
     if (!session) { $("timeleft").textContent = "no contest"; return; }
     const status = sessionState();
     const start = epoch(session.startAt);
-    const elapsed = start === null ? 0 : Math.max(0, Date.now() - start);
+    const end = epoch(session.finishedAt);
+    const elapsed = start === null ? 0 : Math.max(0, Math.min(end ?? Date.now(), start + Number(session.durationMs)) - start);
     const remaining = Math.max(0, Number(session.durationMs) - elapsed);
-    $("timeleft").textContent = status === "prepared" ? "not started" : status === "archived" ? "archived" : remaining ? formatElapsed(remaining) + " left" : "contest ended";
+    $("timeleft").textContent = status === "prepared" ? "not started" : status === "archived" ? "archived" : status === "finished" ? "contest ended" : formatElapsed(remaining) + " left";
     const percentage = Math.min(100, Math.max(0, elapsed / Number(session.durationMs) * 100));
     $("contest-progress").style.width = percentage + "%";
     $("contest-progress").setAttribute("aria-valuenow", percentage.toFixed(1));
     $("session-state").textContent = {prepared: "已准备", running: "进行中", finished: "已结束", archived: "已归档"}[status];
     $("start-session").hidden = status !== "prepared";
+    $("finish-session").hidden = status !== "running";
+    $("start-session").disabled = state.adminBusy;
+    $("finish-session").disabled = state.adminBusy;
+    $("archive-session").disabled = status === "archived" || status === "running" || state.adminBusy;
+    $("delete-session").disabled = status === "running" || state.adminBusy || state.submitting;
+    $("delete-session").title = status === "running" ? "先结束比赛，再删除本地记录。" : "删除这场本地比赛";
     submitAvailability($("open-submit"), canSubmit());
     for (const item of document.querySelectorAll("[data-submit-problem]")) submitAvailability(item, canSubmit());
   }
@@ -241,10 +253,18 @@
     $("account-name").textContent = session.account || state.contest?.account || "请在 QOJ 登录";
     $("started-at").textContent = formatDate(session.startAt);
     $("qoj-contest-link").href = `https://qoj.ac/contest/${session.contestId}`;
+    $("qoj-contest-link").textContent = session.contestId;
+    $("jury-contest-title").textContent = "Contest " + (session.title || session.contestId);
+    $("jury-duration").textContent = Math.round(session.durationMs / 60000) + " minutes";
+    $("jury-title-input").value = session.title || "Contest " + session.contestId;
+    $("jury-duration-input").value = session.durationMs / 60000;
+    const editable = sessionState() === "prepared";
+    for (const id of ["jury-title-input", "jury-duration-input", "jury-config-save"]) $(id).disabled = !editable || state.adminBusy;
+    $("jury-config-note").textContent = editable ? "" : "比赛开始后名称和时长保持不变。";
     const historyUrl = new URL(`https://qoj.ac/contest/${session.contestId}/submissions`);
     if (session.account) historyUrl.searchParams.set("submitter", session.account);
     $("qoj-history-link").href = historyUrl.href;
-    $("archive-session").disabled = session.state === "archived";
+    $("archive-session").disabled = session.state === "archived" || sessionState() === "running" || state.adminBusy;
     $("sync-scoreboard").disabled = !session.ranklandUrl;
     $("rankland-status").textContent = "";
     document.title = (session.title || "Contest " + session.contestId) + " — QOJ";
@@ -348,9 +368,11 @@
       state.ranklandSnapshotMessage || "尚未读取 RankLand 排名。";
     const penaltyNote = snapshot ? "RankLand · " + observed + (snapshot.penaltyMinutes === null ? " · 未提供罚时" : "") : "尚未读取 RankLand 罚时。";
     const finalVerdicts = new Set(["CORRECT", "WRONG-ANSWER", "TIMELIMIT", "RUN-ERROR", "COMPILER-ERROR", "NO-OUTPUT", "OUTPUT-LIMIT", "MEMORY-LIMIT", "PRESENTATION-ERROR"]);
+    const finished = epoch(state.session.finishedAt), started = epoch(state.session.startAt);
+    const duration = finished !== null && started !== null ? Math.min(state.session.durationMs, Math.max(0, finished - started)) : state.session.durationMs;
     const progress = state.contest.problems.map(problem => {
       const attempts = state.submissions.filter(item => String(item.problemId) === String(problem.id) && item.state === "confirmed" &&
-        typeof item.elapsedMs === "number" && Number.isFinite(item.elapsedMs) && item.elapsedMs >= 0 && item.elapsedMs < state.session.durationMs)
+        item.inSession !== false && typeof item.elapsedMs === "number" && Number.isFinite(item.elapsedMs) && item.elapsedMs >= 0 && item.elapsedMs < duration)
         .sort((a, b) => a.elapsedMs - b.elapsedMs || Number(a.id || 0) - Number(b.id || 0));
       const acceptedIndex = attempts.findIndex(item => !item.pending && item.verdict === "CORRECT");
       const accepted = acceptedIndex < 0 ? null : attempts[acceptedIndex];
@@ -518,27 +540,55 @@
       const statement = node("a", "btn btn-secondary"); statement.append(icon("file-pdf"), " statement"); statement.href = problemUrl(problem); statement.target = "_blank"; statement.rel = "noopener noreferrer";
       statement.dataset.statementProblem = problem.id;
       actions.append(statement);
-      const resource = readyResource(problem.id);
-      if (resource) {
+      for (const resource of readyResources(problem.id)) {
         const link = node("a", "btn btn-secondary"); link.setAttribute("role", "button"); link.tabIndex = 0;
-        link.dataset.resourceProblem = problem.id;
-        if (resource.kind === "samples") link.dataset.samplesProblem = problem.id;
         link.append(icon("file-archive"), resource.kind === "samples" ? " samples" : " 附件");
-        resourceDownloadAction(link, problem);
+        resourceDownloadAction(link, problem, resource);
         actions.append(" ", link);
       }
       body.append(actions); card.append(body); col.append(card); target.append(col);
     }
   }
   function isProblemsRoute() { return location.hash === "#problems" || location.hash === "#problemset"; }
+  function isJuryRoute() { return location.hash === "#jury" || location.hash.startsWith("#jury/"); }
+  function juryTarget() {
+    const match = location.hash.match(/^#jury\/contest\/([a-f0-9-]{36})$/i);
+    return match ? match[1] : null;
+  }
+  function renderJuryList() {
+    const body = $("jury-contests-body"); body.replaceChildren();
+    for (const session of state.sessions) {
+      const row = node("tr"), label = node("td"), link = node("a", "", session.title || "Contest " + session.contestId);
+      link.href = "#jury/contest/" + session.sessionId; link.dataset.jurySession = session.sessionId;
+      label.append(link);
+      row.append(node("td", "", session.contestId), label, node("td", "", session.account || "—"),
+        node("td", "", {prepared:"未开始",running:"进行中",finished:"已结束",archived:"已归档"}[sessionState(session)]),
+        node("td", "", formatDate(session.startAt)), node("td", "", Math.round(session.durationMs / 60000) + " min"));
+      body.append(row);
+    }
+    $("jury-no-contests").hidden = state.sessions.length > 0;
+    $("jury-contests-table").hidden = !state.sessions.length;
+  }
   function route() {
-    const problems = isProblemsRoute();
-    $("home-view").hidden = problems; $("problems-view").hidden = !problems;
-    $("nav-home").classList.toggle("active", !problems);
-    $("nav-problems").classList.toggle("active", problems);
+    const problems = isProblemsRoute(), jury = isJuryRoute(), target = juryTarget();
+    $("team-navigation").hidden = jury; $("team-submit-controls").hidden = jury; $("jury-entry").hidden = jury;
+    $("jury-navigation").hidden = !jury; $("jury-view").hidden = !jury;
+    $("navbar-brand").href = jury ? "#jury" : "#home";
+    $("empty-state").hidden = jury || Boolean(state.session) || !state.connected;
+    $("contest-view").hidden = jury || !state.session;
+    $("home-view").hidden = problems || jury; $("problems-view").hidden = !problems || jury;
+    $("jury-list-view").hidden = Boolean(target); $("jury-detail-view").hidden = !target || state.session?.sessionId !== target;
+    $("nav-home").classList.toggle("active", !problems && !jury);
+    $("nav-problems").classList.toggle("active", problems && !jury);
     $(problems ? "nav-problems" : "nav-home").setAttribute("aria-current", "page");
     $(problems ? "nav-home" : "nav-problems").removeAttribute("aria-current");
     $("notice").hidden = problems && $("notice").classList.contains("alert-success");
+    if (jury) renderJuryList();
+    if (target && state.connected && target !== state.session?.sessionId && state.juryRequest !== target) {
+      if (!state.sessions.some(item => item.sessionId === target)) { location.hash = "#jury"; return; }
+      state.juryRequest = target;
+      selectSession(target).catch(fail).finally(() => { if (state.juryRequest === target) state.juryRequest = null; });
+    }
   }
 
   async function listSessions(preferred) {
@@ -547,7 +597,7 @@
     const candidate = preferred || state.session?.sessionId || await localGet(ACTIVE_KEY);
     const chosen = state.sessions.find(item => item.sessionId === candidate) || state.sessions.find(item => item.state !== "archived") || state.sessions[0];
     if (chosen) await selectSession(chosen.sessionId);
-    else { state.session = null; resetRanklandSnapshot(); renderNavigation(); }
+    else { state.session = null; state.contest = null; state.submissions = []; state.resources.clear(); resetRanklandSnapshot(); renderNavigation(); route(); }
   }
   async function selectSession(sessionId) {
     if (state.submitting) return;
@@ -615,6 +665,7 @@
   }
 
   function openSessionSetup() {
+    if (!isJuryRoute() || !state.connected || state.submitting) return;
     state.setupContest = null; $("session-form").reset();
     $("prepare-session").disabled = true; hideMessage($("session-error")); hideMessage($("contest-preview"));
     modals.session.show();
@@ -659,21 +710,160 @@
       if (started !== null) args.startAt = started;
       const session = await call("create_session", args);
       modals.session.hide(); await listSessions(session.sessionId);
-      if (sessionState() === "prepared") showMessage($("notice"), "已准备。点击 Start 开始。", "success");
+      location.hash = "#jury/contest/" + session.sessionId;
+      if (sessionState() === "prepared") showMessage($("notice"), "已准备。可在比赛管理中开始计时。", "success");
     } catch (error) { showMessage($("session-error"), message(error)); }
     finally { $("prepare-session").disabled = !state.setupContest; }
   }
   async function startSession() {
-    if (!state.session || !confirm("开始计时？仅启动本地计时，不开启 QOJ 官方 VP。")) return;
+    if (!isJuryRoute() || !state.session || sessionState() !== "prepared" || state.adminBusy || !confirm("开始计时？仅启动本地计时，不开启 QOJ 官方 VP。")) return;
+    const sessionId = state.session.sessionId, generation = state.generation;
+    state.adminBusy = true;
     $("start-session").disabled = true;
     try {
-      state.session = await call("start_session", {sessionId: state.session.sessionId});
+      const session = await call("start_session", {sessionId});
+      if (!current(sessionId, generation)) return;
+      state.session = session;
       const index = state.sessions.findIndex(item => item.sessionId === state.session.sessionId);
       if (index >= 0) state.sessions[index] = state.session;
       renderSession(); renderNavigation(); renderSummary();
       showMessage($("notice"), "计时已开始。", "success");
-    } catch (error) { fail(error); }
-    finally { $("start-session").disabled = false; }
+    } catch (error) { if (current(sessionId, generation)) fail(error); }
+    finally { state.adminBusy = false; $("start-session").disabled = false; renderClock(); }
+  }
+
+  async function saveJuryConfig(event) {
+    event.preventDefault();
+    if (!isJuryRoute() || !state.session || sessionState() !== "prepared" || state.adminBusy) return;
+    const sessionId = state.session.sessionId, generation = state.generation;
+    const title = $("jury-title-input").value.trim(), durationMs = Number($("jury-duration-input").value) * 60000;
+    hideMessage($("jury-config-error"));
+    if (!title || !Number.isSafeInteger(durationMs) || durationMs < 60000 || durationMs > 20160 * 60000) {
+      showMessage($("jury-config-error"), "请输入名称和 1–20160 分钟的比赛时长。"); return;
+    }
+    state.adminBusy = true; $("jury-config-save").disabled = true;
+    try {
+      const session = await call("update_session", {sessionId, title, durationMs});
+      if (!current(sessionId, generation)) return;
+      state.session = session; state.sessions = state.sessions.map(item => item.sessionId === sessionId ? session : item);
+      renderSession(); renderNavigation(); showMessage($("notice"), "比赛设置已保存。", "success");
+    } catch (error) { if (current(sessionId, generation)) showMessage($("jury-config-error"), message(error)); }
+    finally {
+      state.adminBusy = false;
+      if (current(sessionId, generation)) {
+        for (const id of ["jury-title-input", "jury-duration-input", "jury-config-save"]) $(id).disabled = sessionState() !== "prepared";
+        renderClock();
+      }
+    }
+  }
+  async function finishSession() {
+    if (!isJuryRoute() || !state.session || sessionState() !== "running" || state.adminBusy || !confirm("结束这场本地比赛？已有提交与榜单进度会保留。")) return;
+    const sessionId = state.session.sessionId, generation = state.generation;
+    state.adminBusy = true; $("finish-session").disabled = true;
+    try {
+      const session = await call("finish_session", {sessionId});
+      if (!current(sessionId, generation)) return;
+      state.session = session; state.sessions = state.sessions.map(item => item.sessionId === sessionId ? session : item);
+      renderSession(); renderNavigation(); renderSummary(); showMessage($("notice"), "比赛已结束。", "success");
+    } catch (error) { if (current(sessionId, generation)) fail(error); }
+    finally { state.adminBusy = false; $("finish-session").disabled = false; renderClock(); }
+  }
+  function openDeleteSession() {
+    if (!isJuryRoute() || !state.session || sessionState() === "running" || state.adminBusy || state.submitting) return;
+    state.deleteSessionId = state.session.sessionId;
+    $("delete-contest-form").reset(); hideMessage($("delete-contest-error"));
+    $("delete-contest-description").textContent = "删除 “" + (state.session.title || state.session.contestId) + "”？";
+    modals["delete-contest"].show();
+  }
+  async function deleteSession(event) {
+    event.preventDefault();
+    const sessionId = state.deleteSessionId;
+    if (!isJuryRoute() || !sessionId || state.adminBusy || !$("delete-contest-confirm").checked) return;
+    state.adminBusy = true; $("delete-contest-send").disabled = true; hideMessage($("delete-contest-error"));
+    try {
+      const result = await call("delete_session", {sessionId, confirmed: true});
+      if (result?.deleted !== true || result.sessionId !== sessionId) throw new Error("未确认比赛已删除，请刷新管理页核对。");
+      state.intents = state.intents.filter(item => item.sessionId !== sessionId); await persistIntents();
+      state.sessions = state.sessions.filter(item => item.sessionId !== sessionId);
+      if (state.session?.sessionId === sessionId) { state.session = null; state.contest = null; state.submissions = []; state.generation++; }
+      if (await localGet(ACTIVE_KEY) === sessionId) await browser.storage.local.remove(ACTIVE_KEY);
+      modals["delete-contest"].hide(); location.hash = "#jury";
+      await listSessions(); route(); showMessage($("notice"), "本地比赛已删除。", "success");
+    } catch (error) { showMessage($("delete-contest-error"), message(error)); }
+    finally { state.adminBusy = false; $("delete-contest-send").disabled = false; }
+  }
+  function renderManualMode() {
+    const text = $("manual-samples-mode").value === "text";
+    $("manual-samples-text-group").hidden = !text; $("manual-samples-files-group").hidden = text;
+  }
+  function openManualSamples(problem) {
+    if (!isJuryRoute() || !state.session || !problemById(String(problem.id)) || state.manualBusy || state.resourceJob) return;
+    state.manualProblem = String(problem.id); state.manualSessionId = state.session.sessionId;
+    $("manual-samples-form").reset(); hideMessage($("manual-samples-error"));
+    $("manual-samples-problem").textContent = problem.label + " — " + problem.name;
+    // Check the stored package, including inline samples hidden by an
+    // interactive hint. The helper requires consent to replace that data too.
+    $("manual-samples-replace-group").hidden = !resourceDescriptors(state.resources.get(String(problem.id))).some(item => item.kind === "samples");
+    renderManualMode();
+    const show = () => modals["manual-samples"].show();
+    if ($("resources-modal").classList.contains("show")) {
+      $("resources-modal").addEventListener("hidden.bs.modal", show, {once: true}); modals.resources.hide();
+    } else show();
+  }
+  function bytesBase64(bytes) {
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+    return btoa(binary);
+  }
+  async function manualSamplesPayload() {
+    if ($("manual-samples-mode").value === "text") {
+      const input = $("manual-sample-input").value, output = $("manual-sample-output").value;
+      if (!input && !output) throw new Error("请粘贴样例输入或输出。");
+      const files = [{name: "1.in", bytes: new TextEncoder().encode(input)}, {name: "1.ans", bytes: new TextEncoder().encode(output)}];
+      if (files.some(item => item.bytes.length > MAX_MANUAL_FILE_BYTES)) throw new Error("单个样例文件不能超过 4 MiB。");
+      return {files: files.map(item => ({name: item.name, base64: bytesBase64(item.bytes)}))};
+    }
+    const files = Array.from($("manual-samples-files").files || []);
+    if (!files.length || files.length > 1000) throw new Error("请选择一个样例 ZIP，或最多 1000 个输入/输出文件。");
+    if (files.reduce((sum, file) => sum + file.size, 0) > MAX_MANUAL_BYTES) throw new Error("样例文件总计不能超过 8 MiB。");
+    if (files.length === 1 && /\.zip$/i.test(files[0].name)) return {zipBase64: bytesBase64(new Uint8Array(await files[0].arrayBuffer()))};
+    if (files.some(file => !/\.(?:in|ans|out)$/i.test(file.name))) throw new Error("请选择同名的 .in 和 .ans / .out 文件，或一个 ZIP。");
+    if (files.some(file => file.size > MAX_MANUAL_FILE_BYTES)) throw new Error("单个样例文件不能超过 4 MiB。");
+    return {files: await Promise.all(files.map(async file => ({name: file.name, base64: bytesBase64(new Uint8Array(await file.arrayBuffer()))})))};
+  }
+  async function importManualSamples(event) {
+    event.preventDefault();
+    const sessionId = state.manualSessionId, generation = state.generation, problemId = state.manualProblem;
+    if (!isJuryRoute() || !sessionId || !problemId || state.manualBusy || !current(sessionId, generation)) return;
+    hideMessage($("manual-samples-error"));
+    if (!$("manual-samples-replace-group").hidden && !$("manual-samples-replace").checked) {
+      showMessage($("manual-samples-error"), "请确认是否替换已有样例。"); return;
+    }
+    state.manualBusy = true; $("manual-samples-save").disabled = true;
+    try {
+      const payload = await manualSamplesPayload();
+      if (!current(sessionId, generation)) throw new Error("比赛已切换，请重新选择题目。");
+      const result = await call("import_samples", {sessionId, problemId, ...payload, confirmedReplace: $("manual-samples-replace").checked});
+      if (!current(sessionId, generation)) return;
+      if (result?.problemId !== problemId || !resourceDescriptors(result).some(item => item.kind === "samples" && item.sampleSource === "manual")) throw new Error("未确认手动样例保存成功，请重新读取资源。");
+      state.resourceMutation++; state.resources.set(problemId, result); state.resourceManifestError = "";
+      state.resourceSummary = "手动样例已保存，可在 Problemset 下载。";
+      renderProblems(); state.manualBusy = false; modals["manual-samples"].hide();
+    } catch (error) {
+      if (current(sessionId, generation)) {
+        if (error?.code === "CONFIRMATION_REQUIRED") {
+          $("manual-samples-replace-group").hidden = false;
+          $("manual-samples-replace").checked = false;
+          showMessage($("manual-samples-error"), "这道题已有样例。请勾选替换确认后重新保存。");
+        } else showMessage($("manual-samples-error"), message(error));
+      }
+    }
+    finally {
+      state.manualBusy = false; $("manual-samples-save").disabled = false;
+      // The resource modal may have rendered during the request, including
+      // while hidden. Release its real controls after both success and error.
+      renderResourceModal();
+    }
   }
 
   // File-size/time formatting is adapted directly from DOMjudge's domjudge.js.
@@ -702,7 +892,7 @@
     $("submit_problem_language").disabled = ![...$("submit_problem_language").options].some(option => option.value);
   }
   async function openSubmit(problemId) {
-    if (!canSubmit()) { showMessage($("notice"), "请先点击 Start，再提交代码。", "warning"); return; }
+    if (!canSubmit()) { showMessage($("notice"), "比赛尚未开始。请在比赛管理中开始计时。", "warning"); return; }
     $("submit-form").reset(); hideMessage($("submit-error")); hideMessage($("files_selected"));
     $("submit_problem_problem").replaceChildren(new Option("Select a problem", ""));
     for (const problem of state.contest.problems) $("submit_problem_problem").append(new Option(problem.label + " - " + problem.name, problem.id));
@@ -862,11 +1052,37 @@
         /[\\/:\x00-\x1f]/.test(entry.filename) || entry.filename === "." || entry.filename === "..") return false;
     return true;
   }
-  function readyResource(problemId) {
-    const entry = state.resources.get(String(problemId));
-    if (!validReadyResource(entry) || entry.problemId !== String(problemId)) return null;
-    if (interactiveResource(problemId) && entry.sampleSource === "inline-statement") return null;
-    return entry;
+  function resourceDescriptors(entry) {
+    if (entry?.status !== "ready" || typeof entry.problemId !== "string") return [];
+    // An explicit downloads list is authoritative. Malformed split metadata
+    // must never silently expose the legacy combined ZIP instead.
+    const downloads = Object.hasOwn(entry, "downloads") ? entry.downloads : [entry];
+    if (!Array.isArray(downloads) || !downloads.length || downloads.length > 2) return [];
+    const kinds = new Set();
+    for (const resource of downloads) {
+      if (!validReadyResource(resource) || resource.problemId !== entry.problemId || kinds.has(resource.kind)) return [];
+      kinds.add(resource.kind);
+    }
+    return [...downloads].sort((left, right) => Number(left.kind === "attachment") - Number(right.kind === "attachment"));
+  }
+  function readyResources(problemId) {
+    const id = String(problemId), entry = state.resources.get(id);
+    if (entry?.problemId !== id) return [];
+    return resourceDescriptors(entry).filter(resource => !(resource.kind === "samples" && resource.sampleSource === "inline-statement" && interactiveResource(id)));
+  }
+  function readyResource(problemId, kind, resourceId) {
+    return readyResources(problemId).find(resource => (kind === undefined || resource.kind === kind) && (resourceId === undefined || resource.resourceId === resourceId)) || null;
+  }
+  function resourceDownloadKey(problemId, resource, sessionId = state.session?.sessionId) {
+    return JSON.stringify([sessionId, String(problemId), resource.kind, resource.resourceId]);
+  }
+  function updateResourceBusyControls() {
+    for (const control of document.querySelectorAll("[data-resource-problem][data-resource-kind][data-resource-id]")) {
+      const resource = {kind: control.dataset.resourceKind, resourceId: control.dataset.resourceId};
+      const busy = state.resourceDownloads.has(resourceDownloadKey(control.dataset.resourceProblem, resource));
+      actionBusy(control, busy);
+      if (busy) control.setAttribute("aria-busy", "true"); else control.removeAttribute("aria-busy");
+    }
   }
   async function loadResourceManifest(sessionId = state.session?.sessionId, generation = state.generation) {
     if (!sessionId) return;
@@ -880,7 +1096,7 @@
           !Array.isArray(manifest.problems)) throw new Error("资源清单与当前比赛或账号不一致。");
       const entries = new Map();
       for (const entry of manifest.problems) {
-        if (!entry || typeof entry.problemId !== "string" || entries.has(entry.problemId) || !["ready", "unknown"].includes(entry.status) || entry.status === "ready" && !validReadyResource(entry)) throw new Error("资源清单格式无法识别。");
+        if (!entry || typeof entry.problemId !== "string" || entries.has(entry.problemId) || !["ready", "unknown"].includes(entry.status) || entry.status === "ready" && !resourceDescriptors(entry).length) throw new Error("资源清单格式无法识别。");
         entries.set(entry.problemId, entry);
       }
       state.resources = entries; state.resourcesLoaded = true; state.resourceManifestError = "";
@@ -892,10 +1108,15 @@
       }
     }
   }
-  function resourceDownloadAction(control, problem) {
+  function resourceDownloadAction(control, problem, resource) {
+    control.dataset.resourceProblem = String(problem.id);
+    control.dataset.resourceKind = resource.kind;
+    control.dataset.resourceId = resource.resourceId;
+    if (resource.kind === "samples") control.dataset.samplesProblem = String(problem.id);
+    else control.dataset.attachmentProblem = String(problem.id);
     const request = event => {
       event.preventDefault();
-      if (control.getAttribute("aria-disabled") !== "true") downloadResource(problem, control);
+      if (control.getAttribute("aria-disabled") !== "true") downloadResource(problem, control, resource);
     };
     control.addEventListener("click", request);
     control.addEventListener("auxclick", event => { if (event.button === 1) request(event); });
@@ -903,34 +1124,41 @@
     control.addEventListener("keydown", event => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); if (!event.repeat) request(event); }
     });
-    actionBusy(control, state.resourceDownloads.has(state.session?.sessionId + ":" + problem.id));
+    const busy = state.resourceDownloads.has(resourceDownloadKey(problem.id, resource));
+    actionBusy(control, busy);
+    if (busy) control.setAttribute("aria-busy", "true");
   }
   function renderResourceModal() {
     const target = $("resources-list"); target.replaceChildren();
     const problems = state.contest?.problems || [], busy = Boolean(state.resourceJob) || state.resourceReading;
     let count = 0;
     for (const problem of problems) {
-      const id = String(problem.id), entry = state.resources.get(id), ready = readyResource(id);
+      const id = String(problem.id), entry = state.resources.get(id), downloads = readyResources(id), ready = downloads.length > 0;
       if (ready) count++;
       const row = node("tr"), name = node("td"), status = node("td"), hint = node("td"), actions = node("td");
       name.append(badge(problem.label), " " + problem.name);
       const activity = state.resourceActivity.get(id);
       if (activity) status.textContent = activity;
       else if (ready) {
-        status.append(node("span", "", (ready.kind === "samples" ? "samples" : "附件") + " · " + humanReadableBytes(ready.totalBytes)));
-        if (ready.lastAttempt?.status === "unknown") status.append(node("div", "small text-warning", "本次未确认，保留旧包" + (ready.lastAttempt.code ? "（" + ready.lastAttempt.code + "）" : "")));
-      } else status.textContent = entry?.status === "ready" && interactiveResource(id) && entry.sampleSource === "inline-statement" ? "需重新核对交互题附件" : entry?.lastAttempt?.status === "unknown" ? "未确认" + (entry.lastAttempt.code ? "（" + entry.lastAttempt.code + "）" : "") : "未准备";
+        for (const resource of downloads) {
+          const progress = state.resourceActivity.get(resourceDownloadKey(id, resource));
+          status.append(node("div", "", (resource.kind === "samples" ? "samples" : "附件") + (resource.sampleSource === "manual" ? "（手动）" : "") + " · " + (progress || humanReadableBytes(resource.totalBytes))));
+        }
+        if (entry.lastAttempt?.status === "unknown") status.append(node("div", "small text-warning", "本次未确认，保留旧包" + (entry.lastAttempt.code ? "（" + entry.lastAttempt.code + "）" : "")));
+      } else status.textContent = entry?.status === "ready" && interactiveResource(id) && resourceDescriptors(entry).some(resource => resource.sampleSource === "inline-statement") ? "需重新核对交互题附件" : entry?.lastAttempt?.status === "unknown" ? "未确认" + (entry.lastAttempt.code ? "（" + entry.lastAttempt.code + "）" : "") : "未准备";
       const checkbox = node("input", "form-check-input"); checkbox.type = "checkbox"; checkbox.checked = interactiveResource(id); checkbox.disabled = busy;
       checkbox.setAttribute("aria-label", problem.label + " 是交互题");
       checkbox.title = "已确认是交互题时勾选，不把交互对话整理为普通样例。";
       checkbox.addEventListener("change", () => { state.resourceInteractive.set(id, checkbox.checked); renderProblems(); renderResourceModal(); });
       hint.append(checkbox);
-      if (ready) {
-        const download = node("a", "btn btn-secondary btn-sm"); download.setAttribute("role", "button"); download.tabIndex = 0; download.textContent = "下载";
-        resourceDownloadAction(download, problem); actions.append(download, " ");
+      for (const resource of downloads) {
+        const download = node("a", "btn btn-secondary btn-sm"); download.setAttribute("role", "button"); download.tabIndex = 0; download.textContent = resource.kind === "samples" ? "samples" : "附件";
+        resourceDownloadAction(download, problem, resource); actions.append(download, " ");
       }
       const prepare = button(ready ? "刷新" : entry ? "重试" : "准备", "btn btn-outline-secondary btn-sm", () => prepareResources([id], Boolean(ready || entry)));
-      prepare.disabled = busy; actions.append(prepare);
+      prepare.dataset.prepareProblem = id; prepare.disabled = busy; actions.append(prepare, " ");
+      const manual = button("添加样例", "btn btn-outline-primary btn-sm", () => openManualSamples(problem));
+      manual.dataset.manualSamples = id; manual.disabled = busy || state.manualBusy; actions.append(manual);
       row.append(name, status, hint, actions); target.append(row);
     }
     $("resources-summary").textContent = state.resourceReading ? "正在读取已准备的资源…" : state.resourceSummary || `${count}/${problems.length} 题可下载。准备会读取 QOJ；已有文件直接复用。`;
@@ -939,12 +1167,12 @@
     $("refresh-resources").disabled = busy || !problems.length;
   }
   async function openResources() {
-    if (!state.session) return;
+    if (!state.session || !isJuryRoute()) return;
     const loading = loadResourceManifest();
     modals.resources.show(); await loading;
   }
   async function prepareResources(problemIds, refresh = false) {
-    if (!state.session || !state.contest || state.resourceJob || state.resourceReading) return;
+    if (!isJuryRoute() || !state.session || !state.contest || state.resourceJob || state.resourceReading || state.manualBusy) return;
     const sessionId = state.session.sessionId, generation = state.generation;
     const ids = problemIds || state.contest.problems.map(problem => String(problem.id));
     const job = {sessionId, generation}; state.resourceJob = job;
@@ -958,7 +1186,7 @@
         try {
           const entry = await call("prepare_resource", {sessionId, problemId: id, interactiveHint: interactiveResource(id)});
           if (!current(sessionId, generation)) break;
-          if (!entry || entry.problemId !== id || !["ready", "unknown"].includes(entry.status) || entry.status === "ready" && !validReadyResource(entry)) throw new Error("准备结果与题目不一致。");
+          if (!entry || entry.problemId !== id || !["ready", "unknown"].includes(entry.status) || entry.status === "ready" && !resourceDescriptors(entry).length) throw new Error("准备结果与题目不一致。");
           state.resourceMutation++; state.resources.set(id, entry); state.resourcesLoaded = true;
           state.resourceActivity.delete(id);
           if (readyResource(id) && entry.lastAttempt?.status !== "unknown") prepared++;
@@ -982,18 +1210,25 @@
     let hex = ""; for (const byte of digest) hex += byte.toString(16).padStart(2, "0");
     return hex;
   }
-  async function downloadResource(problem, control) {
+  async function downloadResource(problem, control, resource) {
     const sessionId = state.session?.sessionId, generation = state.generation, id = String(problem.id);
-    const entry = readyResource(id), key = sessionId + ":" + id;
-    if (!entry || state.resourceDownloads.has(key)) return;
+    const selected = readyResource(id, resource?.kind, resource?.resourceId);
+    if (!selected) return;
+    const entry = {...selected}, key = resourceDownloadKey(id, entry, sessionId);
+    if (state.resourceDownloads.has(key)) return;
+    const unchanged = () => {
+      const latest = readyResource(id, entry.kind, entry.resourceId);
+      return latest && latest.sha256 === entry.sha256 && latest.totalBytes === entry.totalBytes && latest.filename === entry.filename;
+    };
     state.resourceDownloads.add(key); actionBusy(control, true); control.setAttribute("aria-busy", "true");
+    updateResourceBusyControls();
     state.resourceManifestError = "";
     try {
       const bytes = new Uint8Array(entry.totalBytes);
       let offset = 0;
       while (offset < entry.totalBytes) {
-        if (!current(sessionId, generation) || !readyResource(id) || readyResource(id).resourceId !== entry.resourceId) throw new Error("资源或比赛已改变，请重新下载。");
-        state.resourceActivity.set(id, "正在读取 " + Math.floor(offset / entry.totalBytes * 100) + "%…"); renderResourceModal();
+        if (!current(sessionId, generation) || !unchanged()) throw new Error("资源或比赛已改变，请重新下载。");
+        state.resourceActivity.set(key, "正在读取 " + Math.floor(offset / entry.totalBytes * 100) + "%…"); renderResourceModal();
         const chunk = await call("resource_chunk", {sessionId, problemId: id, resourceId: entry.resourceId, offset, maxBytes: RESOURCE_CHUNK_BYTES});
         if (!current(sessionId, generation)) throw new Error("比赛已切换，请重新下载。");
         if (!chunk || chunk.problemId !== id || chunk.resourceId !== entry.resourceId || chunk.offset !== offset || chunk.totalBytes !== entry.totalBytes || chunk.sha256 !== entry.sha256 ||
@@ -1005,17 +1240,18 @@
             chunk.eof !== (chunk.nextOffset === entry.totalBytes) || await sha256(part) !== chunk.chunkSha256) throw new Error("资源分块内容校验失败，未下载文件。");
         bytes.set(part, offset); offset = chunk.nextOffset;
       }
-      if (await sha256(bytes) !== entry.sha256 || !current(sessionId, generation) || !readyResource(id) || readyResource(id).resourceId !== entry.resourceId) throw new Error("资源整包校验失败，未下载文件。");
+      if (await sha256(bytes) !== entry.sha256 || !current(sessionId, generation) || !unchanged()) throw new Error("资源整包校验失败，未下载文件。");
       saveBlob(new Blob([bytes], {type: "application/zip"}), entry.filename);
-      state.resourceActivity.set(id, "已校验并开始下载。");
+      state.resourceActivity.set(key, "已校验并开始下载。");
     } catch (error) {
       if (current(sessionId, generation)) {
-        state.resourceManifestError = message(error); state.resourceActivity.set(id, "未下载：" + message(error));
-        renderResourceModal(); modals.resources.show();
+        state.resourceManifestError = message(error); state.resourceActivity.set(key, "未下载：" + message(error));
+        renderResourceModal();
+        if (isJuryRoute()) modals.resources.show(); else showMessage($("notice"), "下载失败：" + message(error));
       }
     } finally {
       state.resourceDownloads.delete(key); actionBusy(control, false); control.removeAttribute("aria-busy");
-      if (current(sessionId, generation)) renderResourceModal();
+      if (current(sessionId, generation)) { updateResourceBusyControls(); renderResourceModal(); }
     }
   }
   function saveBlob(blob, filename) {
@@ -1024,11 +1260,14 @@
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
   function openRanklandSettings() {
-    if (!state.session) return;
+    if (!state.session || !isJuryRoute()) return;
     $("rankland-url").value = state.session.ranklandUrl || ""; hideMessage($("rankland-error")); modals.rankland.show();
   }
   async function openScoreboard() {
-    if (!state.session?.ranklandUrl) { openRanklandSettings(); return; }
+    if (!state.session?.ranklandUrl) {
+      if (isJuryRoute()) openRanklandSettings(); else showMessage($("notice"), "榜单尚未配置，请在 Jury 比赛管理中设置。", "warning");
+      return;
+    }
     const sessionId = state.session.sessionId, generation = state.generation;
     try {
       const result = await call("rankland.open", {sessionId});
@@ -1039,7 +1278,7 @@
     } catch (error) { if (current(sessionId, generation)) $("rankland-status").textContent = message(error); }
   }
   async function syncScoreboard() {
-    if (!state.session) return;
+    if (!state.session || !isJuryRoute()) return;
     const sessionId = state.session.sessionId, generation = state.generation;
     $("sync-scoreboard").disabled = true;
     try {
@@ -1062,10 +1301,17 @@
   }
 
   async function initialize() {
-    for (const id of ["session", "submit", "rankland", "reconcile", "resources"]) modals[id] = new bootstrap.Modal($(id + "-modal"));
+    for (const id of ["session", "submit", "rankland", "reconcile", "resources", "manual-samples", "delete-contest"]) modals[id] = new bootstrap.Modal($(id + "-modal"));
     window.addEventListener("hashchange", route); route();
     $("new-session").addEventListener("click", openSessionSetup);
-    $("empty-new-session").addEventListener("click", openSessionSetup);
+    $("jury-config-form").addEventListener("submit", saveJuryConfig);
+    $("finish-session").addEventListener("click", finishSession);
+    $("delete-session").addEventListener("click", openDeleteSession);
+    $("delete-contest-form").addEventListener("submit", deleteSession);
+    $("manual-samples-mode").addEventListener("change", renderManualMode);
+    $("manual-samples-form").addEventListener("submit", importManualSamples);
+    $("manual-samples-modal").addEventListener("hide.bs.modal", event => { if (state.manualBusy) event.preventDefault(); });
+    $("manual-samples-modal").addEventListener("hidden.bs.modal", () => { if (isJuryRoute() && state.session?.sessionId === state.manualSessionId) modals.resources.show(); });
     $("load-contest").addEventListener("click", loadSetupContest);
     $("contest-input").addEventListener("input", () => { state.setupContest = null; $("prepare-session").disabled = true; hideMessage($("contest-preview")); });
     $("session-form").addEventListener("submit", prepareSession);
@@ -1090,7 +1336,6 @@
       event.preventDefault();
       if ($("nav-scoreboard").getAttribute("aria-disabled") !== "true") openScoreboard();
     });
-    $("open-scoreboard").addEventListener("click", openScoreboard);
     $("rankland-settings").addEventListener("click", openRanklandSettings);
     $("sync-scoreboard").addEventListener("click", syncScoreboard);
     $("rankland-form").addEventListener("submit", async event => {
@@ -1118,7 +1363,7 @@
       finally { control.disabled = false; }
     });
     $("archive-session").addEventListener("click", async () => {
-      if (!state.session || !confirm("归档这场练习？提交记录和榜单入口会保留。")) return;
+      if (!isJuryRoute() || !state.session || sessionState() === "running" || !confirm("归档这场比赛？提交记录和榜单入口会保留。")) return;
       try { const session = await call("archive_session", {sessionId: state.session.sessionId}); await listSessions(session.sessionId); }
       catch (error) { fail(error); }
     });
@@ -1138,13 +1383,15 @@
       const entry = new URLSearchParams(location.search), requestedSession = entry.get("session");
       const preferred = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(requestedSession || "") ? requestedSession : undefined;
       await listSessions(preferred);
-      if (preferred && state.session?.sessionId === preferred && entry.get("resources") === "1") await openResources();
+      if (preferred && state.session?.sessionId === preferred && entry.get("resources") === "1") {
+        location.hash = "#jury/contest/" + preferred; route(); await openResources();
+      }
     } catch (error) {
       state.lastError = {code: error.code || "HELPER_UNAVAILABLE", message: message(error)};
       showMessage($("connection"), message(error), "danger");
       const retry = button("重新连接", "btn btn-outline-danger btn-sm ms-2", () => location.reload()); $("connection").append(retry);
     }
-    renderNavigation();
+    renderNavigation(); route();
   }
   // Read-only state and normal refresh/select calls for the VM acceptance harness.
   // No method bypasses the submit form's confirmation or sends source code.

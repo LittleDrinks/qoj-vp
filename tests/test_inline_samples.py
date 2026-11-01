@@ -26,6 +26,28 @@ def statement(section='h3', between='', after=''):
 
 
 class InlineSectionScopeTests(unittest.TestCase):
+    def test_xian_prefixed_sample_labels_support_multiple_pairs(self):
+        # Verified on QOJ 1051/D,E,F,G,I,J,K: the H4 labels include 样例.
+        html = statement(after='<h4>样例输入 2</h4><pre>2\n3 4\n</pre>'
+                               '<h4>样例输出 2</h4><pre>7\n</pre>')
+        html = html.replace('<h4>输入 1', '<h4>样例输入 1').replace('<h4>输出 1', '<h4>样例输出 1')
+        self.assertEqual(statement_sample_files(html), {
+            'inline-1.in': (PUBLIC_INPUT + '\n').encode(),
+            'inline-1.ans': (PUBLIC_ANSWER + '\n').encode(),
+            'inline-2.in': b'2\n3 4\n', 'inline-2.ans': b'7\n',
+        })
+
+    def test_prefixed_labels_still_require_complete_unambiguous_pairs(self):
+        html = statement().replace('<h4>输入 1', '<h4>样例输入 1').replace('<h4>输出 1', '<h4>样例输出 1')
+        for invalid in (
+            html.replace('样例输出 1', '样例说明 1'),
+            html.replace('样例输出 1', '样例输出 2'),
+            html.replace('</article>', '<h4>输入 1</h4><pre>duplicate</pre></article>'),
+            html.replace('<pre>5', '<pre><code>5').replace('1048576</pre>', '1048576</code></pre>'),
+        ):
+            with self.subTest(invalid=invalid[:100]):
+                self.assertEqual(statement_sample_files(invalid), {})
+
     def test_verified_raw_h3_and_existing_h2_sections_extract_only_complete_labelled_pairs(self):
         self.assertEqual((len(PUBLIC_INPUT.encode()), len(PUBLIC_ANSWER.encode())), (44, 15))
         expected = {'inline-1.in': (PUBLIC_INPUT + '\n').encode(), 'inline-1.ans': (PUBLIC_ANSWER + '\n').encode()}
@@ -62,7 +84,7 @@ class InlineResourceDispatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=ROOT / '.scratch', prefix='inline-h3-') as state, QojFixture() as fixture:
             fixture.contest_html = ('<title>Public sample shape fixture</title><table><tr><td>C</td><td>'
                 '<a href="/contest/3387/problem/5115">Clone Ranran</a></td></tr></table>')
-            fixture.problem_html['5115'] = statement()
+            fixture.problem_html['5115'] = statement().replace('<h4>输入 1', '<h4>样例输入 1').replace('<h4>输出 1', '<h4>样例输出 1')
             fixture.attachment_overrides['5115'] = (404, b'not found', 'text/plain')
             with Application(state, fixture_origin=fixture.origin) as app:
                 session = app.dispatch('create_session', {'contestId': '3387', 'account': fixture.account})

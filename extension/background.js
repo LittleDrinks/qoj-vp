@@ -3,7 +3,7 @@
   const HOST = "org.littledrinks.qoj_vp";
   const methods = new Set(["hello", "create_session", "start_session", "list_sessions", "inspect_session", "archive_session", "update_session",
     "qoj_contest", "qoj_problem_form", "qoj_samples", "qoj_submit", "qoj_submissions", "qoj_reconcile", "rankland_queue", "rankland_ack", "prepare_rankland",
-    "resource_manifest", "prepare_resource", "resource_chunk"]);
+    "resource_manifest", "prepare_resource", "resource_chunk", "import_samples", "delete_session", "finish_session"]);
   function ranklandIdentity(raw) {
     const url = new URL(raw), q = url.searchParams;
     return JSON.stringify([url.origin, q.get("contest"), q.get("run"), q.get("rule") || "auto",
@@ -317,22 +317,60 @@
       message: attention || (count ? `已将 ${count} 条判定同步至原站。` : "已确认的判定均已同步。")};
   }
   const synchronizing = new Map();
+  const deletingSessions = new Map();
+  const deletedSessions = new Set();
+  function syncUnavailable(id) {
+    if (deletedSessions.has(id)) return Object.assign(new Error("这场本地比赛已删除。"), {code: "SESSION_DELETED"});
+    if (deletingSessions.has(id)) return Object.assign(new Error("正在等待榜单同步完成并删除这场本地比赛。"), {code: "SESSION_DELETING"});
+    return null;
+  }
   function exclusiveSync(id, open = false) {
+    const blocked = syncUnavailable(id);
+    if (blocked) return Promise.reject(blocked);
     if (!synchronizing.has(id)) synchronizing.set(id, sync(id, open).finally(() => synchronizing.delete(id)));
     return synchronizing.get(id);
+  }
+  function deleteSession(args) {
+    const id = args.sessionId;
+    // Check each caller, including one joining an already confirmed deletion.
+    if (args.confirmed !== true) return Promise.reject(Object.assign(new Error("请确认删除这场本地比赛。"), {code: "CONFIRMATION_REQUIRED"}));
+    if (deletingSessions.has(id)) return deletingSessions.get(id);
+    const blocked = syncUnavailable(id);
+    if (blocked) return Promise.reject(blocked);
+    const inFlight = synchronizing.get(id);
+    // Install the barrier before starting asynchronous work. A refresh which
+    // finishes later must not create another writer while deletion is pending.
+    const deletion = Promise.resolve().then(async () => {
+      try { await inFlight; } catch (_) { /* A failed sync does not prevent local deletion. */ }
+      const result = await native("delete_session", args);
+      if (result.deleted !== true || result.sessionId !== id) throw new Error("DELETE_NOT_CONFIRMED");
+      // Keep this tombstone even if refreshing the browser cache fails. Late
+      // qoj_submissions/qoj_submit responses can still request automatic sync.
+      deletedSessions.add(id);
+      try { await browser.storage.local.set({sessions: (await native("list_sessions")).sessions}); }
+      catch (_) { return {...result, sessionsRefreshFailed: true}; }
+      return result;
+    }).finally(() => deletingSessions.delete(id));
+    deletingSessions.set(id, deletion);
+    return deletion;
   }
   async function dispatch(method, args) {
     if (method === "rankland.snapshot") return ranklandScore(args.sessionId);
     if (method === "rankland.open") {
+      const blocked = syncUnavailable(args.sessionId);
+      if (blocked) throw blocked;
       const session = await native("prepare_rankland", args);
+      const changed = syncUnavailable(args.sessionId);
+      if (changed) throw changed;
       const tab = await ranklandTab(session, true);
       exclusiveSync(args.sessionId).catch(() => {});
       return {tabId: tab.id, url: session.ranklandUrl};
     }
     if (method === "rankland.sync") return exclusiveSync(args.sessionId, true);
+    if (method === "delete_session") return deleteSession(args);
     if (!methods.has(method)) throw new Error("UNKNOWN_METHOD");
     const result = await native(method, args);
-    if (["create_session", "start_session", "archive_session", "update_session"].includes(method)) {
+    if (["create_session", "start_session", "finish_session", "archive_session", "update_session"].includes(method)) {
       await browser.storage.local.set({sessions: (await native("list_sessions")).sessions});
     }
     if (method === "qoj_submissions" || method === "qoj_submit") exclusiveSync(args.sessionId).catch(() => {});

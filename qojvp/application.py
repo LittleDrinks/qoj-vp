@@ -22,7 +22,7 @@ from . import __version__
 from .account import current_account
 from .history import detail_verdict, parse_history, submission_time_metadata
 from .inline_samples import statement_language_paths, statement_page_path, statement_sample_files
-from .ledger import Ledger
+from .ledger import Ledger, session_duration
 from .resources import ResourceCache, ResourceError, problem_id
 from .transport import BASE, BrowserSession, MAX_SOURCE_BYTES
 
@@ -102,7 +102,7 @@ class Application:
     def view(self, session):
         result = dict(session)
         elapsed = max(0, self.clock() - session['startAt']) if session.get('startAt') is not None else 0
-        result['elapsedMs'] = min(elapsed, session['durationMs'])
+        result['elapsedMs'] = min(elapsed, session_duration(session))
         result['effectiveState'] = ('finished' if session['state'] == 'running' and elapsed >= session['durationMs'] else session['state'])
         return result
 
@@ -118,7 +118,8 @@ class Application:
                 return self.create_session(args)
             if method == 'list_sessions':
                 return {'sessions': [self.view(s) for s in self.ledger.sessions()]}
-            if method in {'inspect_session', 'start_session', 'archive_session', 'update_session', 'prepare_rankland'}:
+            if method in {'inspect_session', 'start_session', 'archive_session', 'finish_session', 'delete_session',
+                          'update_session', 'prepare_rankland'}:
                 return self.session_action(method, args)
             if method == 'rankland_queue':
                 return {'items': self.ledger.queue(args.get('sessionId'))}
@@ -127,6 +128,13 @@ class Application:
             if method in {'resource_manifest', 'resource_chunk'}:
                 session = self.ledger.session(args.get('sessionId'))
                 return self.resources.manifest(session) if method == 'resource_manifest' else self.resources.chunk(session, args)
+            if method == 'import_samples':
+                return self.import_samples(args)
+            if method == 'prepare_resource':
+                session = self.ledger.session(args.get('sessionId'))
+                manual = self.resources.manual_entry(session, problem_id(args.get('problemId')))
+                if manual:
+                    return manual
             if method == 'qoj_submissions' and args.get('refresh') is False:
                 session = self.ledger.session(args.get('sessionId'))
                 return {'submissions': self.ledger.submissions(session['sessionId']), 'account': session.get('account'),
@@ -142,6 +150,7 @@ class Application:
                 if method == 'qoj_contest':
                     account, _ = current_account(client)
                     contest = client.contest(modules[0].contest_id(str(args.get('contestId', ''))))
+                    self.ledger.save_contest(account, contest)
                     return {**contest, 'account': account, 'problems': self.problem_list(contest),
                             'source': 'fixture' if self.fixture_origin else 'real-qoj-browser'}
                 session = self.ledger.session(args.get('sessionId'))
@@ -151,6 +160,7 @@ class Application:
                     return self.prepare_resource(session, args, client, modules, transport)
                 self.authenticate(client, session)
                 contest = client.contest(session['contestId'])
+                self.ledger.save_contest(session.get('account'), contest)
                 if method == 'qoj_problem_form':
                     problem = self.problem(contest, args)
                     form = client.form(contest['id'], problem['id'])
@@ -270,6 +280,7 @@ class Application:
         try:
             self.authenticate(client, session)
             contest = client.contest(session['contestId'])
+            self.ledger.save_contest(session.get('account'), contest)
             problem = self.problem(contest, {'problemId': pid})
             label = next(key for key, item in contest['problems'].items() if str(item['id']) == pid)
             metadata, payload = self.extract_resource(contest, problem, client, modules, transport, interactive_hint=hint)
@@ -298,14 +309,32 @@ class Application:
         self.ledger.create_session(record)
         return self.view(record)
 
+    def import_samples(self, args):
+        session = self.ledger.session(args.get('sessionId'))
+        pid = problem_id(args.get('problemId'))
+        if not session.get('account'):
+            raise ApplicationError('ACCOUNT_UNKNOWN', 'Read this contest with the QOJ account before importing samples')
+        contest = self.ledger.contest(session['account'], session['contestId'])
+        if contest is not None:
+            self.problem(contest, {'problemId': pid})
+            label = next(label for label, problem in contest['problems'].items() if str(problem['id']) == pid)
+        else:
+            # Older installations can already have a scoped entry recorded
+            # after QOJ verified the contest/problem relationship.
+            entry = self.resources.read_entry(session, pid)
+            label = entry.get('problemLabel') if entry else None
+            if not label:
+                raise ApplicationError('CONTEST_NOT_CACHED', 'Read this contest from QOJ before importing samples')
+        return self.resources.import_samples(session, pid, label, args, self.clock())
+
     def session_action(self, method, args):
         sid = args.get('sessionId')
         target_changed = False
         with self.ledger.transaction():
             record = self.ledger.session(sid)
             if method == 'start_session':
-                if record['state'] == 'archived':
-                    raise ValueError('An archived session cannot be started')
+                if record['state'] in {'archived', 'finished'} or self.view(record)['effectiveState'] == 'finished':
+                    raise ValueError('A finished or archived session cannot be started')
                 if record['startAt'] is None:
                     record['startAt'], record['state'] = self.clock(), 'running'
                     record['ranklandUrl'] = rankland_url(record.get('ranklandUrl'), sid, record['startAt'])
@@ -334,11 +363,37 @@ class Application:
                     record['ranklandPrepared'], record['ranklandPreparedAt'] = True, self.clock()
             elif method == 'archive_session':
                 record['state'] = 'archived'
+            elif method == 'finish_session':
+                if record['state'] == 'prepared' or record['state'] == 'archived' or record.get('startAt') is None:
+                    raise ApplicationError('SESSION_NOT_RUNNING', 'Only a started local session can be finished')
+                if self.clock() < record['startAt']:
+                    raise ApplicationError('SESSION_NOT_RUNNING', 'This local session has not started yet')
+                if record['state'] != 'finished':
+                    record['finishedAt'] = min(self.clock(), record['startAt'] + record['durationMs'])
+                    record['state'] = 'finished'
+            elif method == 'delete_session':
+                if args.get('confirmed') is not True:
+                    raise ApplicationError('CONFIRMATION_REQUIRED', 'Confirm deletion of this local session')
+                if self.view(record)['effectiveState'] not in {'prepared', 'archived', 'finished'}:
+                    raise ApplicationError('SESSION_RUNNING', 'Finish this local session before deleting it')
+                if self.ledger.has_unresolved_operations(sid):
+                    raise ApplicationError('UNRESOLVED_SUBMISSION', 'Reconcile unconfirmed source submissions before deleting this session')
+                self.ledger.delete_session(sid)
+                return {'deleted': True, 'sessionId': sid}
             elif method == 'update_session':
-                if set(args) - {'sessionId', 'ranklandUrl', 'title'}:
-                    raise ValueError('Only session title and RankLand URL may be changed')
+                if set(args) - {'sessionId', 'ranklandUrl', 'title', 'durationMs'}:
+                    raise ValueError('Only session title, duration and RankLand URL may be changed')
+                if ('title' in args or 'durationMs' in args) and record['state'] != 'prepared':
+                    raise ApplicationError('SESSION_NOT_PREPARED', 'Title and duration can only be edited before starting')
                 if 'title' in args:
-                    record['title'] = str(args['title'])[:200]
+                    if not isinstance(args['title'], str) or not args['title'].strip() or len(args['title']) > 200 or any(ord(c) < 32 for c in args['title']):
+                        raise ValueError('Use a nonempty title of at most 200 characters')
+                    record['title'] = args['title'].strip()
+                if 'durationMs' in args:
+                    duration = args['durationMs']
+                    if isinstance(duration, bool) or not isinstance(duration, int) or not 0 < duration <= 14 * 24 * 60 * 60 * 1000:
+                        raise ValueError('Invalid contest duration')
+                    record['durationMs'] = duration
                 if 'ranklandUrl' in args:
                     target = rankland_url(args['ranklandUrl'], sid, record['startAt'])
                     original = rankland_url(record.get('ranklandUrl'), sid, record['startAt'])
@@ -425,6 +480,7 @@ class Application:
         # Validate all read-only state before recording the send intent.
         self.authenticate(client, session)
         contest = client.contest(session['contestId'])
+        self.ledger.save_contest(session.get('account'), contest)
         problem = self.problem(contest, args)
         form = client.form(contest['id'], problem['id'])
         if language not in form.languages:
@@ -511,9 +567,11 @@ class Application:
                         time_candidates[item['id']] = item
                         time_attempts[item['id']] = previous.get('timeProbeAttemptAt')
                 start, at = session.get('startAt'), item.get('submittedAt')
-                in_window = start is not None and at is not None and 0 <= at - start < session['durationMs']
-                if (item['score'] is not None and item['score'] < 100 and not item['pending']
-                        and (in_window or str(item['id']) in linked_ids)):
+                in_window = start is not None and at is not None and 0 <= at - start < session_duration(session)
+                # Training mode can hide details. Refine a numeric partial
+                # score, but do not erase an explicit current list verdict.
+                if (item['verdict'] == 'UNKNOWN' and item['score'] is not None and item['score'] < 100
+                        and not item['pending'] and (in_window or str(item['id']) in linked_ids)):
                     if time.monotonic() < deadline:
                         try:
                             detail = client.get(item['url'] + '?locale=en')
@@ -574,9 +632,9 @@ class Application:
                     item.update(metadata, timeProbeAfter=None, timeProbeStatus='verified')
                     known_time_ids.add(sid)
                     start, at = session.get('startAt'), item['submittedAt']
-                    in_window = start is not None and 0 <= at - start < session['durationMs']
-                    if (item['score'] is not None and item['score'] < 100 and not item['pending']
-                            and (in_window or sid in linked_ids)):
+                    in_window = start is not None and 0 <= at - start < session_duration(session)
+                    if (item['verdict'] == 'UNKNOWN' and item['score'] is not None and item['score'] < 100
+                            and not item['pending'] and (in_window or sid in linked_ids)):
                         item.update(detail_verdict(detail.text, item['score']))
                 else:
                     item['timeProbeStatus'] = 'missing'

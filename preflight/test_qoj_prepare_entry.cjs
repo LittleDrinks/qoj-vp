@@ -99,11 +99,13 @@ function contentEnvironment({recognized=true,url="https://qoj.ac/contest/4582"}=
   await check("actual workbench entry selects requested UUID before opening resource modal",async()=>{
     const ui=fs.readFileSync(path.join(root,"extension/ui.js"),"utf8");
     const begin=ui.indexOf("      const entry = new URLSearchParams(location.search)");
-    const end=ui.indexOf("\n    } catch (error)",begin);let chosen,opened=0;
+    const end=ui.indexOf("\n    } catch (error)",begin);let chosen,opened=0,routed=0;
     const target={URLSearchParams,location:{search:"?session="+sid+"&resources=1"},state:{session:null},
-      listSessions:async preferred=>{chosen=preferred;target.state.session={sessionId:preferred||otherSid};},openResources:async()=>opened++};
+      listSessions:async preferred=>{chosen=preferred;target.state.session={sessionId:preferred||otherSid};},
+      route:()=>{routed++;assert.equal(target.location.hash,"#jury/contest/"+sid);},
+      openResources:async()=>{assert.equal(routed,1);opened++;}};
     vm.createContext(target);await vm.runInContext("(async()=>{"+ui.slice(begin,end)+"})()",target);
-    assert.equal(chosen,sid);assert.equal(opened,1);
+    assert.equal(chosen,sid);assert.equal(opened,1);assert.equal(routed,1);
     target.location.search="?session=invalid&resources=1";opened=0;
     await vm.runInContext("(async()=>{"+ui.slice(begin,end)+"})()",target);assert.equal(chosen,undefined);assert.equal(opened,0);
   });

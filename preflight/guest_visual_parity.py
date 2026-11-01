@@ -465,8 +465,14 @@ class VisualHarness(MvpHarness):
         from selenium.webdriver.common.keys import Keys
         before = self.driver.execute_script('return window.qojVpUi.getState().session.sessionId;')
         target = self.prepared_session_id if before == self.running_session_id else self.running_session_id
-        require(not self.driver.find_elements(By.CSS_SELECTOR, 'nav select, nav #new-session'),
-                'The native select or New contest control remains in the navbar')
+        require(not self.driver.find_elements(By.CSS_SELECTOR, 'nav select, #home-view #new-session'),
+                'A native select remains in the navbar or New contest remains in Home')
+        require(self.driver.execute_script('''
+          const create=document.querySelector('#jury-list-view #new-session');
+          return create?.classList.contains('btn-primary') &&
+            !document.querySelector('#session-select #new-session') &&
+            !document.querySelector('#home-view #rankland-settings, #home-view #open-resources, #home-view #start-session');
+        '''), 'Creation and administration must belong to the Jury view')
         toggle = self.driver.find_element(By.ID, 'navbarDropdownContests')
         require('nav-link dropdown-toggle' in toggle.get_attribute('class'), 'Contest toggle lost the original navbar classes')
         toggle.click()
@@ -486,9 +492,19 @@ class VisualHarness(MvpHarness):
         ''', target), 'Enter selecting the alternate contest')
         self.wait_boot_ready()
         require(toggle.get_attribute('aria-expanded') == 'false', 'Selecting a contest left the dropdown open')
+        self.driver.find_element(By.ID, 'nav-jury').click()
+        self.wait(lambda: self.driver.find_element(By.ID, 'jury-list-view').is_displayed(), 'Jury contest list')
+        self.driver.find_element(By.ID, 'new-session').click()
+        self.wait(lambda: self.driver.execute_script('''
+          return document.querySelector('#session-modal')?.classList.contains('show');
+        '''), 'Jury Add new contest opening setup')
+        self.close_modal('extension', 'new-contest-setup')
+        self.driver.find_element(By.ID, 'nav-team').click()
+        self.wait(lambda: self.driver.find_element(By.ID, 'home-view').is_displayed(), 'return from Jury to Team')
         return {'clickOpens': True, 'escapeCloses': True, 'arrowDownFocusesChoice': True,
                 'enterSelects': True, 'previousSessionId': before, 'selectedSessionId': target,
-                'newContestOutsideNavbar': True, 'upstream': 'DOMjudge 9.0.1 menu_change_contest.html.twig'}
+                'newContestInJuryOpensSetup': True, 'adminControlsAbsentFromHome': True,
+                'upstream': 'DOMjudge 9.0.1 menu_change_contest.html.twig and jury/contests.html.twig adaptation'}
 
     def capture_control(self, side, name, visual_selector, trigger_selector=None):
         from selenium.webdriver.common.by import By
@@ -759,12 +775,19 @@ def main():
                            lambda: h.wait(resources_rendered, 'normal loadResourceManifest rendering twelve ready sample controls')) is not None,
                     'The real UI did not load and render the prepared resource manifest')
             from selenium.webdriver.common.by import By
+            h.driver.find_element(By.ID, 'nav-jury').click()
+            h.wait(lambda: h.driver.find_element(By.ID, 'jury-list-view').is_displayed(), 'Jury contest list before local start')
+            h.driver.find_element(By.CSS_SELECTOR, f'[data-jury-session="{h.running_session_id}"]').click()
+            h.wait(lambda: h.driver.find_element(By.ID, 'jury-detail-view').is_displayed() and
+                           h.driver.find_element(By.ID, 'start-session').is_displayed(), 'selected Jury start control')
             h.driver.find_element(By.ID, 'start-session').click()
             confirmation = h.driver.switch_to.alert
             require('本地' in confirmation.text and 'QOJ' in confirmation.text,
                     'The start confirmation is not the expected local-only timer action')
             confirmation.accept()
             h.wait(lambda: (h.driver.execute_script('return window.qojVpUi.getState().session?.startAt;')), 'real UI local start')
+            h.driver.find_element(By.ID, 'nav-team').click()
+            h.wait(lambda: h.driver.find_element(By.ID, 'home-view').is_displayed(), 'Team after local start')
             h.driver.find_element(By.ID, 'nav-problems').click()
             h.wait(lambda: h.driver.find_element(By.ID, 'problems-view').is_displayed() and
                            len(h.driver.find_elements(By.CSS_SELECTOR, '#problems-list .card')) == 12,
@@ -869,9 +892,19 @@ def main():
                                 field_differences.append({'modal': kind, 'field': field, 'property': key,
                                     'reference': original['fields'][field][key], 'extension': product['fields'][field][key]})
                 interactions = h.summary.get('modalInteractions', [])
+                required_submit_interactions = {(side, kind) for side in ('extension', 'reference')
+                                                for kind in ('generic', 'per-problem')}
+                required_setup_interaction = ('extension', 'new-contest-setup')
+                interaction_ids = [(row.get('side'), row.get('kind')) for row in interactions]
+                required_interactions = required_submit_interactions | {required_setup_interaction}
+                interactions_passed = (len(interaction_ids) == len(required_interactions)
+                                       and set(interaction_ids) == required_interactions
+                                       and all(row.get('status') == 'passed' for row in interactions))
                 result.update({'modalFieldsEqual': not field_differences, 'modalFieldDifferences': field_differences,
                           'pixelEquality': 'not-assessed', 'platformLanguageChoicesComparedForParity': False,
-                          'modalInteractionsPassed': len(interactions) == 4 and all(row['status'] == 'passed' for row in interactions),
+                          'modalInteractionsPassed': interactions_passed,
+                          'requiredModalInteractions': [{'side': side, 'kind': kind}
+                                                        for side, kind in sorted(required_interactions)],
                           'interactionChecksSeparateFromVisualComparison': True})
                 atomic_json(h.results / 'comparison.json', result)
                 h.summary['comparison'] = result

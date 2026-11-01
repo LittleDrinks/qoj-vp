@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 from qojvp import Application, ApplicationError
-from qojvp.history import parse_history, verdict
+from qojvp.history import detail_verdict, parse_history, verdict
 from tests.support import QojFixture
 
 
@@ -36,6 +36,40 @@ def native_vp_schema_history(*, cid='1051'):
     html = html.replace('<span class="uoj-username">LittleDrinks</span>',
                         '<span class="uoj-username">LittleDrinks</span><sup><a href="/contest/' + cid + '">#</a></sup>')
     return re.sub(r'<time[^>]*>[^<]*</time>', '04:13:36', html)
+
+
+def mixed_schema_history(*, sid='1511578', current='TL', cid='1051', absolute=False):
+    """Two-span, no-score result observed in both reported QOJ submissions.
+
+    Structure is from artifacts/resource-split/dual-verdict.json. The optional
+    absolute time is synthetic so an isolated integration test can queue it.
+    """
+    html = actual_schema_history(cid=cid).replace('5115', '5114').replace('C. Clone Ranran', 'B. Cells Coloring')
+    html = re.sub(r'<td><a href="/submission/3331061" class="uoj-score"[^>]*>[^<]*</a></td>',
+                  '<td><a href="/submission/3331061"><span>AC</span><span>, '
+                  + escape(current) + '</span></a></td>', html)
+    html = html.replace('3331061', sid)
+    if not absolute:
+        html = re.sub(r'<time[^>]*>[^<]*</time>', '03:42:08' if sid == '1511578' else '03:40:13', html)
+    return html
+
+
+def extra_test_details(result='Time Limit Exceeded'):
+    """Minimized actual Details header: earlier AC then the extra-test failure.
+
+    The real pages contain 22 Accepted test results before this same final
+    Extra Test row. Test data, source code and tokens are not included.
+    """
+    return ('<div class="card border-info mb-3"><div class="card-header bg-info">'
+            '<h4 class="card-title">Details</h4></div><div class="card-body">'
+            '<div id="details_details_accordion"><div class="card card-uoj-accepted mb-3">'
+            '<div class="card-header"><div class="row"><div class="col-sm-2">Accepted</div>'
+            '</div></div></div><div class="card"><div class="card-header" data-toggle="collapse" '
+            'data-target="#details_details_accordion_collapse_test_-1_Test"><div class="row">'
+            '<div class="col-sm-2"><h4 class="card-title">Extra Test:</h4></div>'
+            '<div class="col-sm-2">score: -3</div><div class="col-sm-2">Extra Test Failed : '
+            + escape(result) + ' on 4</div><div class="col-sm-3"></div><div class="col-sm-3"></div>'
+            '</div></div></div></div></div></div>')
 
 
 class RealHistorySchemaTests(unittest.TestCase):
@@ -81,6 +115,56 @@ class RealHistorySchemaTests(unittest.TestCase):
         self.assertEqual(verdict('AC ✓'), 'CORRECT')
         self.assertNotEqual(verdict('AC ✓', 0), 'CORRECT')
 
+    def test_current_result_after_contest_ac_controls_mixed_verdict(self):
+        for raw, expected in (('AC, TL', 'TIMELIMIT'), ('AC, WA', 'WRONG-ANSWER'),
+                              ('AC, Pending', 'JUDGING'), ('AC, Judging', 'JUDGING')):
+            with self.subTest(raw=raw):
+                self.assertEqual(verdict(raw), expected)
+                self.assertEqual(verdict(raw, 0), expected)
+
+    def test_unrecognized_mixed_result_does_not_reuse_contest_ac(self):
+        for raw in ('AC, unknown', 'AC,', 'AC / WA', 'AC WRONG ANSWER',
+                    'unknown, AC', 'AC, WA, AC'):
+            with self.subTest(raw=raw):
+                self.assertEqual(verdict(raw, 100), 'UNKNOWN')
+
+    def test_pending_current_result_is_pending_without_a_live_polling_script(self):
+        row = self.parse(actual_schema_history(result='AC, Pending'))['submissions'][0]
+        self.assertEqual(row['verdict'], 'JUDGING')
+        self.assertTrue(row['pending'])
+        self.assertEqual(row['rawVerdict'], 'AC, Pending')
+
+    def test_observed_two_span_results_have_no_numeric_score_and_keep_original_text(self):
+        for sid in ('1511578', '1511566'):
+            for current, expected in (('TL', 'TIMELIMIT'), ('WA', 'WRONG-ANSWER'), ('Pending', 'JUDGING')):
+                with self.subTest(sid=sid, current=current):
+                    row = parse_history(mixed_schema_history(sid=sid, current=current), '1051',
+                                        'LittleDrinks', {'B': {'id': '5114'}})['submissions'][0]
+                    self.assertEqual((row['id'], row['verdict']), (sid, expected))
+                    self.assertEqual(row['rawVerdict'], 'AC , ' + current)
+                    self.assertIsNone(row['score'])
+                    self.assertEqual(row['pending'], current == 'Pending')
+                    self.assertEqual(row['verdictSource'], 'history-result')
+                    self.assertEqual(row['historyResult']['rawVerdict'], row['rawVerdict'])
+                    self.assertIsNone(row['submittedAt'], 'A historical relative clock is not a current VP time')
+
+    def test_extra_test_failure_overrides_prior_accepted_results_and_old_full_score(self):
+        for current, expected in (('Time Limit Exceeded', 'TIMELIMIT'), ('Wrong Answer', 'WRONG-ANSWER')):
+            for score in (None, 0, 100):
+                with self.subTest(current=current, score=score):
+                    parsed = detail_verdict(extra_test_details(current), score)
+                    self.assertEqual(parsed['verdict'], expected)
+                    self.assertEqual(parsed['rawVerdict'], 'Extra Test Failed : ' + current + ' on 4')
+                    self.assertFalse(parsed['pending'])
+                    self.assertEqual(parsed['verdictSource'], 'submission-detail')
+
+    def test_unrecognized_extra_failure_never_reuses_an_earlier_ac(self):
+        for result in ('Unrecognized Failure', 'Accepted', 'Pending'):
+            with self.subTest(result=result):
+                parsed = detail_verdict(extra_test_details(result), 100)
+                self.assertEqual(parsed['verdict'], 'UNKNOWN')
+                self.assertIn('Extra Test Failed', parsed['rawVerdict'])
+
     def test_no_zone_or_native_vp_relative_clock_remains_unverified(self):
         for raw in ('2026-11-01T02:20:57', '02:20:57'):
             with self.subTest(raw=raw):
@@ -98,6 +182,54 @@ class RealHistorySchemaTests(unittest.TestCase):
 
 
 class HistoryApplicationIntegrationTests(unittest.TestCase):
+    def test_mixed_rejudge_updates_one_fact_and_requires_review_of_delivered_ac(self):
+        (ROOT / '.scratch').mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / '.scratch', prefix='history-mixed-rejudge-') as state, QojFixture() as fixture:
+            fixture.account = 'LittleDrinks'
+            fixture.contest_html = ('<title>Synthetic rejudge fixture</title><table><tr><td>C</td><td>'
+                '<a href="/contest/3387/problem/5115">Clone Ranran</a></td></tr></table>')
+            sid = '1000099'
+            fixture.history_html = actual_schema_history(cid='3387').replace('3331061', sid)
+            # Training mode or an unavailable detail card must not erase an
+            # explicit current result already observed in the history row.
+            fixture.detail_overrides[sid] = '<html><body>Details unavailable</body></html>'
+            with Application(state, fixture_origin=fixture.origin, clock=lambda: SUBMITTED_AT) as app:
+                session = app.dispatch('create_session', {'contestId': '3387', 'account': 'LittleDrinks',
+                    'startAt': SUBMITTED_AT - 60000, 'ranklandUrl': 'https://vp.xcpc.link/?contest=synthetic-rejudge'})
+                args = {'sessionId': session['sessionId']}
+                app.dispatch('qoj_submissions', args, fixture.exchange)
+                original = app.dispatch('rankland_queue', args)['items'][0]
+                receipt = {'problemIndex': 0, 'timeMs': 60000, 'result': 'AC'}
+                app.dispatch('rankland_ack', {**args, 'queueId': original['queueId'],
+                    'revision': original['revision'], 'state': 'synced', 'receipt': receipt})
+                cases = []
+                for current, expected in (('TL', 'TIMELIMIT'), ('WA', 'WRONG-ANSWER'), ('Pending', 'JUDGING')):
+                    numeric = actual_schema_history(cid='3387', score='0', result='AC, ' + current).replace('3331061', sid)
+                    no_score = mixed_schema_history(sid=sid, cid='3387', current=current, absolute=True).replace('5114', '5115')
+                    cases.extend((('AC, ' + current, expected, numeric), ('AC , ' + current, expected, no_score)))
+                for raw, expected, html in cases:
+                    fixture.history_html = html
+                    with self.subTest(raw=raw):
+                        refreshed = app.dispatch('qoj_submissions', args, fixture.exchange)
+                        self.assertEqual(len(refreshed['submissions']), 1)
+                        row = refreshed['submissions'][0]
+                        self.assertEqual((row['id'], row['verdict']), (sid, expected))
+                        self.assertEqual(row['pending'], expected == 'JUDGING')
+                        self.assertEqual(row['historyResult']['rawVerdict'], raw)
+                        queue = app.dispatch('rankland_queue', args)['items']
+                        self.assertEqual(len(queue), 1)
+                        self.assertEqual(queue[0]['queueId'], original['queueId'])
+                        self.assertEqual((queue[0]['verdict'], queue[0]['state']), (expected, 'needs-review'))
+                        self.assertEqual(queue[0]['receipt'], receipt)
+                        self.assertTrue(queue[0]['rejudge'])
+                        revision = queue[0]['revision']
+                        app.dispatch('qoj_submissions', args, fixture.exchange)
+                        repeated = app.dispatch('rankland_queue', args)['items'][0]
+                        self.assertEqual((repeated['queueId'], repeated['revision']), (original['queueId'], revision))
+                        self.assertFalse(app.dispatch('rankland_ack', {**args, 'queueId': original['queueId'],
+                            'revision': original['revision'], 'state': 'synced'})['accepted'])
+                self.assertEqual(fixture.posts, [])
+
     def test_only_current_window_zero_scores_fetch_details_and_other_accounts_never_queue(self):
         (ROOT / '.scratch').mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=ROOT / '.scratch', prefix='history-window-') as state, QojFixture() as fixture:

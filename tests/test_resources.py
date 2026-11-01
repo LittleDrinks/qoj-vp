@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import io
 import json
@@ -8,6 +9,7 @@ from pathlib import Path
 import random
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from qojvp import Application, ApplicationError
@@ -43,7 +45,27 @@ class ResourceIntegrationTests(unittest.TestCase):
         return self.app.dispatch('prepare_resource', {**self.args, **args}, self.fixture.exchange)
 
     def attach(self, files):
-        self.fixture.attachment_overrides['15419'] = (200, archive_bytes(files), 'application/zip')
+        self.fixture.attachment_overrides[self.args['problemId']] = (200, archive_bytes(files), 'application/zip')
+
+    def mixed_changchun(self, *, incomplete=False):
+        self.args['problemId'] = '22918'
+        self.fixture.contest_html = ('<table><tr><td>I</td><td>'
+            '<a href="/contest/3387/problem/22918">Synthetic Changchun resource shape</a></td></tr></table>')
+        files = {'1.in': b'first input\r\n', '1.ans': b'first answer\n',
+                 '2.in': b'second input\n', '2.ans': b'second answer\n',
+                 'triplet_testing_tool.py': b'# synthetic tester payload\n'}
+        if incomplete:
+            files['3.in'] = b'unpaired input\n'
+        self.attach(files)
+        return files, self.prepare(interactiveHint=True)
+
+    def make_legacy(self, entry):
+        legacy = {key: value for key, value in entry.items() if key != 'downloads'}
+        self.app.resources.write_entry(self.session, self.args['problemId'], legacy)
+        for download in entry.get('downloads', []):
+            if download['resourceId'] != entry['resourceId']:
+                self.app.resources.object_path(self.session, self.args['problemId'], download).unlink(missing_ok=True)
+        return legacy
 
     def offline(self, method, args):
         def forbidden(_):
@@ -85,6 +107,151 @@ class ResourceIntegrationTests(unittest.TestCase):
             self.assertEqual(archive.read('samples-A/1.in'), b'1\n')
             self.assertEqual(archive.read('samples-A/1.ans'), b'2\n')
         self.assertEqual(self.fixture.posts, [])
+
+    def test_changchun_mixed_resource_has_independent_samples_and_original_attachment_downloads(self):
+        original, entry = self.mixed_changchun()
+        downloads = entry.get('downloads', [])
+        self.assertEqual([item['kind'] for item in downloads], ['samples', 'attachment'])
+        self.assertEqual([item['filename'] for item in downloads], ['samples-I.zip', 'attachments-I.zip'])
+        self.assertEqual(len({entry['resourceId'], *(item['resourceId'] for item in downloads)}), 3)
+        samples, attachments = downloads
+        self.assertEqual((samples['sampleCount'], samples['pairCount']), (2, 2))
+        with zipfile.ZipFile(io.BytesIO(self.download(samples))) as archive:
+            self.assertEqual(set(archive.namelist()), {'samples-I/' + name for name in ['1.in', '1.ans', '2.in', '2.ans']})
+            for name in archive.namelist():
+                self.assertEqual(archive.read(name), original[name.rsplit('/', 1)[-1]])
+        with zipfile.ZipFile(io.BytesIO(self.download(attachments))) as archive:
+            self.assertEqual(set(archive.namelist()), {'attachment-extras/problem-I/' + name for name in original})
+            for name, contents in original.items():
+                self.assertEqual(archive.read('attachment-extras/problem-I/' + name), contents)
+        with zipfile.ZipFile(io.BytesIO(self.download(entry))) as archive:
+            self.assertEqual(len(archive.namelist()), 9)
+
+    def test_unpaired_sample_input_remains_in_attachments_without_entering_complete_samples(self):
+        original, entry = self.mixed_changchun(incomplete=True)
+        self.assertEqual(len(entry.get('downloads', [])), 2)
+        samples, attachments = entry['downloads']
+        with zipfile.ZipFile(io.BytesIO(self.download(samples))) as archive:
+            self.assertNotIn('samples-I/3.in', archive.namelist())
+            self.assertEqual(len(archive.namelist()), 4)
+        with zipfile.ZipFile(io.BytesIO(self.download(attachments))) as archive:
+            self.assertEqual(archive.read('samples-I/3.in'), original['3.in'])
+            self.assertEqual(archive.read('attachment-extras/problem-I/3.in'), original['3.in'])
+
+    def test_old_combined_cache_migrates_offline_and_still_serves_legacy_resource_id(self):
+        _, prepared = self.mixed_changchun()
+        self.assertEqual(len(prepared.get('downloads', [])), 2)
+        legacy = self.make_legacy(prepared)
+        self.app.close()
+        self.app = Application(self.directory.name, clock=lambda: AT + 1000)
+        migrated = self.offline('resource_manifest', {'sessionId': self.session['sessionId']})['problems'][0]
+        self.assertEqual([item['kind'] for item in migrated['downloads']], ['samples', 'attachment'])
+        self.assertEqual(migrated['resourceId'], legacy['resourceId'])
+        self.assertEqual(migrated['preparedAt'], legacy['preparedAt'])
+        self.assertEqual([item['resourceId'] for item in migrated['downloads']],
+                         [item['resourceId'] for item in prepared['downloads']])
+        for item in [migrated, *migrated['downloads']]:
+            self.download(item)
+        self.assertEqual(self.fixture.posts, [])
+
+    def test_single_download_reuses_original_object_instead_of_copying_it(self):
+        for files, kind in [({'1.in': b'input', '1.ans': b'answer'}, 'samples'),
+                            ({'tools/interactor.py': b'payload'}, 'attachment')]:
+            with self.subTest(kind=kind):
+                self.attach(files)
+                entry = self.prepare()
+                self.assertEqual(len(entry.get('downloads', [])), 1)
+                self.assertEqual((entry['downloads'][0]['kind'], entry['downloads'][0]['resourceId']),
+                                 (kind, entry['resourceId']))
+                self.make_legacy(entry)
+                migrated = self.offline('resource_manifest', {'sessionId': self.session['sessionId']})['problems'][0]
+                self.assertEqual(migrated['downloads'][0]['resourceId'], entry['resourceId'])
+
+    def test_failed_refresh_retains_verified_downloads_and_replaced_manifest_unbinds_old_ids(self):
+        _, entry = self.mixed_changchun()
+        self.assertEqual(len(entry.get('downloads', [])), 2)
+        self.fixture.attachment_overrides[self.args['problemId']] = (404, b'not found', 'text/plain')
+        failed = self.prepare(interactiveHint=True)
+        self.assertEqual(failed['status'], 'ready')
+        self.assertEqual(failed['downloads'], entry['downloads'])
+        self.assertEqual(failed['lastAttempt']['status'], 'unknown')
+        for descriptor in failed['downloads']:
+            self.download(descriptor)
+        self.attach({'different.in': b'new input', 'different.ans': b'new answer'})
+        self.prepare()
+        for descriptor in entry['downloads']:
+            with self.assertRaises(ApplicationError) as error:
+                self.offline('resource_chunk', {**self.args, 'resourceId': descriptor['resourceId'], 'offset': 0})
+            self.assertEqual(error.exception.code, 'RESOURCE_NOT_FOUND')
+
+    def test_old_cache_migration_checks_member_hashes_before_creating_downloads(self):
+        _, entry = self.mixed_changchun()
+        legacy = self.make_legacy(entry)
+        legacy['files'][0]['sha256'] = '0' * 64
+        self.app.resources.write_entry(self.session, self.args['problemId'], legacy)
+        observed = self.offline('resource_manifest', {'sessionId': self.session['sessionId']})['problems'][0]
+        self.assertEqual(observed['status'], 'unknown')
+        self.assertEqual(observed['lastAttempt']['code'], 'CACHE_CORRUPT')
+        self.assertNotIn('downloads', observed)
+
+    def test_migration_rejects_unsafe_zip_paths_and_extraction_limits(self):
+        _, entry = self.mixed_changchun()
+        legacy = self.make_legacy(entry)
+        for name in ['../outside.py', '/outside.py', 'attachment-extras/problem-I/../outside.py',
+                     'attachment-extras/problem-I/tools\\outside.py']:
+            with self.subTest(name=name):
+                payload = archive_bytes({name: b'untrusted'})
+                digest = hashlib.sha256(payload).hexdigest()
+                altered = {**legacy, 'resourceId': digest, 'sha256': digest, 'totalBytes': len(payload),
+                    'files': [{'name': name, 'bytes': 9, 'sha256': hashlib.sha256(b'untrusted').hexdigest()}]}
+                self.app.resources.atomic_write(self.app.resources.object_path(self.session, self.args['problemId'], altered), payload)
+                self.app.resources.write_entry(self.session, self.args['problemId'], altered)
+                observed = self.offline('resource_manifest', {'sessionId': self.session['sessionId']})['problems'][0]
+                self.assertEqual(observed['status'], 'unknown')
+                self.assertEqual(observed['lastAttempt']['code'], 'CACHE_CORRUPT')
+        for limit in ['MAX_ARCHIVE_FILES', 'MAX_EXPANDED_BYTES']:
+            with self.subTest(limit=limit), patch('qojvp.resources.' + limit, 1):
+                self.app.resources.write_entry(self.session, self.args['problemId'], legacy)
+                observed = self.offline('resource_manifest', {'sessionId': self.session['sessionId']})['problems'][0]
+                self.assertEqual(observed['status'], 'unknown')
+                self.assertEqual(observed['lastAttempt']['code'], 'CACHE_CORRUPT')
+
+    def test_split_object_corruption_is_not_returned_as_ready_or_downloadable(self):
+        _, entry = self.mixed_changchun()
+        descriptor = entry['downloads'][0]
+        self.app.resources.object_path(self.session, self.args['problemId'], descriptor).write_bytes(b'corrupted split file')
+        observed = self.offline('resource_manifest', {'sessionId': self.session['sessionId']})['problems'][0]
+        self.assertEqual(observed['status'], 'unknown')
+        with self.assertRaises(ApplicationError) as error:
+            self.download(descriptor)
+        self.assertEqual(error.exception.code, 'CACHE_CORRUPT')
+
+    def test_concurrent_offline_migration_publishes_one_complete_download_manifest(self):
+        _, entry = self.mixed_changchun()
+        self.make_legacy(entry)
+        with ThreadPoolExecutor(max_workers=4) as workers:
+            results = list(workers.map(lambda _: self.app.resources.manifest(self.session), range(4)))
+        manifests = [result['problems'][0] for result in results]
+        self.assertTrue(all(manifest == manifests[0] for manifest in manifests))
+        self.assertEqual([item['kind'] for item in manifests[0]['downloads']], ['samples', 'attachment'])
+        for descriptor in manifests[0]['downloads']:
+            self.download(descriptor)
+
+    def test_split_downloads_remain_bound_to_account_contest_and_problem(self):
+        _, entry = self.mixed_changchun()
+        self.assertEqual(len(entry.get('downloads', [])), 2)
+        for other in [{'contestId': '3387', 'account': 'OtherUser'}, {'contestId': '9999', 'account': 'FixtureUser'}]:
+            session = self.app.dispatch('create_session', other)
+            for descriptor in entry['downloads']:
+                with self.assertRaises(ApplicationError) as error:
+                    self.offline('resource_chunk', {**self.args, 'sessionId': session['sessionId'],
+                        'resourceId': descriptor['resourceId'], 'offset': 0})
+                self.assertEqual(error.exception.code, 'RESOURCE_NOT_FOUND')
+        for descriptor in entry['downloads']:
+            with self.assertRaises(ApplicationError) as error:
+                self.offline('resource_chunk', {**self.args, 'problemId': '15419',
+                    'resourceId': descriptor['resourceId'], 'offset': 0})
+            self.assertEqual(error.exception.code, 'RESOURCE_NOT_FOUND')
 
     def test_extras_only_retains_nested_interactor_path_and_exact_bytes(self):
         contents = b'// synthetic interactor\r\n\x00\xff'
@@ -202,7 +369,11 @@ class ResourceIntegrationTests(unittest.TestCase):
         self.attach({'interactor.bin': data})
         good = self.prepare()
         self.assertGreater(good['totalBytes'], 512 * 1024)
-        with zipfile.ZipFile(io.BytesIO(self.download(good))) as archive:
+        # An already prepared object spans several native messages. Opening
+        # compressed members on each chunk would inflate the whole ZIP again.
+        with patch.object(zipfile.ZipFile, 'open', side_effect=AssertionError('Cached chunks must not decompress ZIP members')):
+            downloaded = self.download(good)
+        with zipfile.ZipFile(io.BytesIO(downloaded)) as archive:
             self.assertEqual(archive.read('attachment-extras/problem-A/interactor.bin'), data)
         result_frame = io.BytesIO()
         write_frame(result_frame, {'type': 'result', 'id': 'prepare', 'ok': True, 'result': good})

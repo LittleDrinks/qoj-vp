@@ -40,7 +40,8 @@ def statement_sample_files(html):
     """Return raw .in/.ans pairs suitable for upstream samples.organize.
 
     Live QOJ 1051/A and C expose one active tab's article, an H2 or H3 样例 section,
-    numbered H4 输入/输出 labels and adjacent plain-text PRE elements. Text in
+    numbered H4 输入/输出 labels and adjacent plain-text PRE elements. Other
+    Xi'an statements use 样例输入/样例输出 in the same sample section. Text in
     source snippets, explanations, inactive tabs and unrelated PREs is not data.
     Ambiguous, empty or incomplete sections are deliberately not guessed.
     """
@@ -61,7 +62,7 @@ def statement_sample_files(html):
         label = node.find_previous_sibling()
         if label is None or label.name != 'h4':
             continue
-        match = re.fullmatch(r'(输入|输出|input|output)\s*#?\s*(\d+)',
+        match = re.fullmatch(r'(样例输入|样例输出|输入|输出|input|output)\s*#?\s*(\d+)',
                              label.get_text(' ', strip=True), flags=re.IGNORECASE)
         if not match:
             continue
@@ -70,7 +71,7 @@ def statement_sample_files(html):
         if node.find(True) is not None:
             return {}
         index = int(match[2])
-        kind = 'in' if match[1].casefold() in {'输入', 'input'} else 'ans'
+        kind = 'in' if match[1].casefold() in {'样例输入', '输入', 'input'} else 'ans'
         if not 1 <= index <= 500 or index in indexes[kind]:
             return {}
         text = node.get_text().replace('\r\n', '\n').replace('\r', '\n')

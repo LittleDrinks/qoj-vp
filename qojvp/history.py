@@ -11,8 +11,8 @@ FINAL_VERDICTS = {"CORRECT", "WRONG-ANSWER", "TIMELIMIT", "RUN-ERROR", "COMPILER
                   "NO-OUTPUT", "OUTPUT-LIMIT", "MEMORY-LIMIT", "PRESENTATION-ERROR"}
 VERDICT_ALIASES = (
     ("COMPILER-ERROR", ("compile error", "compilation error", "compiler error", "ce")),
-    ("TIMELIMIT", ("time limit exceeded", "time limit", "timelimit", "tle")),
-    ("MEMORY-LIMIT", ("memory limit exceeded", "memory limit", "memorylimit", "mle")),
+    ("TIMELIMIT", ("time limit exceeded", "time limit", "timelimit", "tle", "tl")),
+    ("MEMORY-LIMIT", ("memory limit exceeded", "memory limit", "memorylimit", "mle", "ml")),
     ("OUTPUT-LIMIT", ("output limit exceeded", "output limit", "ole")),
     ("RUN-ERROR", ("runtime error", "run time error", "run-error", "re")),
     ("NO-OUTPUT", ("no output", "no-output")),
@@ -25,8 +25,22 @@ VERDICT_ALIASES = (
 
 def verdict(text, score=None):
     text = re.sub(r"\s+", " ", str(text or "").strip().lower()).replace("_", " ")
+    # An accepted contest run may later fail an added test. This exact wrapper
+    # is present on QOJ's detail page after the earlier Accepted test rows.
+    extra = re.fullmatch(r'extra test failed\s*:\s*(.+?)\s+on\s+\d+', text)
+    if extra:
+        current = verdict(extra.group(1))
+        return current if current in FINAL_VERDICTS - {'CORRECT'} else 'UNKNOWN'
+    # QOJ can retain the contest result before the current result ("AC, TL").
+    # Only accept an exact pair of known results; a historic AC must not hide
+    # a later failure, pending rejudge or unrecognized result.
+    parts = text.split(',')
+    if len(parts) > 1:
+        if len(parts) != 2 or any(verdict(part) == 'UNKNOWN' for part in parts):
+            return 'UNKNOWN'
+        return verdict(parts[1], score)
     # QOJ's verified accepted marker has this exact suffix. Do not strip
-    # punctuation/letters generally: "AC, TL" is an ambiguous different value.
+    # other punctuation/letters: an unrecognized value must remain unknown.
     if text == 'ac ✓':
         text = 'ac'
     for result, aliases in VERDICT_ALIASES:
@@ -47,24 +61,32 @@ def detail_verdict(html, score=None):
                if node.get_text(" ", strip=True).lower() == "details"]
     scope = headers[-1].parent if headers else page
     if scope.select_one('[id^="status_details_"]'):
-        return {"verdict": "JUDGING", "rawVerdict": "Judging", "pending": True}
-    observed = []
+        return {"verdict": "JUDGING", "rawVerdict": "Judging", "pending": True,
+                "verdictSource": "submission-detail"}
+    observed, unverified_extra = [], []
     for node in scope.select(".uoj-status, .col-sm-2, .panel-title, .card-header, table td"):
         text = node.get_text(" ", strip=True)
         parsed = verdict(text)
         if parsed != "UNKNOWN":
             observed.append((parsed, text))
+        elif re.match(r'^Extra\s+Test\s+Failed\b', text, re.IGNORECASE):
+            # The failure is explicit even when its subtype is new/hidden.
+            # Earlier AC test rows cannot establish acceptance in this case.
+            unverified_extra.append(text)
     failures = [item for item in observed if item[0] in FINAL_VERDICTS - {"CORRECT"}]
     if failures:
         result, raw = failures[0]
     elif any(item[0] == "JUDGING" for item in observed):
         result, raw = "JUDGING", "Judging"
+    elif unverified_extra:
+        result, raw = 'UNKNOWN', unverified_extra[0]
     elif score == 100 and any(item[0] == "CORRECT" for item in observed):
         result, raw = "CORRECT", "Accepted"
     else:
         # Passing an earlier test can never erase a later zero/partial score.
         result, raw = "UNKNOWN", "Detailed verdict unavailable"
-    return {"verdict": result, "rawVerdict": raw, "pending": result == "JUDGING"}
+    return {"verdict": result, "rawVerdict": raw, "pending": result == "JUDGING",
+            "verdictSource": "submission-detail"}
 
 
 def timestamp(value):
@@ -216,12 +238,15 @@ def parse_history(html, cid, account, problems):
             if at is None:
                 warnings.append(f"#{sid}: absolute submission time is not verified")
             parsed = "JUDGING" if pending else "UNKNOWN" if invalid_score else verdict(raw, score)
+            pending = pending or parsed == 'JUDGING'
             result[sid] = {"id": sid, "account": actual_account, "problemId": pid,
                            "problemLabel": pid_to_label[pid], "language": cells[language_index].get_text(" ", strip=True)
                            if language_index is not None and language_index < len(cells) else "",
                            "submittedAt": at, "rawTime": str(raw_time)[:100],
                            "timeSource": "provider-absolute" if at is not None else "unverified-display",
                            "verdict": parsed, "rawVerdict": raw, "score": score, "pending": pending,
+                           "verdictSource": "history-result",
+                           "historyResult": {"rawVerdict": raw, "score": score, "verdict": parsed},
                            "url": f"https://qoj.ac/submission/{sid}", "state": "confirmed"}
     pages = []
     for link in page.select('a[href]'):

@@ -46,6 +46,7 @@ function environment() {
     call: async (method, args) => { calls.push({method, args}); return handler(method, args); }};
   vm.createContext(context);
   for (const [begin, end] of [["  function node(", "  function showMessage("],
+    ["  function epoch(", "  function formatDate("],
     ["  function safeQojUrl(", "  function contestName("],
     ["  function ranklandViewIdentity(", "  function renderSummary("],
     ["  function renderSummary(", "  function renderSubmissions("]]) {
@@ -215,4 +216,20 @@ test("the actual timer wiring polls rankings every10s only while the view is vis
   intervals.get(10000)(); assert.deepEqual(ranks, [true, false]);
   context.state.connected = false; intervals.get(10000)();
   assert.equal(ranks.length, 2); assert.equal(requests.length, 0);
+});
+
+
+test("early finish excludes later AC even while an old row still says inSession", () => {
+  const view = environment();
+  view.state.session.startAt = 1793490000000;
+  view.state.session.finishedAt = view.state.session.startAt + 60000;
+  view.state.session.state = "finished";
+  view.state.submissions[0].inSession = true;
+  view.context.renderSummary();
+  assert.equal(byClass(view.target, "score_correct").length, 0);
+  assert.ok(byClass(view.target, "scorenc").every(cell => cell.textContent === "0"));
+  view.state.session.finishedAt = null;
+  view.state.submissions[0].inSession = false;
+  view.context.renderSummary();
+  assert.equal(byClass(view.target, "score_correct").length, 0);
 });

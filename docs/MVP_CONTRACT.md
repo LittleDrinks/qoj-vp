@@ -1,6 +1,6 @@
 # MVP implementation contract
 
-2026-11-01, 0.2.0 follow-up in progress. QOJ only; no CF/Gym or custom scoreboard.
+2026-11-01, 0.3.0 administration and manual sample interface. QOJ only; no CF/Gym or custom scoreboard.
 This file describes interfaces, not an all-green acceptance claim. Current
 verified/pending status is in ACTIVE_WORK.md; MVP_RESULT.md is the dated 0.1.0
 record, including the now-retired PDF export behavior.
@@ -23,6 +23,9 @@ Methods (camelCase JSON fields):
 - `hello {}` → `{version, capabilities}`.
 - `create_session {contestId,title?,account?,startAt?,durationMs?,ranklandUrl?}` → session below. A missing startAt means prepared; `start_session {sessionId}` persists the local start anchor. This does not claim to register a QOJ native virtual contest.
 - `list_sessions {}` → `{sessions:[session]}`; `inspect_session {sessionId}` → session; `archive_session {sessionId}` → session.
+- `update_session {sessionId,title?,durationMs?,ranklandUrl?}` → session. Title and duration are editable only while prepared; duration is an integer from 1 ms through 14 days. RankLand target settings retain their existing behavior in other states.
+- `finish_session {sessionId}` → session with `state:'finished'` and `finishedAt`. Ends only the local participation window and freezes elapsed time; it does not contact either original site. Prepared/future-start sessions are rejected; repeated finish does not change the recorded end.
+- `delete_session {sessionId,confirmed:true}` → `{deleted:true,sessionId}`. Only prepared, archived or effectively finished local sessions may be deleted. Unconfirmed source intents block deletion even after archiving; see the lifecycle boundaries below.
 - `prepare_rankland {sessionId}` → session with `ranklandPrepared=true`: before first scoreboard opening, freeze the current fractional-minute `from` in the durable URL; later opens reuse it exactly. A past `at` alone does not advance a newly opened original-site replay.
 - `qoj_contest {contestId}` → `{id,name,account,problems:[{id,label,name,url}],source}`. Account null means user must log in to QOJ normally.
 - `qoj_problem_form {sessionId,problemId}` → `{problemId,languages:[string],csrfPresent,pdfCandidates:[{url,text}],statementUrl}`. Never return CSRF value to UI.
@@ -30,7 +33,20 @@ Methods (camelCase JSON fields):
 - `qoj_submit {sessionId,problemId,problemLabel,language,filename,contentsBase64,operationId}` → `{submission,state}`. Confirmed receipt state `confirmed`; uncertain state `unknown` never silently retried. Submission shape below.
 - `qoj_submissions {sessionId,refresh?:true}` → `{submissions:[submission],account,coverage:{complete,pages,warning?}}`. Refresh collects same-account original-site history/detail and persists updates; uncertain outcomes require reconciliation before resubmission.
 
-Session: `{sessionId,contestId,title,account,startAt,durationMs,state,effectiveState,elapsedMs,ranklandUrl,createdAt}`. Keep exact durable URL, including stable unique run, not a browser tab ID. Time is derived from a timestamp, never a permanently running Python timer.
+Session: `{sessionId,contestId,title,account,startAt,durationMs,state,effectiveState,elapsedMs,ranklandUrl,createdAt,finishedAt?}`. Keep exact durable URL, including stable unique run, not a browser tab ID. Time is derived from a timestamp, never a permanently running Python timer.
+
+The local submission/outbox interval ends at the earlier of `startAt+durationMs`
+and explicit `finishedAt`; ending a practice does not shorten its configured
+duration or alter a frozen RankLand URL. A new send intent rechecks the session
+inside its transaction, so finishing during form lookup cannot send code after
+the local finish. Existing unknown intents retain the normal reconciliation path.
+
+Deletion checks state, confirmation and unresolved source operations in one
+transaction, then removes only that session's operations, history associations
+and outbox. Provider facts are removed only if no other local session references
+them. Account/contest-scoped resource objects and verified contest snapshots are
+shared and retained. Deletion never removes QOJ submissions, a RankLand run or
+original-site storage. These local controls are not QOJ contest administration.
 
 Submission: `{id,operationId?,problemId,problemLabel,language,filename?,submittedAt,elapsedMs,verdict,rawVerdict,score?,pending,url,state}`. `id` is provider submission ID when confirmed. DOMjudge verdicts include CORRECT, WRONG-ANSWER, TIMELIMIT, RUN-ERROR, COMPILER-ERROR, NO-OUTPUT, OUTPUT-LIMIT, JUDGING, UNKNOWN. Preserve raw observations; 0 score alone is insufficient to select WA.
 
@@ -63,8 +79,12 @@ Without a snapshot, rank/penalty stay unknown and the local confirmed solve coun
 remains available. This read path never joins a team or inserts a submission.
 
 Problemset statement is a normal QOJ problem link opened in a new tab. There is
-no `problem.pdf` operation or automatic Firefox PDF export in 0.2.0. The navigation
-uses the original DOMjudge 9.0.1 trophy dropdown; New contest remains on Home.
+no `problem.pdf` operation or automatic Firefox PDF export since 0.2.0. The player
+navigation uses the original DOMjudge 9.0.1 trophy dropdown to switch contests.
+Creation, configuration, local finish/deletion and manual resource preparation
+belong to the separate Jury view: Jury → Contests → Add new contest. They are not
+player Home actions. The Jury layout follows the official administrator entry
+structure while its local-session semantics remain an extension adaptation.
 
 Scoreboard identity includes origin, contest, run, rule, count, ratio, at and from. Opening is serialized. Automatic delivery stops when more than one tab can write the same original-site storage slot; the user keeps one before continuing. Acknowledgements are scoped to both source submission and destination, and rejudging an already delivered result requires review.
 
@@ -88,35 +108,112 @@ local session window; records without a verified time remain out of its queue.
 ## Prepared resources
 
 - `resource_manifest {sessionId}` → `{origin,account,contestId,problems:[entry]}`.
-  Pure offline metadata read; missing entries remain unknown.
+  Offline validated cache read, including lazy migration of older entries;
+  missing entries remain unknown. Migration makes no QOJ request.
 - `prepare_resource {sessionId,problemId,interactiveHint?:bool}` → entry. Reads QOJ
   with the actual upstream download/organize implementation; allowed before the
-  local timer starts. A failed attempt never establishes absence.
+  local timer starts. A failed attempt never establishes absence. A verified
+  manual sample entry is returned locally without requesting QOJ or overwriting it.
+- `import_samples {sessionId,problemId,zipBase64?,files?,confirmedReplace?}` → ready
+  entry. Exactly one of ZIP base64 or `files:[{name,base64}]` is required. This is
+  an offline import with the ownership, confirmation and size checks below.
 - `resource_chunk {sessionId,problemId,resourceId,offset,maxBytes?}` →
   `{problemId,resourceId,offset,bytesBase64,nextOffset,eof,totalBytes,sha256,chunkSha256}`.
   Pure offline cache read; each chunk is at most 262144 bytes and the whole ZIP
   at most 67108864 bytes.
 
-Entry: `{problemId,status:'ready'|'unknown',lastAttempt?}`. Ready entries also
-contain `kind:'samples'|'attachment'`, opaque `resourceId`, safe `filename`,
-`totalBytes`, `sha256`, `sampleCount`, `pairCount`, `files`, `extraFiles`,
-`sampleSource`, `preparedAt`, and optional `interactiveHint`. New unknown entries
-do not advertise a downloadable ID. Failed refreshes preserve the previous ready
-object and set `lastAttempt.status='unknown'`; UI must distinguish retained bytes
-from a newly successful attempt. No current path produces verified-none.
+Entry: `{problemId,status:'ready'|'unknown',lastAttempt?}`. Since 0.2.1, ready
+entries contain `downloads:[descriptor]`, with one or two independently
+downloadable ZIPs, ordered samples before attachment. A descriptor contains
+`{problemId,problemLabel,status:'ready',kind:'samples'|'attachment',filename,
+resourceId,totalBytes,sha256,sampleSource,preparedAt,interactiveHint,sampleCount,
+pairCount,files,extraFiles}`. `files` contains `{name,bytes,sha256}` for each ZIP
+member. Each descriptor's size, SHA and file list describe only its own ZIP.
+
+Complete same-stem `.in` / `.ans` pairs under `samples-X/` enter
+`samples-X.zip`. Everything else enters `attachments-X.zip`: the entire original
+`attachment-extras/problem-X/` tree, including its original `.in` / `.ans` files
+and tool dependencies, plus unpaired generated sample items. Complete generated
+sample copies do not also appear in the attachment ZIP. No original attachment
+member is discarded. The samples descriptor counts its complete pairs; the
+attachment descriptor has `sampleCount=pairCount=0` even if its preserved original
+tree contains sample files.
+
+The entry's top-level `kind`, `resourceId`, `filename`, `totalBytes`, `sha256`,
+`sampleCount`, `pairCount`, `files`, `extraFiles`, `sampleSource`, `preparedAt` and
+optional `interactiveHint` remain the legacy combined-object metadata. New UI
+controls consume `downloads`; the combined ID is retained for older callers.
+For a single-kind resource the descriptor reuses the top-level object without
+copying it. Mixed resources retain that object and add two separate ZIP objects.
+
+New unknown entries advertise no downloadable ID or descriptors. Failed refreshes
+preserve previous ready downloads only after verification and set
+`lastAttempt.status='unknown'`; UI must distinguish retained bytes from a newly
+successful attempt. No current path produces verified-none.
 
 Cache scope is QOJ origin/account/contest/problem. The helper stores atomic
 manifests and content-addressed files under its private state directory, without
 returning local filesystem paths or storing credentials in the manifest.
-The UI displays only verified ready controls, labels extras/mixed packages as
-attachments, reuses ready entries by default, and prepares missing entries
-serially. Explicit interactive hints prohibit reuse of old inline-statement
-samples as ordinary interactive-task samples.
+Old schema-1 entries without `downloads` migrate on an offline manifest read;
+a legacy chunk request also migrates before serving bytes. Migration validates
+the original ZIP size/SHA and each member's name, size and SHA, rejects unsafe
+paths, links and duplicate members, and enforces at most 2000 members / 128 MiB
+expanded data. Child objects publish before the updated manifest, using a
+per-problem lock and atomic writes. The original combined object is retained.
+Invalid caches are not advertised as ready.
+
+The UI displays a samples button and/or an attachment button from the verified
+descriptors, reuses ready entries by default, and prepares missing entries
+serially. Explicit interactive hints prohibit inline-statement fallback and
+reuse of old inline-statement samples as ordinary interactive-task samples.
+They do not suppress complete paired samples obtained from official attachments;
+those may be downloaded separately from the interactor or other tools.
+
+`resource_chunk` accepts only a descriptor ID or legacy top-level ID explicitly
+bound by the current account/contest/problem manifest. It validates the selected
+ZIP's size and SHA for each chunk, without decompressing members again. ZIP member
+validation takes place on storage, manifest reads and legacy migration.
 
 Downloads validate chunk identity, monotonic offsets/size/EOF, chunk SHA and full
 SHA using WebCrypto before creating a Blob download. A mismatch never falls back
 to a guessed QOJ URL. `resourceReading` locks preparation while the current
 manifest promise is unresolved; read-only UI diagnostics expose the flag.
+
+### Manual sample imports
+
+Imports require an account-bound session and a problem in the verified
+account/contest snapshot saved by successful QOJ reads. Older scoped resource
+metadata with a verified label also permits import when no snapshot exists.
+An arbitrary problem list supplied by a caller cannot authorize an import;
+missing ownership data returns `CONTEST_NOT_CACHED` and requires a separate
+contest read. The import itself never makes network requests.
+
+Individual files and ZIP content allow at most 1000 members, 4 MiB per file and
+8 MiB total uncompressed bytes. ZIP directory entries count toward the member
+limit; the uploaded ZIP is also at most 8 MiB. Unsafe/duplicate paths, symlinks,
+encrypted or special members, malformed archives and unsupported compression
+are rejected; stored and deflated ZIPs are accepted. No archive is extracted to
+a user-selected path. Files must be complete same-stem `.in` plus `.ans` or
+`.out` pairs; unrelated files, partial pairs and dual `.ans`/`.out` answers fail
+validation. Pairs normalize to naturally ordered numbered `.in`/`.ans` files
+under `samples-X/` while preserving every input/output byte.
+
+If samples already exist, import requires `confirmedReplace:true` regardless
+of their original source. The old attachment descriptor and object are retained
+unchanged, including tool dependencies and incomplete inputs. New numbering
+skips names occupied by those incomplete files. The helper builds and verifies
+the new combined object before publishing a complete manifest under the resource
+lock. The entry is marked `manualSamples:true` and `sampleSource:'manual'`; its
+samples descriptor has manual provenance, while attachment provenance stays
+unchanged. Automatic prepare/refresh, including a provider write racing the
+import, cannot silently replace manual samples.
+
+Incoming native frames allow 96 MiB. The maximum 8 MiB import encodes to about
+10.7 MiB base64 plus bounded JSON and filenames, below that limit. The response
+contains metadata only and stays within the existing 1 MiB outgoing ceiling;
+ZIP download bytes continue through 256 KiB chunks. The maximum upload size is
+verified through the real host framing entry in the Python suite; a fully
+offline workbench bootstrap is still outside this interface guarantee.
 
 ## Original-site preparation entry
 
@@ -136,8 +233,9 @@ are prepared serially. `vp.resources.progress` sends counts to that contest tab.
 
 `vp.resources.openContest {cid,sessionId?}` revalidates account/cid and opens the
 matching `ui.html?session=<UUID>&resources=1`. Normal initialization selects that
-session before opening the resource modal. Neither message starts a QOJ VP or
-sends source code. Home retains the same preparation modal as a fallback.
+session before opening the resource modal in the Jury view. Neither message
+starts a QOJ VP or sends source code. Jury retains the same preparation modal
+as a fallback.
 
 ## HTTP seam
 
@@ -153,9 +251,9 @@ RankLand recovery. Resource browser acceptance distinguishes offline file reads
 from whole-page offline bootstrap. Official 9.0.1 server-rendered snapshots and
 original assets are replayed in the same Firefox for computed-style/field/modal
 comparison; this does not claim a live VM DOMjudge backend or full-page pixel
-equality. Home is captured separately, not certified for parity: its Contest
-controls adapt the original Clarifications area. The 0.2.0 navigation and snapshot
-changes require fresh regression results; earlier counts are historical evidence.
+equality. Home is captured separately, not certified for parity. Administration
+is a separate Jury view adapted to local practice sessions. Current 0.3.0 changes
+require fresh regression results; earlier counts are historical evidence.
 
 The one real QOJ source POST is submission 3331061, now AC and explicitly linked
 through normal reconciliation UI. Do not send another real source POST or create

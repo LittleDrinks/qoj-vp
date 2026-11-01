@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "QOJ VP Workbench",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "DOMjudge team pages for QOJ, with durable VP sessions and the original RankLand scoreboard.",
   "browser_specific_settings": {"gecko": {"id": "qoj-vp@littledrinks.local", "strict_min_version": "128.0"}},
   "permissions": ["nativeMessaging", "storage", "tabs", "scripting", "webRequest", "alarms"],
