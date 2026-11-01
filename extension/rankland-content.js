@@ -61,7 +61,7 @@
         !Number.isFinite(archive.value.elapsed) || archive.value.elapsed < 0 ||
         typeof archive.value.running !== "boolean") return {ready: false, reason: "STORAGE_FORMAT_CHANGED"};
     const candidates = [];
-    for (const table of board.querySelectorAll("table.srk-main")) {
+    for (const table of board.querySelectorAll(".srk-main > table")) {
       for (const name of table.querySelectorAll(".srk-user-name-text")) {
         if (name.textContent.trim() !== ownName) continue;
         const row = name.closest("tr"), cell = name.closest("td");

@@ -515,7 +515,7 @@
       // Same ordinary document flow as pinned partials/problem_list: the
       // centered Submit action, its exact 10px separator, then inline links.
       const separator = node("div"); separator.style.marginTop = "10px"; actions.append(separator);
-      const statement = node("a", "btn btn-secondary"); statement.append(icon("file-alt"), " statement"); statement.href = problemUrl(problem); statement.target = "_blank"; statement.rel = "noopener noreferrer";
+      const statement = node("a", "btn btn-secondary"); statement.append(icon("file-pdf"), " statement"); statement.href = problemUrl(problem); statement.target = "_blank"; statement.rel = "noopener noreferrer";
       statement.dataset.statementProblem = problem.id;
       actions.append(statement);
       const resource = readyResource(problem.id);

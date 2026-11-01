@@ -29,11 +29,12 @@ function harness(options = {}) {
     row.querySelectorAll = selector=>selector === ".srk-user-name-text" ? [nameNode] : [];
     return {row, nameNode};
   };
-  const table = {tHead:{rows:[{cells:headers}]}, getClientRects:()=>[{}]};
-  const own = makeRow(stored.ownName, options.cells || ["465", "510", "244", stored.ownName, "1", "77", "", "", "1/77"]);
+  const table = {tagName:"TABLE",className:"srk-table-row-striped",
+    tHead:{rows:[{cells:headers}]}, getClientRects:()=>[{}]};
+  const own = makeRow(stored.ownName, options.cells || ["470", "515", "247", stored.ownName, "1", "77", "", "", "1/77"]);
   const rows = options.duplicate ? [own,makeRow(stored.ownName,["1","2","3",stored.ownName,"12","1000"])] : [own];
   table.querySelectorAll = selector=>selector === ".srk-user-name-text" ? rows.map(entry=>entry.nameNode) : [];
-  const board = {querySelectorAll:selector=>selector === "table.srk-main" || selector === "table.srk-common-table.srk-main" ? [table] : []};
+  const board = {querySelectorAll:selector=>selector === ".srk-main > table" ? [table] : []};
   const document = {querySelector:selector=>selector === '[data-id="vp-ranklist-content"]' && !options.noBoard ? board : null};
   const localStorage = {getItem:key=>key === targetKey && !options.noStorage ? JSON.stringify(stored) : null,
     setItem(...args){ writes.push(["site", ...args]); }};
@@ -53,11 +54,11 @@ test("actual content bridge reports original primary rank, score and penalty for
   const view = harness(), before = JSON.stringify(view.stored);
   const result = await view.snapshot();
   assert.equal(result?.ready,true,"RankLand own-row observation must be available without sending a verdict");
-  assert.equal(result.snapshot.rank,465); assert.equal(result.snapshot.score,1); assert.equal(result.snapshot.penaltyMinutes,77);
+  assert.equal(result.snapshot.rank,470); assert.equal(result.snapshot.score,1); assert.equal(result.snapshot.penaltyMinutes,77);
   assert.equal(result.snapshot.sessionId,sessionId); assert.equal(result.snapshot.targetKey,targetKey);
   assert.equal(result.snapshot.ownName,"LittleDrinks"); assert.equal(result.snapshot.elapsedMs,7200000);
   assert.deepEqual(Array.from(result.snapshot.ranks, item=>({label:item.label,value:item.value})),
-    [{label:"#",value:465},{label:"R#",value:510},{label:"S#",value:244}]);
+    [{label:"#",value:470},{label:"R#",value:515},{label:"S#",value:247}]);
   assert.equal(JSON.stringify(view.stored),before); assert.equal(view.writes.length,0);
 });
 

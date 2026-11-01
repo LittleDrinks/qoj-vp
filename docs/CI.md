@@ -31,7 +31,9 @@ node --test preflight/test_*.cjs tests/test_*.cjs
 python3 scripts/package_extension.py
 python3 -m build --wheel
 python3 scripts/package_source.py
-sha256sum dist/*.xpi dist/*.whl dist/*.tar.gz > dist/SHA256SUMS
+cd dist
+sha256sum *.xpi *.whl *.tar.gz > SHA256SUMS
+sha256sum --check SHA256SUMS
 ```
 
 `package_source.py` 导出 HEAD 的文件，不包含尚未提交的修改；修改应先进入准备发布的提交。
@@ -94,15 +96,20 @@ sudo apt-get install -y python3-pip python3-dev libcurl4-openssl-dev libssl-dev
 专机只接默认分支的手动任务，不接 pull request 自动任务。
 label 路由方式遵循 [GitHub runner 选择规则](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job)。
 
+手动触发的 `check_rankland_online` 默认关闭。开启后，三套受控测试完成后会额外运行
+`guest_rankland_readiness.py --mode verify`，访问当前线上 RankLand；因此该选项依赖
+专机网络和站点可用性。没有打开该选项时不会把本地 fixture 测试描述成线上兼容验证。
+
 ## 真实浏览器回归范围
 
-`scripts/run_hydro_ci.py` 顺序运行现有三套测试：
+`scripts/run_hydro_ci.py` 默认顺序运行现有三套测试，第四项需显式选择：
 
 | 测试 | 检查内容 | 边界 |
 | --- | --- | --- |
 | DOMjudge visual parity | 官方 9.0.1 服务导出的页面快照、控件 CSS、提交弹窗操作 | 快照回放不是在线 DOMjudge；不宣称整页像素一致 |
 | Resource cache | 样例/附件准备与下载、缓存复用 | 本地 QOJ fixture，不读用户登录 |
 | Receipt diagnostics | Firefox 真实 HTTP 302/503/无 Location 行为、持久诊断 | POST 只发 localhost，不提交真实题目 |
+| RankLand online（可选） | 原站加入测试队伍、单条合成判定、名次/得分/罚时与真实 DOM 比较、关页恢复 | 独立 profile/run 的合成比赛回放；QOJ 仍为 GET-only fixture，不使用真实账号 |
 
 工作流下载固定 geckodriver 0.37.1 并校验发布资产的 SHA256；Python 浏览器依赖放进
 checkout 的 `preflight/vendor_py`，不改系统 Python。截图、JSON 和测试日志作为
@@ -110,6 +117,17 @@ Actions artifact 保存 14 天。发生测试失败也保留证据，不上传 F
 
 Problemset 的 statement 直接打开 QOJ 原题面，不再运行已退役的自动 PDF 导出回归。
 
-RankLand 的当前线上页面兼容性和 QOJ 登录后 GET 仍需单独验证。自动 CI 不在真实平台上
-新开 VP 或提交题目，也不将 fixture 通过写成真实账号验收。Hydro workflow 是否实际通过，
+专机已准备好时，也可以直接运行：
+
+```sh
+/usr/bin/python3 scripts/run_hydro_ci.py --rankland-online
+```
+
+汇总中的 `ranklandOnlineRequested` 记录选项，`realRanklandTested` 仅在该测试进程实际
+执行后变为 true；测试是否通过仍取决于对应 check 的状态。线上检查在调用生产
+`rankland.snapshot` 前后独立读取原站队伍行；指标稳定时严格比较名次、得分、罚时，
+仅对原站指标变化的窗口作有限重试。读取分数不修改原站 manual 数组。
+
+QOJ 登录后 GET 不属于这些自动测试。CI 不在真实 QOJ 新开官方 VP 或提交源码，
+也不将合成回放通过写成真实账号验收。Hydro workflow 是否实际通过，
 以具体 run 的结果和产物为准。

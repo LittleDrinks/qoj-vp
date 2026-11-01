@@ -172,6 +172,48 @@ def main():
             require(h.step('get_only_fixture_final_verdict_uses_original_record_form_once', deliver) is not None,
                     'Single verdict delivery failed')
 
+            def verify_score_snapshot():
+                old = h.original_state(session)
+                attempts = []
+
+                def original_metrics():
+                    h.rankland_handle(session)
+                    original = inspect_rankland_readiness(h.driver)
+                    rows = [row for row in original['ownRows'] if row.get('valid') and row.get('visible')]
+                    require(len(rows) == 1 and rows[0]['ranks'], 'Original own-team score row is missing or ambiguous')
+                    row = rows[0]
+                    require(row['score'] == '1' and row['penaltyMinutes'].isdigit()
+                            and row['ranks'][0]['text'].isdigit(), 'Original score fields are not numeric')
+                    return {'rank': int(row['ranks'][0]['text']), 'score': int(row['score']),
+                            'penaltyMinutes': int(row['penaltyMinutes'])}
+
+                for attempt in range(6):
+                    before = original_metrics()
+                    result = h.call('rankland.snapshot', {'sessionId': session['sessionId']})
+                    after = original_metrics()
+                    snapshot = result.get('snapshot') or {}
+                    attempts.append({'attempt': attempt + 1, 'before': before, 'after': after,
+                                     'product': result, 'stable': before == after})
+                    atomic_json(h.results / 'score-comparison-attempts.json', attempts)
+                    require(result.get('state') == 'live', 'Product did not return a live original-site snapshot: ' + str(result))
+                    if before == after:
+                        require(all(snapshot.get(key) == value for key, value in after.items()),
+                                'Product snapshot differs from stable original rank/score/penalty: ' + str(result))
+                        break
+                else:
+                    raise AssertionError('Original rankings changed during all six snapshot comparisons')
+                current = h.original_state(session)
+                require(current['key'] == old['key'] and current['value']['manual'] == old['value']['manual'],
+                        'Reading the score snapshot changed the original manual submissions')
+                atomic_json(h.results / 'production-score-snapshot.json', result)
+                h.snapshot(session, 'original-score-row')
+                return {'primaryRank': snapshot['rank'], 'score': snapshot['score'],
+                        'penaltyMinutes': snapshot['penaltyMinutes'], 'sameManualSubmissions': True,
+                        'stableComparisonAttempts': len(attempts)}
+
+            require(h.step('score_snapshot_matches_original_dom_without_writing_verdicts', verify_score_snapshot) is not None,
+                    'Original score snapshot regression failed')
+
             def preserve_existing_team_and_reopen():
                 from selenium.webdriver.common.by import By
                 from rankland_probe import _click_text

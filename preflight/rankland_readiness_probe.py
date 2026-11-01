@@ -23,6 +23,7 @@ def inspect_rankland_readiness(driver):
       const problem = [...document.querySelectorAll('select[aria-label="题目"]')];
       const result = [...document.querySelectorAll('select[aria-label="结果"]')];
       const slots = [];
+      const ownNames = [];
       let storageAvailable = true, introRead = false;
       try {
         introRead = localStorage.getItem('StyledRanklistSettingsIntroRead') === 'true';
@@ -31,6 +32,7 @@ def inspect_rankland_readiness(driver):
           if (!key.startsWith('RanklandVP2:') || !key.includes(':' + run + ':')) continue;
           try {
             const value = JSON.parse(localStorage.getItem(key));
+            if (typeof value?.ownName === 'string' && value.ownName.trim()) ownNames.push(value.ownName);
             slots.push({parseable: true, version: value?.version,
               running: value?.running === true,
               elapsed: Number.isFinite(value?.elapsed) ? value.elapsed : null,
@@ -41,6 +43,17 @@ def inspect_rankland_readiness(driver):
       } catch (_) { storageAvailable = false; }
       const error = [...document.querySelectorAll('section.mt-16.text-center > p[role="alert"]')]
         .find(shown);
+      const ownRows = [...document.querySelectorAll('[data-id="vp-ranklist-content"] .srk-user-name-text')]
+        .filter(name => ownNames.includes(name.textContent.trim())).map(name => {
+          const row = name.closest('tr'), cell = name.closest('td'), table = row?.closest('table');
+          if (!row || !cell || !table) return {valid: false};
+          const cells = [...row.cells], headers = [...(table.tHead?.rows[0]?.cells || [])], index = cells.indexOf(cell);
+          return {valid: true, visible: shown(row), tableClass: table.className,
+            wrapperClass: table.parentElement?.className || '', userColumn: index,
+            ranks: headers.flatMap((header, column) => column < index && header.classList.contains('srk-series-header') ?
+              [{label: header.textContent.trim(), text: cells[column]?.textContent.trim()}] : []),
+            score: cells[index + 1]?.textContent.trim(), penaltyMinutes: cells[index + 2]?.textContent.trim()};
+        });
       return {schema: 'qoj-rankland-readiness-v1',
         origin: url.origin, path: url.pathname, readyState: document.readyState,
         query: Object.fromEntries(['contest', 'run', 'rule', 'count', 'ratio', 'at', 'from', 'play']
@@ -51,7 +64,7 @@ def inspect_rankland_readiness(driver):
         problemOptionCount: problem[0]?.options.length ?? null,
         resultSelects: result.length, resultSelectsVisible: result.filter(shown).length,
         introCount: intros.length, introVisible: intros.filter(shown).length,
-        introRead, controls, storageAvailable, slots,
+        introRead, controls, storageAvailable, slots, ownRows,
         sourceError: !!error,
         sourceErrorKind: !error ? null : error.textContent.trim() === '起始时间必须小于比赛时长。'
           ? 'START_OFFSET_OUT_OF_RANGE' : 'SOURCE_LOAD_ERROR',

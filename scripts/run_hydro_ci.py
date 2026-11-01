@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Run fixture-only browser regressions on a dedicated Hydro Linux runner."""
+"""Run isolated Firefox regressions, optionally checking the live RankLand page."""
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import json
 import os
@@ -16,10 +17,15 @@ OUTPUT = ROOT / 'results/ci'
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--rankland-online', action='store_true',
+                        help='Also run the network-dependent original RankLand regression')
+    args = parser.parse_args()
     OUTPUT.mkdir(parents=True, exist_ok=True)
     sys.path.insert(0, str(ROOT / 'preflight/vendor_py'))
     report = {'schema': 'qoj-vp-hydro-ci-v1', 'status': 'running', 'startedAt': time.time(),
               'judge': 'local-fixtures', 'realQojSubmission': False, 'realRanklandTested': False,
+              'ranklandOnlineRequested': args.rankland_online,
               'python': platform.python_version(), 'kernel': platform.release(), 'checks': []}
     target = OUTPUT / 'hydro-summary.json'
 
@@ -47,11 +53,15 @@ def main():
             ('resources', ['preflight/guest_resource_cache.py']),
             ('receipts', ['preflight/guest_transport_diagnostics.py']),
         ]
+        if args.rankland_online:
+            cases.append(('rankland-online', ['preflight/guest_rankland_readiness.py', '--mode', 'verify']))
         for name, arguments in cases:
             started = time.time()
             with (OUTPUT / (name + '.txt')).open('w') as log:
                 result = subprocess.run([sys.executable, *arguments], cwd=ROOT, stdout=log,
                                         stderr=subprocess.STDOUT, check=False)
+            if name == 'rankland-online':
+                report['realRanklandTested'] = True
             report['checks'].append({'name': name, 'status': 'passed' if result.returncode == 0 else 'failed',
                                      'exitCode': result.returncode, 'seconds': round(time.time() - started, 2)})
             print(name + ': ' + report['checks'][-1]['status'], flush=True)
