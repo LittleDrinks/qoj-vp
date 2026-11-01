@@ -1,24 +1,37 @@
 # 当前工作状态
 
-更新：2026-11-01（Asia/Shanghai）。**0.2.0 后续修复进行中**，本轮源码改动尚需完成
-虚拟机回归、打包、部署和 GitHub Actions 实跑。CF/Gym 不接入。
+更新：2026-11-01（Asia/Shanghai）。**0.2.0 修复已在 VM 验证并推送 GitHub**。
+功能提交 `d5817bb` 的 CI 已通过。逐项证据和保留限制见
+[FOLLOWUP_RESULT.md](FOLLOWUP_RESULT.md)。CF/Gym 不接入。
 
-## 本轮改动与待验证项
+## 本轮完成项
 
-- RankLand 本队名次、得分、罚时从原站已显示的队伍行只读回填；工作台可见时每
-  10 秒刷新。快照按准确比赛/run 身份缓存，保留 `observedAt`；关榜单或读取失败时
-  明确显示上次同步时间，不能把缓存称为实时数据。原站回填与关闭后缓存待本轮 VM 核验。
-- 按用户最新选择，statement 改成新标签直接打开 QOJ 原题面；移除自动 PDF 导出。
-  下文旧 PDF 引擎/文件验证属于 0.1.0 历史，不再代表当前产品功能。
-- 右上角换成官方 DOMjudge 9.0.1 奖杯下拉菜单，New contest 留在 Home；需要重新
-  验证实际 Firefox 的菜单操作与样式，不复用旧包的视觉结论。
-- 临时扩展重启后被 Firefox 移除；可重新载入同一扩展恢复工作台入口，助手账本保留。
-  长期安装拟使用 AMO unlisted 签名，目前没有配置凭据或上传，也不改全局签名检查设置。
-- 私有仓库已创建：[LittleDrinks/qoj-vp](https://github.com/LittleDrinks/qoj-vp)，
-  当前尚未推送本轮源码。GitHub 自动测试/打包配置已写，首次云端运行待推送后验证。
-  专用 Hydro CI VM 尚未创建、注册；手动工作流在注册并启用前明确报未配置。
-- 西安 A 题真实 HTML 的成对样例已核对；后端语言回退适配在补充测试，不能提前写成
-  资源全套下载已重新通过。本轮不沿用旧版的 63/28 测试计数。
+- RankLand 本队名次、得分、罚时由原站读取；工作台可见时每 10 秒刷新。
+  真实 RPC 与 UI 均返回 live `470 / 1 / 77`。关闭原站页后显示同一 run 的缓存
+  和原观察时间，重新打开恢复 live；URL、存档 key、队名和唯一 AC 记录均未变化。
+- statement 改成新标签直接打开 QOJ 原题面。真实 A 题链接已打开中文题面，自动
+  PDF 导出已移除；下文旧 PDF 验证只属于 0.1.0 历史。
+- 右上角复用官方 DOMjudge 9.0.1 奖杯下拉菜单，New contest 留在 Home。
+  视觉 run `846e8c204cf94d6abb0b755b22786280` 通过 28 项和 5 项 cleanup，
+  含真实 Bootstrap 点击与键盘切换；20 组控件 computed styles 相等，不声明整页像素一致。
+- 西安 A / 5113 的 samples 正常点击下载为 282 B ZIP，输入 65 B、输出 20 B，
+  全部成员字节/哈希与真实中文题面一致。语言回退只跟随同题公开链接，最多三个页面。
+- 独立原站 RankLand 回归 run `03bf13e9d5f240529d235476fb3cbb04`：7 项及 4 项
+  cleanup 通过，包含原站分数对照、原生表单投递、关页恢复和去重；QOJ 使用 GET fixture。
+- 私有仓库 [LittleDrinks/qoj-vp](https://github.com/LittleDrinks/qoj-vp) 已推送；
+  [功能修正 CI](https://github.com/LittleDrinks/qoj-vp/actions/runs/41264182943)
+  通过 69 项 Python、62 项 Node 测试。CI 自动生成 XPI/wheel/完整源码及相对路径校验文件。
+  文档后续提交的产物和结果按对应 Actions run 的 commit 识别。
+- VM 生产扩展 20 个文件与工作区逐文件哈希一致。原真实源码操作仍只有一次，
+  submission `3331061` confirmed / CORRECT，榜单队列 synced；本轮未重发源码或新开官方 VP。
+
+## 保留限制
+
+- 扩展已重新临时加载；未签名 XPI 在 Firefox 重启后仍需重载，助手账本保留。
+  AMO unlisted 签名尚未配置，没有修改全局签名检查。
+- Hydro 手动工作流及可选线上 RankLand 检查已配置；专用 VM runner 尚未注册，
+  当前日常比赛 VM 没有被注册为 CI runner。
+- 首次真实提交丢回执的根因仍未证实；旧样例/PDF/回执证据不作为本轮重新实测。
 
 当前范围、接口与安装说明见 [MVP_CONTRACT.md](MVP_CONTRACT.md)、[CI.md](CI.md)。
 下列内容保留为 **0.1.0 / daddc97 的历史交付记录**；不是 0.2.0 完成证明。

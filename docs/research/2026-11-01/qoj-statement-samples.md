@@ -40,4 +40,12 @@ VMware 已登录 Firefox 只读 GET `https://qoj.ac/contest/1051/problem/5113`�
 
 为兼容默认题面为 PDF、另一个公开语言版本才有 HTML 样例的情况，资源准备增加有界语言回退：默认页面未能取得完整样例后，仅跟随该页面提供的同源、同比赛、同题 `/statement/<language>` 链接，优先 `zh_cn`、`zh`、`en`，最多额外请求三个页面。禁止 URL 猜测、外站或其他题目、带查询参数/片段的链接；最终重定向仍需属于同一题目。已有样例时不追加语言请求，交互题标记阻止整个题面回退。
 
-`tests/test_sample_languages.py` 经真实 `prepare_resource` 调用验证。旧实现的语言回退场景先失败，新实现通过；另覆盖真实 A 字节、三次请求上限、无合法链接、交互题、跨题重定向和登录失效。语言回退的网络场景使用独立 HTTP fixture；真实 A 的在线缓存下载仍由 VMware 验收记录说明，不与 fixture 混称。
+`tests/test_sample_languages.py` 经真实 `prepare_resource` 调用验证。旧实现的语言回退场景先失败，新实现通过；另覆盖真实 A 字节、三次请求上限、无合法链接、交互题、跨题重定向和登录失效。语言回退的网络场景使用独立 HTTP fixture，不与下面真实账号的下载混称。
+
+VMware 已登录 Firefox 中，正常点击 A 题 samples 按钮后，文件实际保存到
+`/home/csj/samples-A.zip`。ZIP 为 282 B，SHA-256 为
+`c2a2a7b941dc1aa3382d0a7d7b072c1009e183eef8d0fccfe59a37a48c314fa3`；
+其中 `samples-A/1.in` 的 65 字节、`samples-A/1.ans` 的 20 字节及各自 SHA 与上述真实题面
+一致，读回结果 `matchesRealStatement=true`。证据为
+`artifacts/followup/file-readback.json`、`followup-a-download.png` 与 `followup-problemset.png`；
+这是实际 UI 下载验证，已超出资源准备返回 ready 的检查。

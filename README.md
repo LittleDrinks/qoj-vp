@@ -4,11 +4,13 @@ Firefox 扩展，提供复用 DOMjudge 9.0.1 的提交页和 Problemset，直接
 准备样例/附件、提交和同步判定；榜单使用原版 RankLand。目标为 VMware 内 Firefox，
 CF/Gym 暂不接入。
 
-当前为 0.2.0 后续修复阶段：回填 RankLand 名次/得分/罚时，恢复官方样式的比赛菜单，
-statement 改为直接打开 QOJ 原题面。虚拟机回归、部署和首次 GitHub Actions 运行正在
-完成；不能用 0.1.0 的测试数量或包哈希代替这一版的验证结果。
+0.2.0 已回填 RankLand 名次/得分/罚时，恢复官方奖杯比赛菜单，statement 直接打开
+QOJ 原题面。VM Firefox 的本轮视觉回归通过；真实工作台已显示原榜单的 470 / 1 / 77。
+西安 A 的真实 samples 下载、关闭榜单后的缓存和重开恢复均已验证；功能提交
+`d5817bb` 的 GitHub CI 已通过 69 项 Python、62 项 Node 测试。
 私有仓库：[LittleDrinks/qoj-vp](https://github.com/LittleDrinks/qoj-vp)。
-当前状态见 [ACTIVE_WORK](docs/ACTIVE_WORK.md)，此前实测见 [0.1.0 验收记录](docs/MVP_RESULT.md)。
+本轮证据与限制见 [0.2.0 修复记录](docs/FOLLOWUP_RESULT.md)，工作状态见
+[ACTIVE_WORK](docs/ACTIVE_WORK.md)；[0.1.0 验收记录](docs/MVP_RESULT.md)仅作历史记录。
 
 ## 安装
 
@@ -63,13 +65,15 @@ Problemset 的 **statement** 在新标签打开对应 QOJ 原题面，不再自�
 
 ## 验证与文档
 
-- [本轮状态](docs/ACTIVE_WORK.md)与[此前验收记录](docs/MVP_RESULT.md)
+- [本轮状态](docs/ACTIVE_WORK.md)、[0.2.0 修复记录](docs/FOLLOWUP_RESULT.md)与[0.1.0 历史验收](docs/MVP_RESULT.md)
 - [GitHub CI、产物与 Hydro 专机方案](docs/CI.md)
 - [接口契约](docs/MVP_CONTRACT.md)与[Python 状态/接口](qojvp/README.md)
 - [DOMjudge 来源与许可证](docs/UI_UPSTREAM.md)
 - [QOJ 赛前入口与资源边界](docs/research/2026-11-01/qoj-preparation-entry.md)
 - [资源缓存实现与真实附件证据](docs/research/2026-11-01/resources-preparation.md)
 
-GitHub 托管 CI 运行 Python/Node 回归并打包；Hydro Firefox 工作流需另行注册专用
+首次 [GitHub CI](https://github.com/LittleDrinks/qoj-vp/actions/runs/41261493139) 在 `c265ddb`
+通过 69 项 Python、62 项 Node 测试并打包；该结果不覆盖此后尚未推送的修改。
+Hydro Firefox 工作流需另行注册专用
 runner 后手动启用，专机尚未部署。Home 的 Contest 信息区保留功能适配，不声明整页
 与官方 1:1。此前唯一真实提交经显式核对恢复，首次丢回执根因仍未知，不重复发送源码。
