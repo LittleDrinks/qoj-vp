@@ -10,6 +10,9 @@
   const MAX_MANUAL_FILE_BYTES = 4 * 1024 * 1024;
   const INTENTS_KEY = "vpUiSubmissionIntents";
   const ACTIVE_KEY = "vpUiActiveSession";
+  const DISPLAY_INDEX_KEY = "vpUiDisplayIndexV1";
+  const DISPLAY_PREFIX = "vpUiDisplayV1:";
+  const MAX_DISPLAY_BYTES = 512 * 1024;
   // Application.submit raises the account/session errors below before
   // Ledger.begin_operation and QojClient.submit. A known failure there must
   // not leave an orphan local "unknown" that blocks retry after re-login.
@@ -126,7 +129,7 @@
     if (start === null) return "prepared";
     return Date.now() - start >= session.durationMs ? "finished" : "running";
   }
-  function canSubmit() { return Boolean(state.contest && sessionState() === "running" && !state.submitting); }
+  function canSubmit() { return Boolean(state.connected && state.contest && sessionState() === "running" && !state.submitting); }
   function submitAvailability(link, enabled) {
     if (link.tagName !== "A") { link.disabled = !enabled; return; }
     link.setAttribute("aria-disabled", String(!enabled));
@@ -248,10 +251,10 @@
     $("session-state").textContent = {prepared: "已准备", running: "进行中", finished: "已结束", archived: "已归档"}[status];
     $("start-session").hidden = status !== "prepared";
     $("finish-session").hidden = status !== "running";
-    $("start-session").disabled = state.adminBusy;
-    $("finish-session").disabled = state.adminBusy;
-    $("archive-session").disabled = status === "archived" || status === "running" || state.adminBusy;
-    $("delete-session").disabled = status === "running" || state.adminBusy || state.submitting;
+    $("start-session").disabled = !state.connected || state.adminBusy;
+    $("finish-session").disabled = !state.connected || state.adminBusy;
+    $("archive-session").disabled = !state.connected || status === "archived" || status === "running" || state.adminBusy;
+    $("delete-session").disabled = !state.connected || status === "running" || state.adminBusy || state.submitting;
     $("delete-session").title = status === "running" ? "先结束比赛，再删除本地记录。" : "删除这场本地比赛";
     submitAvailability($("open-submit"), canSubmit());
     for (const item of document.querySelectorAll("[data-submit-problem]")) submitAvailability(item, canSubmit());
@@ -270,7 +273,7 @@
     $("jury-duration").textContent = Math.round(session.durationMs / 60000) + " minutes";
     $("jury-title-input").value = session.title || "Contest " + session.contestId;
     $("jury-duration-input").value = session.durationMs / 60000;
-    const editable = sessionState() === "prepared";
+    const editable = state.connected && sessionState() === "prepared";
     for (const id of ["jury-title-input", "jury-duration-input", "jury-config-save"]) $(id).disabled = !editable || state.adminBusy;
     $("jury-config-note").textContent = editable ? "" : "比赛开始后名称和时长保持不变。";
     const historyUrl = new URL(`https://qoj.ac/contest/${session.contestId}/submissions`);
@@ -603,12 +606,12 @@
     for (const id of state.problemCards.keys()) if (!retained.has(id)) state.problemCards.delete(id);
     if (target.children.length !== cards.length || cards.some((card, index) => target.children[index] !== card)) target.replaceChildren(...cards);
     updateResourceBusyControls();
+    rememberDisplay();
   }
   function renderContestStatus() {
     const notice = $("problemset-status"), retry = $("refresh-contest");
     notice.textContent = state.contestError ? (state.contest ? "题表更新未完成，保留已保存内容。" : "题表尚未载入，请重试。") :
-      state.contestRefreshing ? (state.contest ? "显示已保存题表，正在更新…" : "正在读取题表；提交记录可在 Home 查看。") :
-      state.contestCached ? "显示已保存题表。" : state.contest ? "" : "正在读取保存的题表…";
+      state.contest ? "" : state.contestRefreshing ? "正在读取题表；提交记录可在 Home 查看。" : "正在读取保存的题表…";
     notice.title = state.contestError || ""; notice.hidden = !notice.textContent;
     retry.hidden = !state.contestError; retry.disabled = state.contestRefreshing;
   }
@@ -657,16 +660,76 @@
   async function listSessions(preferred) {
     const result = await call("list_sessions");
     state.sessions = result.sessions || [];
+    rememberDisplayIndex(undefined, true);
     const candidate = preferred || state.session?.sessionId || await localGet(ACTIVE_KEY);
     const chosen = state.sessions.find(item => item.sessionId === candidate) || state.sessions.find(item => item.state !== "archived") || state.sessions[0];
     if (chosen) await selectSession(chosen.sessionId);
-    else { state.session = null; state.contest = null; state.submissions = []; state.resources.clear(); resetRanklandSnapshot(); renderNavigation(); route(); }
+    else { state.connected = true; state.session = null; state.contest = null; state.submissions = []; state.resources.clear(); resetRanklandSnapshot(); renderNavigation(); route(); }
   }
   function sharedRead(requests, key, method, args) {
     if (requests.has(key)) return requests.get(key);
     const request = call(method, args).finally(() => { if (requests.get(key) === request) requests.delete(key); });
     requests.set(key, request);
     return request;
+  }
+  function displayJson(key) {
+    try { return JSON.parse(localStorage.getItem(key)); } catch (_) { return null; }
+  }
+  function displaySession(session) {
+    return Object.fromEntries(["sessionId", "contestId", "account", "title", "state", "startAt", "durationMs", "finishedAt", "ranklandUrl"]
+      .filter(key => session[key] !== undefined).map(key => [key, session[key]]));
+  }
+  function rememberDisplayIndex(selected, prune = false) {
+    if (typeof localStorage === "undefined") return;
+    try {
+      const previous = displayJson(DISPLAY_INDEX_KEY), sessions = state.sessions.map(displaySession);
+      if (prune) for (const session of previous?.sessions || []) {
+        if (!sessions.some(item => item.sessionId === session.sessionId)) localStorage.removeItem(DISPLAY_PREFIX + session.sessionId);
+      }
+      const active = selected || previous?.active || state.session?.sessionId;
+      localStorage.setItem(DISPLAY_INDEX_KEY, JSON.stringify({version: 1, sessions,
+        active: sessions.some(item => item.sessionId === active) ? active : null}));
+    } catch (_) { /* Display caching is optional; the native ledger remains authoritative. */ }
+  }
+  function rememberDisplay() {
+    if (typeof localStorage === "undefined" || !state.connected || !state.session || !state.contest || !state.historyLoaded) return;
+    try {
+      // Store display data only, never source code, form tokens or download bytes.
+      const pick = (value, keys) => Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]]));
+      const contest = pick(state.contest, ["id", "account", "name", "scoreboardUrl", "discussionsUrl"]);
+      contest.problems = state.contest.problems.map(item => pick(item, ["id", "label", "name", "url", "typeLabel", "interactive"]));
+      const submissions = state.submissions.map(item => pick(item, ["id", "operationId", "account", "problemId", "problemLabel", "language",
+        "state", "submittedAt", "elapsedMs", "timeSource", "inSession", "verdict", "rawVerdict", "pending", "url", "filename"]));
+      const saved = JSON.stringify({version: 1, session: displaySession(state.session), contest, submissions,
+        coverage: state.historyCoverage, resources: [...state.resources.values()], resourcesLoaded: state.resourcesLoaded});
+      if (saved.length > MAX_DISPLAY_BYTES) return;
+      localStorage.setItem(DISPLAY_PREFIX + state.session.sessionId, saved);
+      state.sessions = state.sessions.map(item => item.sessionId === state.session.sessionId ? state.session : item);
+      rememberDisplayIndex();
+    } catch (_) { /* Quota or disabled storage must not prevent normal operation. */ }
+  }
+  function restoreDisplay(preferred) {
+    try {
+      const index = displayJson(DISPLAY_INDEX_KEY);
+      if (index?.version !== 1 || !Array.isArray(index.sessions)) return false;
+      const chosen = index.sessions.find(item => item.sessionId === (preferred || index.active));
+      if (!chosen) return false;
+      const cached = displayJson(DISPLAY_PREFIX + chosen.sessionId);
+      if (cached?.version !== 1 || !Array.isArray(cached.submissions) || !cached.submissions.every(item => item && typeof item === "object") ||
+          !Array.isArray(cached.resources) || !cached.resources.every(item => item && typeof item.problemId === "string")) return false;
+      for (const key of ["sessionId", "contestId", "account", "state", "startAt", "finishedAt", "durationMs"]) {
+        if (cached.session?.[key] !== chosen[key]) return false;
+      }
+      const contest = verifiedContest(cached.contest, chosen);
+      if (!contest.problems.every(item => item && typeof item.id === "string" && typeof item.name === "string")) return false;
+      state.sessions = index.sessions; state.session = chosen; state.contest = contest; state.contestCached = true;
+      state.resources = new Map(cached.resources.map(item => [item.problemId, item])); state.resourcesLoaded = Boolean(cached.resourcesLoaded);
+      applyHistory({account: chosen.account, submissions: cached.submissions, coverage: cached.coverage});
+      renderNavigation(); renderSession(); renderProblems(); renderResourceModal(); route();
+      $("refresh-status").textContent = "";
+      $("refresh-submissions").disabled = true;
+      return true;
+    } catch (_) { return false; }
   }
   function verifiedContest(contest, session) {
     if (!contest || String(contest.id) !== String(session.contestId) || !Array.isArray(contest.problems) ||
@@ -680,6 +743,7 @@
       throw new Error("提交记录与当前账号不匹配，请重新读取。");
     }
     state.submissions = result.submissions; state.historyLoaded = true;
+    state.historyCoverage = result.coverage || {};
     for (const submission of state.submissions) {
       const intent = state.intents.find(item => item.operationId === submission.operationId);
       if (intent && submission.state === "confirmed") Object.assign(intent, {state: "confirmed", submissionId: submission.id});
@@ -716,6 +780,7 @@
         state.session = snapshot.session;
         if (snapshot.contest) { state.contest = verifiedContest(snapshot.contest, state.session); state.contestCached = true; }
         applyHistory(snapshot.history);
+        state.connected = true;
         resetRanklandSnapshot();
         resetScoreboardSource();
         renderNavigation(); renderSession(); renderProblems(); renderResourceModal(); route();
@@ -724,6 +789,7 @@
         // The local snapshot is visible before any provider request starts.
         // Slow or failed network reads never hold navigation or clear it.
         browser.storage.local.set({[ACTIVE_KEY]: sessionId}).catch(() => {});
+        rememberDisplayIndex(sessionId);
         persistIntents().catch(() => {});
         loadResourceManifest(sessionId, generation);
         refreshRanklandSnapshot();
@@ -750,7 +816,7 @@
       await pending.promise;
       if (state.session?.sessionId !== pending.sessionId) return;
     }
-    if (!state.session) return;
+    if (!state.session || !state.connected) return;
     const sessionId = state.session.sessionId, generation = state.generation, contestId = state.session.contestId;
     state.contestRefreshing = true; state.contestError = ""; renderContestStatus();
     try {
@@ -771,7 +837,7 @@
       await pending.promise;
       if (state.session?.sessionId !== pending.sessionId) return;
     }
-    if (!state.session || state.submitting) return;
+    if (!state.session || !state.connected || state.submitting) return;
     const sessionId = state.session.sessionId, generation = state.generation;
     if (state.refreshPromise && state.refreshSession === sessionId && state.refreshGeneration === generation && state.refreshMode === refreshProvider) return state.refreshPromise;
     $("refresh-submissions").disabled = true;
@@ -780,6 +846,7 @@
       const result = await sharedRead(state.historyRequests, sessionId + ":" + refreshProvider, "qoj_submissions", {sessionId, refresh: refreshProvider});
       if (!current(sessionId, generation)) return;
       applyHistory(result);
+      rememberDisplay();
       $("refresh-status").textContent = refreshProvider ? "更新于 " + new Date().toLocaleTimeString() : "已读取保存的判定";
       $("refresh-status").title = "";
       await persistIntents();
@@ -921,6 +988,7 @@
       state.intents = state.intents.filter(item => item.sessionId !== sessionId); await persistIntents();
       state.sessions = state.sessions.filter(item => item.sessionId !== sessionId);
       if (state.session?.sessionId === sessionId) { state.session = null; state.contest = null; state.submissions = []; state.generation++; }
+      rememberDisplayIndex(undefined, true);
       if (await localGet(ACTIVE_KEY) === sessionId) await browser.storage.local.remove(ACTIVE_KEY);
       modals["delete-contest"].hide(); location.hash = "#jury";
       await listSessions(); route(); showMessage($("notice"), "本地比赛已删除。", "success");
@@ -1568,10 +1636,12 @@
       if (!document.hidden && state.connected && state.session) refreshRanklandSnapshot(true);
     });
     try {
-      const saved = await localGet(INTENTS_KEY); state.intents = Array.isArray(saved) ? saved : [];
-      await call("hello"); state.connected = true; $("connection").classList.add("d-none");
       const entry = new URLSearchParams(location.search), requestedSession = entry.get("session");
       const preferred = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(requestedSession || "") ? requestedSession : undefined;
+      // Synchronous browser display cache paints before any helper startup.
+      // Native snapshots then verify the selected session before enabling Submit.
+      restoreDisplay(juryTarget() || preferred);
+      const saved = await localGet(INTENTS_KEY); state.intents = Array.isArray(saved) ? saved : [];
       await listSessions(preferred);
       if (preferred && state.session?.sessionId === preferred && entry.get("resources") === "1") {
         location.hash = "#jury/contest/" + preferred; route(); await openResources();

@@ -101,6 +101,7 @@ function contentEnvironment({recognized=true,url="https://qoj.ac/contest/4582"}=
     const begin=ui.indexOf("      const entry = new URLSearchParams(location.search)");
     const end=ui.indexOf("\n    } catch (error)",begin);let chosen,opened=0,routed=0;
     const target={URLSearchParams,location:{search:"?session="+sid+"&resources=1"},state:{session:null},
+      restoreDisplay:()=>{},juryTarget:()=>null,localGet:async()=>[],INTENTS_KEY:"intents",
       listSessions:async preferred=>{chosen=preferred;target.state.session={sessionId:preferred||otherSid};},
       route:()=>{routed++;assert.equal(target.location.hash,"#jury/contest/"+sid);},
       openResources:async()=>{assert.equal(routed,1);opened++;}};

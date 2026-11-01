@@ -11,6 +11,7 @@ import html
 import json
 from pathlib import Path
 import shutil
+import shlex
 import sys
 import time
 import threading
@@ -210,6 +211,49 @@ class HomeHarness(visual.VisualHarness):
             fixture.delay_contest = False
             fixture.release.set()
 
+    def delayed_helper_keeps_display(self):
+        from selenium.webdriver.common.by import By
+        self.focus_ui()
+        launcher = self.native_state / 'launcher.sh'
+        original = launcher.read_text()
+        gate = self.native_state / 'hold-startup'
+        target = 'exec /usr/bin/python3 -B -m qojvp.native_host\n'
+        require(original.count(target) == 1, 'Unexpected isolated launcher structure')
+        delay = ('attempt=0\nwhile [ -e ' + shlex.quote(str(gate)) + ' ] && [ "$attempt" -lt 100 ]; do\n'
+                 '  sleep 0.1\n  attempt=$((attempt + 1))\ndone\n')
+        attempts = []
+        try:
+            gate.touch()
+            launcher.write_text(original.replace(target, delay + target))
+            for index in range(2):
+                started = time.monotonic()
+                self.driver.refresh()
+                def cached_ready():
+                    return self.driver.execute_script('''
+                      const s=window.qojVpUi?.getState();
+                      return s?.connected===false&&s.contest?.problemCount===12&&
+                        document.querySelectorAll('#problems-list .card').length===12&&
+                        document.querySelectorAll('#submissions-body tr').length===1;
+                    ''')
+                self.wait(cached_ready, 'browser display before any native bootstrap reply', timeout=5)
+                require(not self.driver.find_element(By.ID, 'connection').is_displayed(), 'A loading banner hides normal startup')
+                require(self.driver.find_element(By.ID, 'open-submit').get_attribute('aria-disabled') == 'true',
+                        'Display cache enabled submission before the native session was verified')
+                self.driver.find_element(By.ID, 'nav-problems').click()
+                require(self.driver.find_element(By.ID, 'problems-view').is_displayed(), 'Cached Problemset navigation blocked')
+                self.driver.find_element(By.ID, 'nav-home').click()
+                require(self.driver.find_element(By.ID, 'home-view').is_displayed(), 'Cached Home navigation blocked')
+                require(self.driver.execute_script("return getComputedStyle(document.querySelector('#contest-progress')).transitionDuration") == '0s',
+                        'The restored contest clock animates from zero like a loading bar')
+                attempts.append({'index': index, 'seconds': round(time.monotonic()-started, 3), 'helperStillBlocked': True,
+                                 'cards': 12, 'historyRows': 1, 'loadingBannerVisible': False})
+            self.driver.save_screenshot(str(self.results / 'cached-view-before-native-startup.png'))
+        finally:
+            gate.unlink(missing_ok=True)
+            launcher.write_text(original)
+        self.wait(lambda: self.driver.execute_script('return window.qojVpUi?.getState().connected===true'), 'native snapshot verification after gate release')
+        return {'reloads': attempts, 'nativeVerificationRecovered': True, 'launcherRestored': launcher.read_text() == original}
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -261,6 +305,8 @@ def main():
         h.summary['comparison'] = comparison
         require(h.step('three_reloads_during_slow_http_keep_cards_and_history', lambda: h.delayed_reload_keeps_views(fixture)) is not None,
                 'Slow-network cache/navigation regression failed')
+        require(h.step('two_reloads_before_native_startup_keep_display_without_animation', h.delayed_helper_keeps_display) is not None,
+                'Cold-helper display regression failed')
     except Exception as error:
         h.summary['fatalError'] = {'type': type(error).__name__, 'message': str(error)[:1400]}
         if h.driver:

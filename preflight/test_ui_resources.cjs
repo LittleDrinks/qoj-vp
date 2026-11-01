@@ -51,7 +51,7 @@ const context = {state, crypto: webcrypto, Blob, atob, URL, MAX_RESOURCE_BYTES: 
   $: id => ids[id] || Object.values(ids).flatMap(walk).find(element => element.id === id),
   current: (sessionId, generation) => state.session.sessionId === sessionId && state.generation === generation,
   problemById: id => state.contest.problems.find(problem => problem.id === String(id)), contestName: contest => contest.name,
-  canSubmit: () => true, openSubmit: problemId => openedSubmits.push(problemId),
+  canSubmit: () => true, openSubmit: problemId => openedSubmits.push(problemId), rememberDisplay:()=>{},
   isJuryRoute: () => true, openManualSamples: () => {}, regularClick: () => true, humanReadableBytes: bytes => bytes + " B",
   showMessage: (target, message) => {target.textContent = message; target.classList.remove("d-none");},
   hideMessage: target => {target.textContent = ""; target.classList.add("d-none");}, message: error => error.message,

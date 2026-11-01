@@ -5,7 +5,7 @@
 #session-select .dropdown-item { white-space: normal; overflow-wrap: anywhere; }
 .vp-clock { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .vp-progress { height: 10px; margin-top: -16px; }
-.vp-progress .progress-bar { width: 0; }
+.vp-progress .progress-bar { width: 0; transition: none; }
 .vp-refresh-bar { flex-wrap: wrap; }
 .vp-session-details { margin-top: 1rem; font-size: .9rem; }
 .vp-session-details dd { overflow-wrap: anywhere; }

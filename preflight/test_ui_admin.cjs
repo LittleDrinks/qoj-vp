@@ -5,7 +5,7 @@ function environment() {
   const nodes = new Map(), calls = [], notices = [], hidden = [], removed = [];
   const $ = id => { if (!nodes.has(id)) nodes.set(id, {id, value:"", checked:false, hidden:false, disabled:false, files:[], style:{}, setAttribute(){}, classList:{contains:()=>false}, reset(){}}); return nodes.get(id); };
   const session = {sessionId:"first", state:"prepared", durationMs:18000000, title:"Fixture", account:"fixture"};
-  const state = {session, sessions:[session], generation:1, adminBusy:false, submitting:false, intents:[{sessionId:"first"},{sessionId:"keep"}], resources:new Map(), resourceMutation:0, manualProblem:"123", manualSessionId:"first"};
+  const state = {connected:true, session, sessions:[session], generation:1, adminBusy:false, submitting:false, intents:[{sessionId:"first"},{sessionId:"keep"}], resources:new Map(), resourceMutation:0, manualProblem:"123", manualSessionId:"first"};
   let handler = async () => {throw new Error("unexpected task");};
   const context = {$, state, TextEncoder, Uint8Array, btoa, Date, location:{hash:"#jury/contest/first"},
     MAX_MANUAL_BYTES:8388608, MAX_MANUAL_FILE_BYTES:4194304, ACTIVE_KEY:"vpUiActiveSession", INTENTS_KEY:"vpUiSubmissionIntents",
@@ -16,7 +16,7 @@ function environment() {
     confirm:()=>true, fail:error=>{throw error;}, submitAvailability:()=>{}, document:{querySelectorAll:()=>[]},
     modals:{"manual-samples":{hide:()=>hidden.push("manual")},"delete-contest":{hide:()=>hidden.push("delete"),show:()=>{}}},
     persistIntents:async()=>{}, localGet:async()=>"first", browser:{storage:{local:{remove:async key=>removed.push(key)}}},
-    listSessions:async()=>{}, route:()=>{},
+    listSessions:async()=>{}, route:()=>{}, rememberDisplayIndex:()=>{},
   };
   vm.createContext(context);
   for(const [start,end] of [["  function epoch(","  function submitAvailability("],["  function renderClock(","  function renderSession("],["  async function saveJuryConfig(","  // File-size/time formatting"]])
