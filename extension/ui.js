@@ -20,7 +20,10 @@
   ]);
   const state = {
     connected: false, sessions: [], session: null, contest: null, submissions: [],
-    forms: new Map(), generation: 0, refreshPromise: null, refreshSession: null,
+    forms: new Map(), generation: 0, refreshPromise: null, refreshSession: null, refreshGeneration: null, refreshMode: null,
+    sessionRequest: null, contestRequests: new Map(), historyRequests: new Map(),
+    contestRefreshing: false, contestCached: false, contestError: "", historyLoaded: false,
+    problemCards: new Map(), problemCardSession: null,
     intents: [], setupContest: null, submitting: false, formGeneration: 0,
     confirmPayload: null, reconcileOperation: null, lastError: null,
     resources: new Map(), resourceActivity: new Map(), resourceInteractive: new Map(),
@@ -28,6 +31,7 @@
     resourceManifestError: "", resourceSummary: "", resourceReadSequence: 0, resourceMutation: 0,
     ranklandSnapshot: null, ranklandSnapshotState: "unavailable", ranklandSnapshotMessage: "",
     ranklandRequestSequence: 0, ranklandRequest: null,
+    scoreboardSource: null, scoreboardRequestSequence: 0, scoreboardRequest: null,
     juryRequest: null, adminBusy: false, manualProblem: null, manualSessionId: null, manualBusy: false, deleteSessionId: null,
   };
   const modals = {};
@@ -51,13 +55,20 @@
     result.addEventListener("click", action);
     return result;
   }
-  function showMessage(target, message, kind = "danger") {
+  function showMessage(target, message, kind = "danger", operationId = null) {
     target.className = "alert alert-" + kind + (target.id === "notice" ? " mt-3" : "");
     target.textContent = message;
     target.classList.remove("d-none");
-    if (target.id === "notice") target.hidden = isProblemsRoute() && kind === "success";
+    if (target.id === "notice") {
+      target.hidden = isProblemsRoute() && kind === "success";
+      if (operationId) target.dataset.unresolvedOperationId = operationId;
+      else delete target.dataset.unresolvedOperationId;
+    }
   }
-  function hideMessage(target) { target.classList.add("d-none"); target.textContent = ""; }
+  function hideMessage(target) {
+    target.classList.add("d-none"); target.textContent = "";
+    if (target.id === "notice") delete target.dataset.unresolvedOperationId;
+  }
   function message(error) {
     if (error?.code === "LOGIN_REQUIRED") return "请先在同一个 Firefox 的 QOJ 页面完成登录，然后重新读取比赛。";
     if (error?.code === "QOJ_ERROR" && /\b403\b/.test(error.message || "")) return "QOJ 拒绝了请求（403）。请先在原站完成浏览器验证，然后重试。";
@@ -253,6 +264,7 @@
     $("account-name").textContent = session.account || state.contest?.account || "请在 QOJ 登录";
     $("started-at").textContent = formatDate(session.startAt);
     $("qoj-contest-link").href = `https://qoj.ac/contest/${session.contestId}`;
+    $("qoj-clarifications-link").href = `https://qoj.ac/contest/${session.contestId}`;
     $("qoj-contest-link").textContent = session.contestId;
     $("jury-contest-title").textContent = "Contest " + (session.title || session.contestId);
     $("jury-duration").textContent = Math.round(session.durationMs / 60000) + " minutes";
@@ -267,6 +279,7 @@
     $("archive-session").disabled = session.state === "archived" || sessionState() === "running" || state.adminBusy;
     $("sync-scoreboard").disabled = !session.ranklandUrl;
     $("rankland-status").textContent = "";
+    renderScoreboardSource();
     document.title = (session.title || "Contest " + session.contestId) + " — QOJ";
     renderClock();
   }
@@ -463,6 +476,7 @@
     const body = $("submissions-body"); body.replaceChildren();
     const visible = state.submissions.filter(item => item.inSession === true || Boolean(item.operationId));
     $("submissions-empty").hidden = Boolean(visible.length);
+    $("submissions-empty").textContent = state.historyLoaded === false ? "正在读取保存的提交记录…" : "No submissions";
     $("submissions-table").hidden = !visible.length;
     const sorted = visible.sort((a, b) => (epoch(b.submittedAt) || 0) - (epoch(a.submittedAt) || 0));
     for (const submission of sorted) {
@@ -506,48 +520,97 @@
   function historyCoverageMessage(coverage, submissions) {
     const warning = String(coverage.warning || ""), notes = [];
     const unverified = submissions.filter(item => item.timeSource === "unverified-display").length;
-    if (unverified) notes.push(`${unverified} 条记录时间未核实，不计入本次进度或榜单。`);
+    const hasTimeWarning = /absolute submission time is not verified/i.test(warning);
+    const hasCachedWarning = /Cached history/i.test(warning);
     const categories = [
-      [/Cached history[^;]*/gi, "当前为缓存记录，可刷新判定。"],
       [/(?:#\d+:\s*)?detailed verdict unavailable[^;]*|Detailed verdicts remain unverified[^;]*/gi, "部分判定未核实，可稍后刷新。"],
       [/(?:#\d+:\s*)?numeric submission score is not verified|Some submission rows could not be verified/gi, "部分记录字段未核实，请在原站核对。"],
       [/History refresh reached its time budget[^;]*|A history page could not be verified[^;]*|Repeated history page detected[^;]*|History exceeded ten pages[^;]*/gi, "部分历史未读完，可刷新继续。"],
     ];
-    let remaining = warning.replace(/#\d+:\s*absolute submission time is not verified/gi, "");
+    let remaining = warning.replace(/#\d+:\s*absolute submission time is not verified|Cached history[^;]*/gi, "");
     for (const [pattern, note] of categories) {
       if (pattern.test(remaining)) { notes.push(note); pattern.lastIndex = 0; remaining = remaining.replace(pattern, ""); }
     }
     remaining = remaining.replace(/refresh to (?:retry|query QOJ)|refresh again to continue|[;\s.]/gi, "");
     if (remaining) notes.push("读取历史时有未确认项，请在原站核对。");
-    if (!notes.length && coverage.complete === false) notes.push("部分历史尚未核实，可刷新继续。");
+    if (!notes.length && coverage.complete === false && !unverified && !hasTimeWarning && !hasCachedWarning) notes.push("部分历史尚未核实，可刷新继续。");
     return notes.join(" ");
   }
+  function renderHistoryCoverage(coverage, submissions) {
+    const warning = historyCoverageMessage(coverage, submissions);
+    if (warning) showMessage($("history-warning"), warning, "warning"); else hideMessage($("history-warning"));
+    const unverified = submissions.filter(item => item.timeSource === "unverified-display").length;
+    const note = $("history-time-status");
+    note.hidden = !unverified;
+    note.textContent = unverified ? "部分历史记录的时间待核实，暂不计入本次进度或榜单。" : "";
+    note.title = unverified ? `${unverified} 条历史记录尚未获得完整提交时间。` : "";
+  }
   function renderProblems() {
-    const target = $("problems-list"); target.replaceChildren();
-    if (!state.contest) return;
-    $("problemset-title").textContent = contestName(state.contest) + " problems";
-    for (const problem of state.contest.problems) {
-      const col = node("div", "col"), card = node("div", "card"), body = node("div", "card-body");
-      const title = node("h2", "card-title"); title.append(badge(problem.label));
-      body.append(title, node("h3", "card-subtitle mb-2 text-muted", problem.name));
-      const typeLabel = typeof problem.typeLabel === "string" ? problem.typeLabel.trim() : "";
-      body.append(node("h4", "card-subtitle mb-2 text-muted", "Type: " + (typeLabel || "—")));
-      const actions = node("div", "text-center");
-      actions.append(cardSubmit(problem));
-      // Same ordinary document flow as pinned partials/problem_list: the
-      // centered Submit action, its exact 10px separator, then inline links.
-      const separator = node("div"); separator.style.marginTop = "10px"; actions.append(separator);
-      const statement = node("a", "btn btn-secondary"); statement.append(icon("file-pdf"), " statement"); statement.href = problemUrl(problem); statement.target = "_blank"; statement.rel = "noopener noreferrer";
-      statement.dataset.statementProblem = problem.id;
-      actions.append(statement);
-      for (const resource of readyResources(problem.id)) {
-        const link = node("a", "btn btn-secondary"); link.setAttribute("role", "button"); link.tabIndex = 0;
-        link.append(icon("file-archive"), resource.kind === "samples" ? " samples" : " 附件");
-        resourceDownloadAction(link, problem, resource);
-        actions.append(" ", link);
-      }
-      body.append(actions); card.append(body); col.append(card); target.append(col);
+    const target = $("problems-list");
+    renderContestStatus();
+    $("problemset-title").textContent = (state.contest ? contestName(state.contest) : state.session?.title || "Contest") + " problems";
+    const sessionId = state.session?.sessionId || null;
+    if (state.problemCardSession !== sessionId || !state.contest) {
+      state.problemCards = new Map(); state.problemCardSession = sessionId;
+      target.replaceChildren();
     }
+    if (!state.contest) return;
+    state.problemCards ||= new Map();
+    const cards = [], retained = new Set();
+    for (const problem of state.contest.problems) {
+      const id = String(problem.id);
+      let view = state.problemCards.get(id);
+      if (!view) {
+        const col = node("div", "col"), card = node("div", "card"), body = node("div", "card-body");
+        const title = node("h2", "card-title"), problemBadge = badge(problem.label);
+        title.append(problemBadge);
+        const name = node("h3", "card-subtitle mb-2 text-muted"), type = node("h4", "card-subtitle mb-2 text-muted");
+        body.append(title, name, type);
+        const actions = node("div", "text-center");
+        actions.append(cardSubmit(problem));
+        // Keep the upstream button and its 10px separator in ordinary flow.
+        // Only the inline download group changes when resource data arrives;
+        // a pending refresh must not detach a hovered or focused Submit link.
+        const separator = node("div"); separator.style.marginTop = "10px"; actions.append(separator);
+        const statement = node("a", "btn btn-secondary"); statement.append(icon("file-pdf"), " statement");
+        statement.target = "_blank"; statement.rel = "noopener noreferrer"; statement.dataset.statementProblem = problem.id;
+        const downloads = node("span"); actions.append(statement, downloads);
+        body.append(actions); card.append(body); col.append(card);
+        view = {col, problemBadge, name, type, statement, downloads, downloadSignature: null};
+        state.problemCards.set(id, view);
+      }
+      const label = view.problemBadge.firstChild || view.problemBadge;
+      if (label.textContent !== String(problem.label || "?")) label.textContent = problem.label || "?";
+      if (view.name.textContent !== problem.name) view.name.textContent = problem.name;
+      const typeLabel = typeof problem.typeLabel === "string" ? problem.typeLabel.trim() : "";
+      const typeText = "Type: " + (typeLabel || "—");
+      if (view.type.textContent !== typeText) view.type.textContent = typeText;
+      view.statement.href = problemUrl(problem);
+      const resources = readyResources(problem.id);
+      const signature = JSON.stringify(resources.map(resource => [resource.kind, resource.resourceId, resource.sha256, resource.totalBytes, resource.filename]));
+      if (view.downloadSignature !== signature) {
+        view.downloads.replaceChildren();
+        for (const resource of resources) {
+          const link = node("a", "btn btn-secondary"); link.setAttribute("role", "button"); link.tabIndex = 0;
+          link.append(icon("file-archive"), resource.kind === "samples" ? " samples" : " 附件");
+          resourceDownloadAction(link, problem, resource);
+          view.downloads.append(" ", link);
+        }
+        view.downloadSignature = signature;
+      }
+      cards.push(view.col); retained.add(id);
+    }
+    for (const id of state.problemCards.keys()) if (!retained.has(id)) state.problemCards.delete(id);
+    if (target.children.length !== cards.length || cards.some((card, index) => target.children[index] !== card)) target.replaceChildren(...cards);
+    updateResourceBusyControls();
+  }
+  function renderContestStatus() {
+    const notice = $("problemset-status"), retry = $("refresh-contest");
+    notice.textContent = state.contestError ? (state.contest ? "题表更新未完成，保留已保存内容。" : "题表尚未载入，请重试。") :
+      state.contestRefreshing ? (state.contest ? "显示已保存题表，正在更新…" : "正在读取题表；提交记录可在 Home 查看。") :
+      state.contestCached ? "显示已保存题表。" : state.contest ? "" : "正在读取保存的题表…";
+    notice.title = state.contestError || ""; notice.hidden = !notice.textContent;
+    retry.hidden = !state.contestError; retry.disabled = state.contestRefreshing;
   }
   function isProblemsRoute() { return location.hash === "#problems" || location.hash === "#problemset"; }
   function isJuryRoute() { return location.hash === "#jury" || location.hash.startsWith("#jury/"); }
@@ -599,68 +662,140 @@
     if (chosen) await selectSession(chosen.sessionId);
     else { state.session = null; state.contest = null; state.submissions = []; state.resources.clear(); resetRanklandSnapshot(); renderNavigation(); route(); }
   }
+  function sharedRead(requests, key, method, args) {
+    if (requests.has(key)) return requests.get(key);
+    const request = call(method, args).finally(() => { if (requests.get(key) === request) requests.delete(key); });
+    requests.set(key, request);
+    return request;
+  }
+  function verifiedContest(contest, session) {
+    if (!contest || String(contest.id) !== String(session.contestId) || !Array.isArray(contest.problems) ||
+        contest.account && session.account && contest.account.toLowerCase() !== session.account.toLowerCase()) {
+      throw new Error("比赛题表与当前比赛不匹配，请重新读取。");
+    }
+    return {...contest, name: contestName(contest)};
+  }
+  function applyHistory(result) {
+    if (!Array.isArray(result?.submissions) || result.account && state.session.account && result.account.toLowerCase() !== state.session.account.toLowerCase()) {
+      throw new Error("提交记录与当前账号不匹配，请重新读取。");
+    }
+    state.submissions = result.submissions; state.historyLoaded = true;
+    for (const submission of state.submissions) {
+      const intent = state.intents.find(item => item.operationId === submission.operationId);
+      if (intent && submission.state === "confirmed") Object.assign(intent, {state: "confirmed", submissionId: submission.id});
+      if (intent && submission.state === "rejected") intent.state = "rejected";
+      if (submission.operationId && $("notice").dataset.unresolvedOperationId === submission.operationId &&
+          ["confirmed", "rejected"].includes(submission.state)) hideMessage($("notice"));
+    }
+    renderSubmissions(); renderHistoryCoverage(result.coverage || {}, state.submissions);
+  }
   async function selectSession(sessionId) {
     if (state.submitting) return;
-    const generation = ++state.generation;
-    const session = await call("inspect_session", {sessionId});
-    if (generation !== state.generation) return;
-    state.session = session;
-    resetRanklandSnapshot();
-    state.contest = null; state.submissions = []; state.forms.clear();
-    state.resources.clear(); state.resourceActivity.clear(); state.resourceInteractive.clear();
-    state.resourceJob = null; state.resourcesLoaded = false; state.resourceReading = false; state.resourceManifestError = ""; state.resourceSummary = "";
-    state.resourceMutation = 0;
-    hideMessage($("history-warning")); hideMessage($("notice"));
-    $("teamscoresummary").replaceChildren(); $("problems-list").replaceChildren();
-    $("refresh-status").textContent = "正在读取比赛…";
-    renderNavigation(); renderSession(); renderSubmissions(); route();
-    renderResourceModal();
-    refreshRanklandSnapshot();
-    const resourceLoad = loadResourceManifest(sessionId, generation);
-    await browser.storage.local.set({[ACTIVE_KEY]: sessionId});
+    if (state.sessionRequest?.sessionId === sessionId) return state.sessionRequest.promise;
+    const generation = ++state.generation, sameSession = state.session?.sessionId === sessionId;
+    const listed = state.sessions.find(item => item.sessionId === sessionId);
+    $("refresh-submissions").disabled = true;
+    if (!sameSession) {
+      state.session = listed || null; state.contest = null; state.submissions = []; state.historyLoaded = false;
+      state.forms.clear(); resetRanklandSnapshot();
+      state.resources.clear(); state.resourceActivity.clear(); state.resourceInteractive.clear();
+      state.resourceJob = null; state.resourcesLoaded = false; state.resourceReading = false;
+      state.resourceManifestError = ""; state.resourceSummary = ""; state.resourceMutation = 0;
+      state.contestCached = false; state.contestError = ""; state.contestRefreshing = false;
+      renderHistoryCoverage({}, []); hideMessage($("notice"));
+      $("refresh-status").textContent = "正在读取保存的记录…";
+      $("refresh-submissions").disabled = true;
+      renderNavigation(); renderSession(); renderSubmissions(); renderProblems(); renderResourceModal(); route();
+    }
+    const request = {sessionId, promise: null};
+    request.promise = (async () => {
+      try {
+        const snapshot = await call("session_snapshot", {sessionId});
+        if (generation !== state.generation) return;
+        if (snapshot?.session?.sessionId !== sessionId) throw new Error("保存的比赛与当前选择不匹配。");
+        state.session = snapshot.session;
+        if (snapshot.contest) { state.contest = verifiedContest(snapshot.contest, state.session); state.contestCached = true; }
+        applyHistory(snapshot.history);
+        resetRanklandSnapshot();
+        resetScoreboardSource();
+        renderNavigation(); renderSession(); renderProblems(); renderResourceModal(); route();
+        $("refresh-status").textContent = "已显示保存的提交记录";
+        $("refresh-submissions").disabled = false;
+        // The local snapshot is visible before any provider request starts.
+        // Slow or failed network reads never hold navigation or clear it.
+        browser.storage.local.set({[ACTIVE_KEY]: sessionId}).catch(() => {});
+        persistIntents().catch(() => {});
+        loadResourceManifest(sessionId, generation);
+        refreshRanklandSnapshot();
+        if (state.sessionRequest === request) state.sessionRequest = null;
+        refreshContest().catch(() => {});
+        refresh(true).catch(() => {});
+        resolveScoreboardSource();
+        return snapshot.session;
+      } catch (error) {
+        if (generation === state.generation) {
+          state.contestError = message(error); renderContestStatus();
+          $("refresh-status").textContent = "读取保存记录未完成，请重试。";
+          $("refresh-submissions").disabled = false;
+        }
+        throw error;
+      } finally { if (state.sessionRequest === request) state.sessionRequest = null; }
+    })();
+    state.sessionRequest = request;
+    return request.promise;
+  }
+  async function refreshContest() {
+    if (state.sessionRequest) {
+      const pending = state.sessionRequest;
+      await pending.promise;
+      if (state.session?.sessionId !== pending.sessionId) return;
+    }
+    if (!state.session) return;
+    const sessionId = state.session.sessionId, generation = state.generation, contestId = state.session.contestId;
+    state.contestRefreshing = true; state.contestError = ""; renderContestStatus();
     try {
-      const contest = await call("qoj_contest", {contestId: state.session.contestId, sessionId});
+      const contest = await sharedRead(state.contestRequests, sessionId, "qoj_contest", {contestId, sessionId});
       if (!current(sessionId, generation)) return;
-      state.contest = {...contest, name: contestName(contest)};
-      if (!Array.isArray(contest.problems)) throw new Error("比赛题表格式无法识别，请重新读取比赛。");
+      state.contest = verifiedContest(contest, state.session); state.contestCached = false;
       renderSession(); renderProblems(); renderSummary(); renderClock(); renderResourceModal();
+      resolveScoreboardSource(true);
       if (!contest.account) showMessage($("notice"), "尚未登录 QOJ。请在原站登录后刷新页面。", "warning");
-    } catch (error) { if (current(sessionId, generation)) fail(error); }
-    await resourceLoad;
-    try { await refresh(false); await refresh(true); }
-    catch (error) { if (current(sessionId, generation)) fail(error); }
+    } catch (error) {
+      if (current(sessionId, generation)) state.contestError = message(error);
+      throw error;
+    } finally { if (current(sessionId, generation)) { state.contestRefreshing = false; renderContestStatus(); } }
   }
   async function refresh(refreshProvider = true) {
+    if (state.sessionRequest) {
+      const pending = state.sessionRequest;
+      await pending.promise;
+      if (state.session?.sessionId !== pending.sessionId) return;
+    }
     if (!state.session || state.submitting) return;
     const sessionId = state.session.sessionId, generation = state.generation;
-    if (state.refreshPromise && state.refreshSession === sessionId) return state.refreshPromise;
+    if (state.refreshPromise && state.refreshSession === sessionId && state.refreshGeneration === generation && state.refreshMode === refreshProvider) return state.refreshPromise;
     $("refresh-submissions").disabled = true;
-    if (refreshProvider) $("refresh-status").textContent = "正在同步…";
+    if (refreshProvider) $("refresh-status").textContent = state.historyLoaded ? "正在更新判定；已保存记录可继续查看" : "正在同步判定…";
     const promise = (async () => {
-      const result = await call("qoj_submissions", {sessionId, refresh: refreshProvider});
+      const result = await sharedRead(state.historyRequests, sessionId + ":" + refreshProvider, "qoj_submissions", {sessionId, refresh: refreshProvider});
       if (!current(sessionId, generation)) return;
-      state.submissions = result.submissions || [];
-      for (const submission of state.submissions) {
-        const intent = state.intents.find(item => item.operationId === submission.operationId);
-        if (intent && submission.state === "confirmed") Object.assign(intent, {state: "confirmed", submissionId: submission.id});
-        if (intent && submission.state === "rejected") intent.state = "rejected";
-      }
-      await persistIntents();
-      renderSubmissions();
-      const coverage = result.coverage || {};
-      const coverageMessage = historyCoverageMessage(coverage, state.submissions);
-      if (coverageMessage) showMessage($("history-warning"), coverageMessage, "warning");
-      else hideMessage($("history-warning"));
+      applyHistory(result);
       $("refresh-status").textContent = refreshProvider ? "更新于 " + new Date().toLocaleTimeString() : "已读取保存的判定";
+      $("refresh-status").title = "";
+      await persistIntents();
+      return result;
     })();
-    state.refreshPromise = promise; state.refreshSession = sessionId;
+    state.refreshPromise = promise; state.refreshSession = sessionId; state.refreshGeneration = generation; state.refreshMode = refreshProvider;
     try { return await promise; }
     catch (error) {
-      if (current(sessionId, generation)) $("refresh-status").textContent = "同步未完成；保留上次结果";
+      if (current(sessionId, generation)) {
+        $("refresh-status").textContent = "同步未完成；保留已保存记录";
+        $("refresh-status").title = message(error);
+      }
       throw error;
     } finally {
-      if (state.refreshPromise === promise) { state.refreshPromise = null; state.refreshSession = null; }
-      if (current(sessionId, generation)) $("refresh-submissions").disabled = false;
+      if (state.refreshPromise === promise) { state.refreshPromise = null; state.refreshSession = null; state.refreshGeneration = null; state.refreshMode = null; }
+      if (current(sessionId, generation)) $("refresh-submissions").disabled = Boolean(state.refreshPromise && state.refreshSession === sessionId && state.refreshGeneration === generation);
     }
   }
 
@@ -1020,7 +1155,7 @@
       closeAfter = true;
       if (status === "confirmed") showMessage($("notice"), `Submission #${submission.id} received. 正在更新判定。`, "success");
       else if (status === "rejected") showMessage($("notice"), result.error?.message || "QOJ 拒绝了本次提交，请核对原站提示。", "danger");
-      else showMessage($("notice"), "提交结果未确认。已保留记录，请核对 QOJ 历史；不会自动重发源码。", "warning");
+      else showMessage($("notice"), "提交结果未确认。已保留记录，请核对 QOJ 历史；不会自动重发源码。", "warning", payload.operationId);
     } catch (error) {
       const rejected = !attempted || DEFINITIVE_REJECTION_CODES.has(error.code);
       await changeIntent(payload.operationId, {state: rejected ? "rejected" : "unknown"}).catch(() => {});
@@ -1259,23 +1394,77 @@
     const link = node("a"); link.href = url; link.download = filename.replace(/[\\/]/g, "_"); document.body.append(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
+  function scoreboardFallback() {
+    const rankland = state.session?.ranklandUrl;
+    return rankland ? {source: "rankland", state: "configured", url: rankland} :
+      {source: "qoj", state: "unverified", url: `https://qoj.ac/contest/${state.session?.contestId || ""}`};
+  }
+  function renderScoreboardSource() {
+    const source = state.scoreboardSource || scoreboardFallback();
+    const link = $("scoreboard-source-link"); link.textContent = source.source === "rankland" ? "RankLand" : "QOJ";
+    link.href = source.url;
+    $("scoreboard-source-status").textContent = source.source === "rankland" ? (source.state === "matched" ? "已自动匹配" : "已配置") :
+      state.scoreboardRequest ? "正在检查可用榜单…" : source.state === "unavailable" ? "暂无法匹配 RankLand，使用原站榜单" : "使用原站榜单";
+  }
+  function resetScoreboardSource() {
+    state.scoreboardRequestSequence++; state.scoreboardRequest = null; state.scoreboardSource = null;
+    renderScoreboardSource();
+  }
+  async function resolveScoreboardSource(force = false) {
+    if (!state.session) return null;
+    const sessionId = state.session.sessionId, generation = state.generation, initialUrl = state.session.ranklandUrl || null;
+    if (!force && state.scoreboardRequest?.sessionId === sessionId && state.scoreboardRequest.generation === generation) return state.scoreboardRequest.promise;
+    const request = {sessionId, generation, sequence: ++state.scoreboardRequestSequence, promise: null};
+    state.scoreboardRequest = request; renderScoreboardSource();
+    request.promise = (async () => {
+      try {
+        const result = await call("scoreboard.resolve", {sessionId, ...(force ? {refresh: true} : {})});
+        if (!current(sessionId, generation) || request.sequence !== state.scoreboardRequestSequence || (state.session.ranklandUrl || null) !== initialUrl) return null;
+        if (!result || !["rankland", "qoj"].includes(result.source)) throw new Error("未知榜单来源");
+        if (result.session && result.session.sessionId !== sessionId) throw new Error("榜单比赛不匹配");
+        let url;
+        if (result.source === "rankland") {
+          url = result.session?.ranklandUrl || result.url;
+          if (!ranklandViewIdentity(url) || new URL(url).searchParams.get("run") !== sessionId) throw new Error("榜单链接与本次比赛不匹配");
+          const changed = state.session.ranklandUrl !== url;
+          state.session = {...state.session, ranklandUrl: url};
+          state.sessions = state.sessions.map(item => item.sessionId === sessionId ? {...item, ranklandUrl: url} : item);
+          if (changed) { resetRanklandSnapshot(); refreshRanklandSnapshot(true); }
+        } else {
+          // An existing explicit RankLand selection always wins over a late
+          // unmatched result, including after the Jury form was edited.
+          if (initialUrl) return null;
+          url = safeQojUrl(result.url, `https://qoj.ac/contest/${state.session.contestId}`);
+        }
+        state.scoreboardSource = {source: result.source, state: result.state, url, checkedAt: result.checkedAt};
+        $("sync-scoreboard").disabled = !state.session.ranklandUrl;
+        return state.scoreboardSource;
+      } catch (_) {
+        if (current(sessionId, generation) && request.sequence === state.scoreboardRequestSequence && (state.session.ranklandUrl || null) === initialUrl)
+          state.scoreboardSource = {...scoreboardFallback(), state: initialUrl ? "configured" : "unavailable"};
+        return null;
+      } finally {
+        if (state.scoreboardRequest === request) state.scoreboardRequest = null;
+        if (current(sessionId, generation)) renderScoreboardSource();
+      }
+    })();
+    return request.promise;
+  }
   function openRanklandSettings() {
     if (!state.session || !isJuryRoute()) return;
     $("rankland-url").value = state.session.ranklandUrl || ""; hideMessage($("rankland-error")); modals.rankland.show();
   }
   async function openScoreboard() {
-    if (!state.session?.ranklandUrl) {
-      if (isJuryRoute()) openRanklandSettings(); else showMessage($("notice"), "榜单尚未配置，请在 Jury 比赛管理中设置。", "warning");
-      return;
-    }
+    if (!state.session) return;
     const sessionId = state.session.sessionId, generation = state.generation;
     try {
-      const result = await call("rankland.open", {sessionId});
+      const result = await call("scoreboard.open", {sessionId});
       if (!current(sessionId, generation)) return;
-      if (result?.url) adoptRanklandUrl(result.url);
-      $("rankland-status").textContent = result?.message || "榜单已打开。";
-      await refreshRanklandSnapshot(true);
-    } catch (error) { if (current(sessionId, generation)) $("rankland-status").textContent = message(error); }
+      if (result?.source === "rankland" && result.url) adoptRanklandUrl(result.url);
+      $("rankland-status").textContent = result?.message || (result?.source === "qoj" ? "已打开 QOJ 榜单。" : "榜单已打开。");
+      await resolveScoreboardSource(true);
+      if (current(sessionId, generation) && state.session.ranklandUrl) await refreshRanklandSnapshot(true);
+    } catch (error) { if (current(sessionId, generation)) showMessage($("notice"), "榜单打开失败：" + message(error)); }
   }
   async function syncScoreboard() {
     if (!state.session || !isJuryRoute()) return;
@@ -1319,8 +1508,9 @@
     $("open-resources").addEventListener("click", () => openResources().catch(fail));
     $("prepare-resources").addEventListener("click", () => prepareResources());
     $("refresh-resources").addEventListener("click", () => prepareResources(undefined, true));
+    $("refresh-contest").addEventListener("click", () => refreshContest().catch(() => {}));
     $("refresh-submissions").addEventListener("click", () => {
-      refresh(true).catch(fail);
+      refresh(true).catch(() => {});
       refreshRanklandSnapshot(true);
     });
     $("open-submit").addEventListener("click", event => {
@@ -1345,11 +1535,11 @@
         const updated = await call("update_session", {sessionId, ranklandUrl: $("rankland-url").value.trim()});
         if (!current(sessionId, generation)) return;
         state.session = updated;
-        resetRanklandSnapshot();
+        resetRanklandSnapshot(); resetScoreboardSource();
         const index = state.sessions.findIndex(item => item.sessionId === state.session.sessionId);
         if (index >= 0) state.sessions[index] = state.session;
         renderSession(); renderSummary(); modals.rankland.hide();
-        refreshRanklandSnapshot(true);
+        refreshRanklandSnapshot(true); resolveScoreboardSource(true);
       } catch (error) { if (current(sessionId, generation)) showMessage($("rankland-error"), message(error)); }
       finally { control.disabled = false; }
     });
@@ -1369,7 +1559,7 @@
     });
     setInterval(renderClock, 1000);
     setInterval(() => {
-      if (!document.hidden && state.session && !state.submitting && (sessionState() === "running" || state.submissions.some(item => item.pending))) refresh(true).catch(error => { $("refresh-status").textContent = "同步未完成：" + message(error); });
+      if (!document.hidden && state.session && !state.submitting && (sessionState() === "running" || state.submissions.some(item => item.pending))) refresh(true).catch(() => {});
     }, 5000);
     setInterval(() => {
       if (!document.hidden && state.connected && state.session && !state.submitting) refreshRanklandSnapshot();

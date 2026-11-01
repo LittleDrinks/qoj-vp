@@ -23,9 +23,10 @@ class Element {
   getAttribute(name) { return this.attributes[name] ?? null; }
   removeAttribute(name) { delete this.attributes[name]; }
   addEventListener(name, listener) { this.listeners[name] = listener; }
+  querySelector(selector) { if (selector === "span.btn") return walk(this).find(element => element.tagName === "SPAN" && element.classList.contains("btn")) || null; throw new Error("Unexpected selector " + selector); }
   get firstChild() { return this.children[0]; }
 }
-const ids = Object.fromEntries(["problems-list", "problemset-title", "resources-list", "resources-summary", "resources-error", "prepare-resources", "refresh-resources", "notice", "manual-samples-error", "manual-samples-replace-group", "manual-samples-replace", "manual-samples-save"].map(id => [id, new Element("div")]));
+const ids = Object.fromEntries(["problems-list", "problemset-title", "problemset-status", "refresh-contest", "resources-list", "resources-summary", "resources-error", "prepare-resources", "refresh-resources", "notice", "manual-samples-error", "manual-samples-replace-group", "manual-samples-replace", "manual-samples-save"].map(id => [id, new Element("div")]));
 const walk = element => typeof element === "string" ? [] : [element, ...element.children.flatMap(walk)];
 const text = element => typeof element === "string" ? element : element.textContent + element.children.map(text).join("");
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -44,13 +45,13 @@ const state = {session: {sessionId: "session-1", account: "LittleDrinks", contes
   contest: {name: "Xian", problems: [{id: "1", label: "A", name: "Bridge"}, {id: "2", label: "B", name: "Cells Coloring"}, {id: "3", label: "C", name: "Clone Ranran"}]},
   resources: new Map(), resourceActivity: new Map(), resourceInteractive: new Map(), resourceDownloads: new Set(), resourceJob: null,
   resourcesLoaded: false, resourceManifestError: "", resourceSummary: "", resourceReadSequence: 0, resourceMutation: 0};
-let calls = [], downloads = [], modalShows = 0, handler;
+let calls = [], downloads = [], openedSubmits = [], modalShows = 0, handler;
 const context = {state, crypto: webcrypto, Blob, atob, URL, MAX_RESOURCE_BYTES: 67108864, RESOURCE_CHUNK_BYTES: 262144,
   document: {createElement: tag => new Element(tag), querySelectorAll: () => Object.values(ids).flatMap(walk).filter(element => element.dataset.resourceProblem)},
   $: id => ids[id] || Object.values(ids).flatMap(walk).find(element => element.id === id),
   current: (sessionId, generation) => state.session.sessionId === sessionId && state.generation === generation,
   problemById: id => state.contest.problems.find(problem => problem.id === String(id)), contestName: contest => contest.name,
-  cardSubmit: () => new Element("a"),
+  canSubmit: () => true, openSubmit: problemId => openedSubmits.push(problemId),
   isJuryRoute: () => true, openManualSamples: () => {}, regularClick: () => true, humanReadableBytes: bytes => bytes + " B",
   showMessage: (target, message) => {target.textContent = message; target.classList.remove("d-none");},
   hideMessage: target => {target.textContent = ""; target.classList.add("d-none");}, message: error => error.message,
@@ -60,11 +61,12 @@ const context = {state, crypto: webcrypto, Blob, atob, URL, MAX_RESOURCE_BYTES: 
   saveBlob: (blob, filename) => downloads.push({blob, filename}),
 };
 vm.createContext(context);
-for (const [begin, end] of [["  function node(", "  function showMessage("], ["  function actionBusy(", "  function regularClick("], ["  function safeQojUrl(", "  function badge("], ["  function badge(", "  function contestName("], ["  function renderProblems(", "  function isProblemsRoute("], ["  function interactiveResource(", "  function saveBlob("], ["  async function importManualSamples(", "  // File-size/time formatting"]]) {
+for (const [begin, end] of [["  function node(", "  function showMessage("], ["  function submitAvailability(", "  function regularClick("], ["  function safeQojUrl(", "  function badge("], ["  function badge(", "  function contestName("], ["  function renderProblems(", "  function isProblemsRoute("], ["  function interactiveResource(", "  function saveBlob("], ["  async function importManualSamples(", "  // File-size/time formatting"]]) {
   vm.runInContext(source.slice(source.indexOf(begin), source.indexOf(end)), context);
 }
 function reset() {
-  calls = []; downloads = []; modalShows = 0; state.resources.clear(); state.resourceActivity.clear(); state.resourceInteractive.clear(); state.resourceDownloads.clear();
+  calls = []; downloads = []; openedSubmits = []; modalShows = 0; state.resources.clear(); state.resourceActivity.clear(); state.resourceInteractive.clear(); state.resourceDownloads.clear();
+  state.problemCards = new Map(); state.problemCardSession = null;
   state.resourceJob = null; state.resourcesLoaded = false; state.resourceReading = false; state.resourceManifestError = ""; state.resourceSummary = "";
   state.session.sessionId = "session-1"; state.generation = 1; state.manualBusy = false; state.manualSessionId = "session-1"; state.manualProblem = "1"; ids["manual-samples-replace-group"].hidden = true; state.resourceReadSequence = 0; state.resourceMutation = 0;
 }
@@ -120,6 +122,25 @@ async function check(name, test) { reset(); await test(); results.push(name); }
       assert.equal(link.getAttribute("aria-disabled"), null);
     }
     assert.equal(calls.length, 0);
+  });
+  await check("late resource manifests retain the real Submit and statement controls while adding samples", async () => {
+    context.renderProblems();
+    const card = ids["problems-list"].children[0];
+    const submit = walk(card).find(element => element.dataset.submitProblem === "1");
+    const visual = submit.querySelector("span.btn"), statement = walk(card).find(element => element.dataset.statementProblem === "1");
+    let resolve;
+    handler = () => new Promise(done => resolve = done);
+    const pending = context.loadResourceManifest();
+    resolve({origin:"https://qoj.ac",account:"LittleDrinks",contestId:"1051",problems:[splitEntry("1")]});
+    await pending;
+    assert.equal(ids["problems-list"].children[0], card);
+    assert.ok(walk(card).includes(submit)); assert.ok(walk(card).includes(visual)); assert.ok(walk(card).includes(statement));
+    submit.listeners.click({preventDefault() {}}); assert.deepEqual(openedSubmits,["1"]);
+    const samples = controls("problems-list")[0];
+    handler = () => ({origin:"https://qoj.ac",account:"LittleDrinks",contestId:"1051",problems:[{...splitEntry("1"),helperPid:9876}]});
+    await context.loadResourceManifest();
+    assert.equal(controls("problems-list")[0], samples,"unchanged cached packages must not detach a focused download link");
+    assert.equal(ids["problems-list"].children[0], card); assert.ok(walk(card).includes(submit));
   });
   await check("pending manifest disables real preparation and clears only after read", async () => {
     let resolve;

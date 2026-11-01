@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import re
 from urllib.parse import parse_qs, urlparse
 
@@ -105,7 +106,7 @@ def timestamp(value):
     return int(parsed.timestamp() * 1000)
 
 
-def submission_time_metadata(html, cid, account, sid, pid):
+def submission_time_metadata(html, cid, account, sid, pid, *, language=None):
     """Verify one detail-table Submit time against its SID, owner and problem.
 
     A submission detail also has an execution 'Time' column. Only the exact
@@ -130,7 +131,7 @@ def submission_time_metadata(html, cid, account, sid, pid):
         if not rows:
             continue
         headers = [cell.get_text(' ', strip=True).casefold() for cell in rows[0].find_all('th', recursive=False)]
-        required = ('id', 'problem', 'submitter', 'submit time')
+        required = ('id', 'problem', 'submitter', 'submit time') + (('language',) if language is not None else ())
         if any(headers.count(name) != 1 for name in required):
             continue
         indexes = {name: headers.index(name) for name in required}
@@ -143,6 +144,8 @@ def submission_time_metadata(html, cid, account, sid, pid):
             owners = cells[indexes['submitter']].select('span.uoj-username')
             if len(owners) != 1 or owners[0].get_text(' ', strip=True).casefold() != account.casefold():
                 continue
+            if language is not None and cells[indexes['language']].get_text(' ', strip=True) != language:
+                continue
             times = cells[indexes['submit time']].select('time.uoj-time[datetime]')
             if len(times) != 1:
                 continue
@@ -152,6 +155,46 @@ def submission_time_metadata(html, cid, account, sid, pid):
                 candidates.append({'submittedAt': at, 'timeSource': 'provider-absolute',
                                    'timeEvidence': {'source': 'submission-detail', 'datetime': raw}})
     return candidates[0] if len(candidates) == 1 else None
+
+
+def submission_source_hashes(html, cid, account, sid, pid, language):
+    """Hash only QOJ's complete `answer` source card, never judge-output pre's.
+
+    Browser HTML parsing normalizes line endings. Compare the complete LF and
+    CRLF byte sequences; do not strip spaces or append/remove a final newline.
+    Source text lives only in this call and is never returned to the ledger.
+    """
+    metadata = submission_time_metadata(html, cid, account, sid, pid, language=language)
+    if not metadata:
+        return None
+    page = BeautifulSoup(html, 'html.parser')
+    cards = []
+    for card in page.select('.card'):
+        header = card.find(class_='card-header', recursive=False)
+        if header is not None and header.get_text(' ', strip=True) == 'answer':
+            cards.append(card)
+    if len(cards) != 1:
+        return None
+    bodies = cards[0].find_all(class_='card-body', recursive=False)
+    if len(bodies) != 1:
+        return None
+    code = [node for pre in bodies[0].find_all('pre', recursive=False)
+            for node in pre.find_all('code', recursive=False)]
+    if len(code) != 1 or not any(re.fullmatch(r'sh_[A-Za-z0-9_-]+', value) for value in code[0].get('class', [])):
+        return None
+    text = code[0].get_text('', strip=False).replace('\r\n', '\n').replace('\r', '\n')
+    variants = {}
+    for ending, source in (('lf', text), ('crlf', text.replace('\n', '\r\n'))):
+        try:
+            data = source.encode('utf-8')
+        except UnicodeEncodeError:
+            return None
+        if not 0 < len(data) <= 512 * 1024:
+            continue
+        variants[ending] = {'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
+    return {'account': account.casefold(), 'contestId': str(cid), 'submissionId': str(sid),
+            'problemId': str(pid), 'language': language, 'submittedAt': metadata['submittedAt'],
+            'variants': variants} if variants else None
 
 
 def parse_history(html, cid, account, problems):

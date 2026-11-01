@@ -1,19 +1,57 @@
 #!/usr/bin/env python3
-"""Capture original DOMjudge 9.0.1 and current Home once; do not certify 1:1."""
+"""Compare official DOMjudge 9.0.1 Home columns/headings and capture both pages.
+
+Uses isolated GET-only fixtures; whole-page pixel identity is not claimed.
+"""
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
+import html
 import json
 from pathlib import Path
 import shutil
 import sys
 import time
+import threading
 import uuid
 
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(PROJECT), str(PROJECT / 'preflight'), str(PROJECT / 'preflight/vendor_py')]
 import guest_visual_parity as visual
 from guest_preflight import atomic_json, process_exit, require, utc_now
+
+
+class DelayedHomeFixture(visual.VisualQojFixture):
+    """Gate real fixture HTTP after priming the normal persistent snapshot."""
+    def __init__(self, configuration):
+        super().__init__(configuration)
+        self.delay_contest = False
+        self.release = threading.Event()
+        self.release.set()
+        self.blocked = []
+        self.fail_delayed = False
+        self.submitted_at = datetime.fromtimestamp(time.time() - 60, timezone.utc).isoformat(timespec='seconds')
+
+    def response(self, path, xhr):
+        if path == '/contest/3387' and self.delay_contest:
+            self.blocked.append({'path': path, 'at': time.monotonic()})
+            released = self.release.wait(45)
+            if not released or self.fail_delayed:
+                return 503, b'Synthetic delayed fixture unavailable', 'text/plain'
+        if path == '/contest/3387/submissions':
+            problem = self.problems[0]
+            body = ('<table><thead><tr><th>ID</th><th>Submitter</th><th>Problem</th><th>Result</th><th>Language</th><th>Time</th></tr></thead><tbody>'
+                    '<tr><td><a href="/submission/900001">900001</a></td><td><span class="uoj-username">' + html.escape(self.account) +
+                    '</span></td><td><a href="/contest/3387/problem/' + str(problem['probid']) + '">' + html.escape(problem['label']) +
+                    '</a></td><td>AC</td><td>C++20</td><td><time datetime="' + self.submitted_at + '">' + self.submitted_at +
+                    '</time></td></tr></tbody></table>')
+            return 200, body.encode(), 'text/html; charset=utf-8'
+        return super().response(path, xhr)
+
+    def shutdown(self):
+        self.release.set()
+        super().shutdown()
 
 
 class HomeHarness(visual.VisualHarness):
@@ -42,7 +80,7 @@ class HomeHarness(visual.VisualHarness):
                         'profile': str(self.profile), 'checks': [], 'cleanup': {}, 'sourceFilesSelected': 0,
                         'homeParityCertified': False, 'pixelEquality': 'not-assessed',
                         'referenceMode': 'official-server-rendered-snapshot',
-                        'scope': 'One browser boot, two Home screenshots and read-only structure; no source submit or RankLand.'}
+                        'scope': 'One browser boot, Home column/heading comparison and screenshots; no source submit or RankLand.'}
         self.flush()
 
     def flush(self):
@@ -72,6 +110,11 @@ class HomeHarness(visual.VisualHarness):
                 rowCellCounts:[...e.querySelectorAll('tbody tr')].map(n=>n.cells.length)}))},
             alerts:[...root.querySelectorAll('.alert')].filter(visible).map(describe),
             visibleButtons:[...root.querySelectorAll('button,a.btn')].filter(visible).map(describe),
+            overviewColumnCount:headings[0]?.parentElement.parentElement.children.length,
+            administrationInHome:root.querySelectorAll('#rankland-settings,#open-resources,#new-session,#start-session,#finish-session,#delete-session').length,
+            clarificationNotes:[...headings[1]?.parentElement.querySelectorAll('.nodata')||[]].map(e=>e.textContent.trim()),
+            clarificationLink:(()=>{const a=root.querySelector('#qoj-clarifications-link');return a?{
+              href:a.href,target:a.target,rel:a.rel,ajaxModal:a.hasAttribute('data-ajax-modal')}:null;})(),
             submissionTableHeaders:[...root.querySelectorAll('table.submissions-table thead th')].map(e=>e.textContent.trim()),
             sourceFileCount:[...document.querySelectorAll('input[type="file"]')].reduce((n,e)=>n+e.files.length,0)};
         ''')
@@ -83,6 +126,89 @@ class HomeHarness(visual.VisualHarness):
         self.summary.setdefault('home', {})[side] = value
         atomic_json(self.results / (side + '-home-structure.json'), value)
         return value
+
+    def compare_home_columns(self, product, original):
+        expected = ['Submissions', 'Clarifications', 'Clarification Requests']
+        require([item['text'] for item in original['headings']] == expected, 'The pinned reference Home changed its headings')
+        require([item['text'] for item in product['headings']] == expected, 'Home does not retain all three official headings')
+        require(product['overviewColumnCount'] == original['overviewColumnCount'] == 2, 'Home is no longer the official two-column row')
+        require(product['administrationInHome'] == 0, 'Jury management controls leaked into Team Home')
+        for index, (actual, reference) in enumerate(zip(product['columns'], original['columns'])):
+            require(actual['parentTag'] == reference['parentTag'] == 'DIV' and actual['parentClass'] == reference['parentClass'] == 'col',
+                    f'Heading {index} lost its original column container')
+            for dimension in ('x', 'width'):
+                require(abs(actual['parentRect'][dimension] - reference['parentRect'][dimension]) <= 1,
+                        f'Heading {index} column {dimension} differs from the fixed-viewport original')
+            require(product['headings'][index]['computed'] == original['headings'][index]['computed'],
+                    f'Heading {index} typography/spacing differs from the original stylesheet')
+        require(abs(product['headings'][0]['rect']['y'] - product['headings'][1]['rect']['y']) <= 1,
+                'Submissions and Clarifications headings are not aligned')
+        require(product['columns'][0]['parentRect']['x'] < product['columns'][1]['parentRect']['x'],
+                'Clarifications is not the right-hand column')
+        require('尚未接入 QOJ 讨论同步。' in product['clarificationNotes'],
+                'Clarification availability must be honest about the absent backend')
+        link = product['clarificationLink']
+        require(link and link['href'] == 'https://qoj.ac/contest/3387' and link['target'] == '_blank' and
+                {'noopener', 'noreferrer'} <= set(link['rel'].split()) and not link['ajaxModal'],
+                'The clarification action must be an ordinary original-site link, not a simulated local request')
+        return {'referenceHeadings': expected, 'twoOfficialColumns': True, 'columnWidthsAndPositionsMatch': True,
+                'headingComputedStylesMatch': True, 'juryControlsAbsent': True, 'unavailableBackendDisclosed': True,
+                'originalSiteLink': link, 'wholePagePixelEquality': 'not-assessed'}
+
+    def delayed_reload_keeps_views(self, fixture):
+        from selenium.webdriver.common.by import By
+        self.focus_ui()
+        require(len(self.driver.find_elements(By.CSS_SELECTOR, '#submissions-body tr')) == 1,
+                'The normal online refresh did not prime the real cached submission')
+        fixture.delay_contest = True
+        fixture.release.clear()
+        before = len(fixture.blocked)
+        reloads = []
+        try:
+            for index in range(3):
+                started = time.monotonic()
+                self.driver.refresh()
+                def cached_ready():
+                    return self.driver.execute_script('''
+                      const s=window.qojVpUi?.getState();
+                      return !!s?.connected&&s.contest?.problemCount===12&&s.submissions?.some(x=>x.id==='900001')&&
+                        document.querySelectorAll('#problems-list .card').length===12&&
+                        document.querySelectorAll('#submissions-body tr').length===1;
+                    ''')
+                self.wait(cached_ready, 'cached cards and submissions before delayed HTTP completes', timeout=12)
+                require(not fixture.release.is_set(), 'The provider gate was released before cache rendering')
+                self.driver.find_element(By.ID, 'nav-problems').click()
+                self.wait(lambda: self.driver.find_element(By.ID, 'problems-view').is_displayed(), 'Problemset navigation during slow HTTP')
+                self.driver.find_element(By.ID, 'nav-home').click()
+                self.wait(lambda: self.driver.find_element(By.ID, 'home-view').is_displayed(), 'Home navigation during slow HTTP')
+                reloads.append({'index': index, 'cachedRenderSeconds': round(time.monotonic() - started, 3),
+                                'visibleCards': 12, 'visibleSubmissions': 1, 'providerStillBlocked': True})
+            self.wait(lambda: len(fixture.blocked) >= before + 2, 'one contest read and one history read reaching the HTTP gate')
+            require(len(fixture.blocked) - before == 2, 'Reload duplicated provider reads instead of sharing the background requests')
+            require(not self.driver.find_element(By.ID, 'refresh-submissions').is_enabled(),
+                    'The refresh button allows duplicate activation while an existing refresh is pending')
+            self.driver.save_screenshot(str(self.results / 'cached-home-during-delayed-http.png'))
+            fixture.fail_delayed = True
+            fixture.release.set()
+            self.wait(lambda: self.driver.find_element(By.ID, 'refresh-submissions').is_enabled(), 'failed history refresh leaves cached rows available')
+            self.wait(lambda: self.driver.find_element(By.ID, 'refresh-contest').get_attribute('hidden') is None, 'failed contest read exposes retry')
+            require(len(self.driver.find_elements(By.CSS_SELECTOR, '#submissions-body tr')) == 1 and
+                    len(self.driver.find_elements(By.CSS_SELECTOR, '#problems-list .card')) == 12,
+                    'A failed background refresh cleared cached content')
+            fixture.delay_contest = False
+            self.driver.find_element(By.ID, 'nav-problems').click()
+            self.wait(lambda: self.driver.find_element(By.ID, 'problems-view').is_displayed(), 'Problemset retry route')
+            self.driver.find_element(By.ID, 'refresh-contest').click()
+            self.wait(lambda: not self.driver.find_element(By.ID, 'problemset-status').is_displayed(), 'ordinary retry restores live contest data')
+            self.driver.find_element(By.ID, 'nav-home').click()
+            self.driver.find_element(By.ID, 'refresh-submissions').click()
+            self.wait(lambda: self.driver.find_element(By.ID, 'refresh-submissions').is_enabled() and
+                      self.driver.find_element(By.ID, 'refresh-status').text.startswith('更新于'), 'ordinary history retry completes')
+            return {'reloads': reloads, 'blockedProviderReadCount': 2, 'cacheRenderedBeforeNetwork': True,
+                    'navigationUnblocked': True, 'failedRefreshPreservedBothViews': True, 'normalRetryRecovered': True}
+        finally:
+            fixture.delay_contest = False
+            fixture.release.set()
 
 
 def main():
@@ -96,7 +222,7 @@ def main():
         reference = visual.SnapshotReference(args.reference_snapshot).start()
         h.summary.update(referenceManifest=reference.manifest, verifiedSnapshots=reference.verified)
         configuration = json.loads((args.reference_snapshot / 'configuration.json').read_text())
-        fixture = visual.VisualQojFixture(configuration).start()
+        fixture = DelayedHomeFixture(configuration).start()
         require(h.step('isolated_namespace_alias_and_native_setup', lambda: h.setup_visual(fixture)) is not None, 'Alias setup failed')
         require(h.step('one_actual_firefox_boot', h.start_browser) is not None, 'Firefox failed to start')
         require(h.step('temporary_alias_extension_install', h.install_extension) is not None, 'Addon failed to install')
@@ -122,15 +248,19 @@ def main():
                'the original DOMjudge Home and twelve problem summary columns')
         original = h.step('original_901_home_screenshot_and_readonly_structure', lambda: h.capture_home('reference'))
         require(original is not None and product['viewport'] == original['viewport'], 'Home viewport mismatch')
+        require(h.step('home_columns_and_headings_match_official_901', lambda: h.compare_home_columns(product, original)) is not None,
+                'Home column/style comparison failed')
         comparison = {'sameActualViewport': product['viewport'], 'homeParityCertified': False, 'pixelEquality': 'not-assessed',
             'referenceHeadings': [item['text'] for item in original['headings']],
             'extensionHeadings': [item['text'] for item in product['headings']],
-            'businessAdaptations': ['Original Clarifications/Clarification Requests are replaced by local Contest metadata/actions.',
+            'businessAdaptations': ['Original Clarifications/Clarification Requests columns and heading styles are retained; backend unavailability is disclosed with a QOJ contest link.',
                 'The extension adds a source-QOJ column and refresh/status controls.',
                 'Rank and penalty stay unknown where the provider has not supplied them; account/team and clock data differ.'],
-            'claim': 'Screenshots and structural readings captured; Home is an adaptation, not certified 1:1.'}
+            'claim': 'Official two-column structure, widths/positions and heading computed styles are verified; whole-page pixel identity is not certified.'}
         atomic_json(h.results / 'comparison.json', comparison)
         h.summary['comparison'] = comparison
+        require(h.step('three_reloads_during_slow_http_keep_cards_and_history', lambda: h.delayed_reload_keeps_views(fixture)) is not None,
+                'Slow-network cache/navigation regression failed')
     except Exception as error:
         h.summary['fatalError'] = {'type': type(error).__name__, 'message': str(error)[:1400]}
         if h.driver:

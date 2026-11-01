@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext
 import json
+import math
 import os
 from pathlib import Path
 import sqlite3
@@ -17,6 +18,24 @@ def session_duration(session):
     if session.get('startAt') is not None and session.get('finishedAt') is not None:
         duration = min(duration, max(0, session['finishedAt'] - session['startAt']))
     return duration
+
+
+def receipt_metadata_matches(operation, submission, *, automatic=False):
+    """Match provider identity and clocks before ever examining source bytes."""
+    if (not operation.get('account') or
+            operation['account'].casefold() != str(submission.get('account', '')).casefold() or
+            str(operation.get('problemId')) != str(submission.get('problemId')) or
+            not operation.get('language') or operation['language'] != submission.get('language')):
+        return False
+    sent, observed = operation.get('submittedAt'), submission.get('submittedAt')
+    if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+           for value in (sent, observed)):
+        return False
+    if automatic:
+        # QOJ's date is second-granularity. Earlier submissions from a preceding
+        # second must never become the receipt of a later failed send attempt.
+        return submission.get('timeSource') == 'provider-absolute' and int(sent // 1000) * 1000 <= observed <= sent + 60000
+    return sent - 60000 <= observed <= sent + 10 * 60000
 
 
 class Ledger:
@@ -56,8 +75,8 @@ class Ledger:
         self.db.close()
 
     @contextmanager
-    def transaction(self):
-        self.db.execute('BEGIN IMMEDIATE')
+    def transaction(self, *, write=True):
+        self.db.execute('BEGIN IMMEDIATE' if write else 'BEGIN')
         try:
             yield
             self.db.execute('COMMIT')
@@ -129,6 +148,85 @@ class Ledger:
         record = json.loads(row['record_json'])
         record.update(state=row['state'], fingerprint=row['fingerprint'])
         return record
+
+    def operations(self, session_id):
+        return [self.operation(row[0]) for row in self.db.execute(
+            'SELECT operation_id FROM operations WHERE session_id=? ORDER BY created_at', (session_id,)).fetchall()]
+
+    def claim_receipt_probe(self, operation_id, now):
+        with self.transaction():
+            operation = self.operation(operation_id)
+            if not operation or operation['state'] != 'unknown' or operation.get('id'):
+                return None
+            retry = operation.get('receiptProbeAfter')
+            if isinstance(retry, (int, float)) and retry > now:
+                return None
+            operation.update(receiptProbeAfter=now + 60000, receiptProbeAttemptAt=now, receiptProbeStatus='pending')
+            self.save_operation(operation, 'unknown')
+            return operation
+
+    def receipt_probe_result(self, operation_id, attempt_at, status):
+        with self.transaction():
+            operation = self.operation(operation_id)
+            if (operation and operation['state'] == 'unknown' and not operation.get('id') and
+                    operation.get('receiptProbeAttemptAt') == attempt_at):
+                operation['receiptProbeStatus'] = status
+                self.save_operation(operation, 'unknown')
+
+    def confirm_operation(self, operation_id, submission_id, *, evidence=None, automatic=False):
+        """Atomically bind an existing provider fact; never create/retry a POST."""
+        with self.transaction():
+            operation = self.operation(operation_id)
+            if not operation:
+                raise ValueError('Unknown submission operation')
+            session = self.session(operation['sessionId'])
+            account = (session.get('account') or '').casefold()
+            fact = self.provider_submission(account, submission_id)
+            linked = self.db.execute('SELECT 1 FROM session_submissions WHERE session_id=? AND account=? AND submission_id=?',
+                                     (session['sessionId'], account, submission_id)).fetchone()
+            if not fact or not linked or not receipt_metadata_matches(operation, fact, automatic=automatic):
+                raise ValueError('The provider submission does not match this local operation')
+            if operation.get('id'):
+                if operation['id'] == submission_id and operation['state'] == 'confirmed':
+                    return operation
+                raise ValueError('This operation already has another submission receipt')
+            allowed = {'unknown'} if automatic else {'unknown', 'preparing', 'submitting'}
+            if operation['state'] not in allowed:
+                raise ValueError('Only an unresolved receipt can be reconciled')
+            if operation.get('sourceSha256'):
+                expected = {'account': account, 'contestId': str(session['contestId']), 'submissionId': submission_id,
+                    'problemId': str(fact['problemId']), 'language': fact['language'], 'submittedAt': fact['submittedAt'],
+                    'sourceSha256': operation['sourceSha256']}
+                if not isinstance(evidence, dict) or any(evidence.get(key) != value for key, value in expected.items()):
+                    raise ValueError('The submission source and metadata were not verified')
+            elif automatic:
+                raise ValueError('Automatic receipt recovery requires a source hash')
+            for row in self.db.execute('SELECT operation_id FROM operations WHERE operation_id<>?', (operation_id,)).fetchall():
+                other = self.operation(row[0])
+                if str(other.get('account', '')).casefold() != account:
+                    continue
+                if str(other.get('id')) == submission_id:
+                    raise ValueError('This provider submission is already bound to another local operation')
+                if (automatic and other['state'] in {'preparing', 'submitting', 'unknown'} and
+                        other.get('sourceSha256') in {None, operation['sourceSha256']} and
+                        receipt_metadata_matches(other, fact, automatic=True) and
+                        str(self.session(other['sessionId'])['contestId']) == str(session['contestId'])):
+                    raise ValueError('More than one local operation could own this provider submission')
+            if automatic:
+                facts = self._provider_rows(session['sessionId'])
+                candidates = [item for item in facts if receipt_metadata_matches(operation, item, automatic=True)]
+                unknown_metadata = [item for item in facts if
+                    str(item.get('problemId')) == str(operation['problemId']) and
+                    item.get('language') in {None, '', operation['language']} and
+                    (item.get('submittedAt') is None or (not item.get('language') and
+                     receipt_metadata_matches(operation, {**item, 'language': operation['language']}, automatic=True)))]
+                if len(candidates) != 1 or candidates[0]['id'] != submission_id or unknown_metadata:
+                    raise ValueError('The provider history does not identify a unique receipt candidate')
+            operation.update(id=submission_id, url=fact['url'], state='confirmed', receiptProbeStatus='verified')
+            operation['receiptEvidence'] = {'method': 'source-sha256' if evidence else 'manual-selected-history',
+                                            'submissionId': submission_id, 'submittedAt': fact['submittedAt']}
+            self.save_operation(operation, 'confirmed')
+            return operation
 
     def begin_operation(self, record, fingerprint):
         with self.transaction():

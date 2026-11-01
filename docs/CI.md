@@ -96,17 +96,18 @@ sudo apt-get install -y python3-pip python3-dev libcurl4-openssl-dev libssl-dev
 专机只接默认分支的手动任务，不接 pull request 自动任务。
 label 路由方式遵循 [GitHub runner 选择规则](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job)。
 
-手动触发的 `check_rankland_online` 默认关闭。开启后，四套受控测试完成后会额外运行
+手动触发的 `check_rankland_online` 默认关闭。开启后，五套受控测试完成后会额外运行
 `guest_rankland_readiness.py --mode verify`，访问当前线上 RankLand；因此该选项依赖
 专机网络和站点可用性。没有打开该选项时不会把本地 fixture 测试描述成线上兼容验证。
 
 ## 真实浏览器回归范围
 
-`scripts/run_hydro_ci.py` 默认顺序运行四套测试，线上 RankLand 检查需显式选择：
+`scripts/run_hydro_ci.py` 默认顺序运行五套测试，线上 RankLand 检查需显式选择：
 
 | 测试 | 检查内容 | 边界 |
 | --- | --- | --- |
 | DOMjudge visual parity | 官方 9.0.1 服务导出的页面快照、控件 CSS、提交弹窗操作 | 快照回放不是在线 DOMjudge；不宣称整页像素一致 |
+| Home refresh | 官方 Home 两列、阻塞网络时连续 F5 恢复缓存题表和历史、失败与重试 | GET-only fixture；检查跨页面请求合并 |
 | Resource cache | 样例/附件准备与下载、缓存复用 | 本地 QOJ fixture，不读用户登录 |
 | Administration | 管理/选手视图分离、手动样例添加和选手下载、结束和删除本地比赛 | 独立 profile、账本和 GET-only fixture，不删除用户比赛 |
 | Receipt diagnostics | Firefox 真实 HTTP 302/503/无 Location 行为、持久诊断 | POST 只发 localhost，不提交真实题目 |

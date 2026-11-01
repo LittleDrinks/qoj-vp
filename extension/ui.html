@@ -52,8 +52,8 @@
       <section id="home-view">
         <div id="teamscoresummary" aria-label="本次练习的提交进度"></div>
         <div class="mt-4" data-flash-messages></div>
-        <div class="row">
-          <div class="col">
+        <div id="team-overview" class="row">
+          <div id="team-submissions" class="col">
             <h1 class="teamoverview">Submissions</h1>
             <div class="d-flex align-items-center gap-3 my-2 vp-refresh-bar">
               <button id="refresh-submissions" class="btn btn-outline-secondary btn-sm" type="button"><i class="fas fa-sync-alt" aria-hidden="true"></i> 刷新判定</button>
@@ -61,6 +61,7 @@
               <span id="refresh-status" class="small text-muted" role="status" aria-live="polite">尚未同步</span>
             </div>
             <div id="history-warning" class="alert alert-warning d-none" role="status"></div>
+            <p id="history-time-status" class="small text-muted mb-2" hidden></p>
             <div id="submissions-empty" class="alert alert-warning">No submissions</div>
             <div class="table-responsive">
               <table id="submissions-table" class="data-table table table-hover table-striped table-sm submissions-table" hidden>
@@ -69,11 +70,18 @@
               </table>
             </div>
           </div>
-
+          <div id="team-clarifications" class="col">
+            <h1 class="teamoverview">Clarifications</h1>
+            <p class="nodata">尚未接入 QOJ 讨论同步。</p>
+            <h1 class="teamoverview">Clarification Requests</h1>
+            <p class="nodata">请在 QOJ 比赛页查看或发起讨论。</p>
+            <div class="m-1"><a id="qoj-clarifications-link" class="btn btn-secondary btn-sm" target="_blank" rel="noopener noreferrer">打开 QOJ 比赛页</a></div>
+          </div>
         </div>
       </section>
       <section id="problems-view" hidden>
         <h1 id="problemset-title" class="mt-4 text-center">Contest problems</h1>
+        <div class="d-flex justify-content-center align-items-center gap-2 mb-3"><span id="problemset-status" class="small text-muted" role="status" hidden></span><button id="refresh-contest" class="btn btn-outline-secondary btn-sm" type="button" hidden>重新读取题表</button></div>
         <div class="container"><div id="problems-list" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3 problem-list"></div></div>
       </section>
     </div>
@@ -99,6 +107,7 @@
             <tr><th>State</th><td id="session-state"></td></tr>
             <tr><th>Start time</th><td id="started-at"></td></tr>
             <tr><th>Duration</th><td id="jury-duration"></td></tr>
+            <tr><th>Scoreboard</th><td><a id="scoreboard-source-link" target="_blank" rel="noopener noreferrer">QOJ</a><span id="scoreboard-source-status" class="small text-muted ms-2"></span></td></tr>
           </tbody></table>
           <form id="jury-config-form" class="mb-3">
             <div id="jury-config-error" class="alert alert-danger d-none" role="alert"></div>

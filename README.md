@@ -1,14 +1,18 @@
 # QOJ workbench
 
 Firefox 扩展，提供复用 DOMjudge 9.0.1 的提交页和 Problemset，直接使用 QOJ CLI
-准备样例/附件、提交和同步判定；榜单使用原版 RankLand。目标为 VMware 内 Firefox，
+准备样例/附件、提交和同步判定；榜单自动匹配原版 RankLand，未匹配时使用 QOJ 原榜。目标为 VMware 内 Firefox，
 CF/Gym 暂不接入。
 
-当前版本为 0.3.0：新增独立的 Jury 比赛管理页，选手 Home 保留进度与提交；
+当前版本为 0.3.1：缓存题表和历史先显示，网络后台更新；连续刷新合并请求。
+Home 恢复官方 Clarifications 两列布局，QOJ 列表重定向通过源码指纹核对回执，
+榜单自动选择 RankLand 或 QOJ。验证记录见 [0.3.1 修复记录](docs/FOLLOWUP_0.3.1.md)。
+
+0.3.0 新增独立的 Jury 比赛管理页，选手 Home 保留进度与提交；
 管理员可配置、结束、归档和删除本地比赛，以及上传或粘贴手动样例。
 修复西安 2022 七题中文样例标题的识别；真实 VM 中 12 题缓存与文件校验均通过。
 该版本还包含样例/附件分开下载及 QOJ 赛后重判修正。Python 105 项、Node 84 项及
-VM 四套回归通过，常用 Firefox 已更新。回归与部署记录见
+VM 四套回归通过。该版本的回归与部署记录见
 [0.3.0 验收记录](docs/ADMIN_0.3.0.md)。
 
 此前已交付的 0.2.0 回填 RankLand 名次/得分/罚时，恢复官方奖杯比赛菜单，statement 直接打开
@@ -77,12 +81,12 @@ Home 默认只显示本次时间窗内提交与本地操作；完整历史保留
 不进入本次进度/榜单，不猜 VP 起点或自动关联未知提交。
 
 Problemset 的 **statement** 在新标签打开对应 QOJ 原题面，不再自动生成 PDF。
-整个工作台完全离线初始化尚未实现；此前验证的是保留在线加载的比赛上下文后离线
-读取清单/文件。
+已保存比赛可在重新打开页面时从本地恢复题表、提交历史和缓存资源。
+首次读取比赛、获取最新判定及访问原站榜单仍需网络。
 
 ## 验证与文档
 
-- [本轮状态](docs/ACTIVE_WORK.md)、[0.3.0 验收记录](docs/ADMIN_0.3.0.md)、[0.2.1 本地修复记录](docs/REPAIR_0.2.1.md)、[0.2.0 历史修复记录](docs/FOLLOWUP_RESULT.md)与[0.1.0 历史验收](docs/MVP_RESULT.md)
+- [本轮状态](docs/ACTIVE_WORK.md)、[0.3.1 修复记录](docs/FOLLOWUP_0.3.1.md)、[0.3.0 验收记录](docs/ADMIN_0.3.0.md)、[0.2.1 本地修复记录](docs/REPAIR_0.2.1.md)、[0.2.0 历史修复记录](docs/FOLLOWUP_RESULT.md)与[0.1.0 历史验收](docs/MVP_RESULT.md)
 - [GitHub CI、产物与 Hydro 专机方案](docs/CI.md)
 - [接口契约](docs/MVP_CONTRACT.md)与[Python 状态/接口](qojvp/README.md)
 - [DOMjudge 来源与许可证](docs/UI_UPSTREAM.md)

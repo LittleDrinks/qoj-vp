@@ -582,7 +582,36 @@ class VisualHarness(MvpHarness):
 
     def modal_fields(self, side, kind):
         from selenium.webdriver.common.by import By
-        modal = self.wait(lambda: next((e for e in self.driver.find_elements(By.CSS_SELECTOR, '.modal.show') if e.is_displayed()), None), 'actual AJAX/UI submit modal')
+        # openSubmit shows the dialog before its QOJ language request finishes.
+        # Reading WebElement option handles at .show can race with replacing the
+        # loading placeholder. Wait for the actual usable form, on both sides;
+        # a failed language load must fail this check rather than look complete.
+        readiness = []
+
+        def form_ready():
+            value = self.driver.execute_script('''
+              const modal=document.querySelector('.modal.show');
+              const instance=modal&&window.bootstrap?.Modal?.getInstance(modal);
+              const source=modal?.querySelector('#submit_problem_code');
+              const problem=modal?.querySelector('#submit_problem_problem');
+              const language=modal?.querySelector('#submit_problem_language');
+              const value={visible:!!modal?.getClientRects().length,
+                shown:instance?instance._isShown===true&&!instance._isTransitioning:false,
+                sourceEnabled:!!source&&!source.disabled,
+                problemCount:problem?[...problem.options].filter(o=>o.value).length:0,
+                languageEnabled:!!language&&!language.disabled,
+                languageCount:language?[...language.options].filter(o=>o.value).length:0};
+              return value;
+            ''')
+            if not readiness or readiness[-1] != value:
+                readiness.append(value)
+            return value if (value['visible'] and value['shown'] and value['sourceEnabled'] and
+                             value['problemCount'] > 0 and value['languageEnabled'] and
+                             value['languageCount'] > 0) else None
+
+        self.summary.setdefault('modalFormReadiness', {}).setdefault(side, {})[kind] = readiness
+        self.wait(form_ready, 'fully shown submit dialog with usable problem and language options')
+        modal = self.driver.find_element(By.CSS_SELECTOR, '.modal.show')
         data = {'title': modal.find_element(By.CSS_SELECTOR, '.modal-title').text.strip(), 'fields': {}}
         for field, selector in (('source', '#submit_problem_code'), ('problem', '#submit_problem_problem'),
                                 ('language', '#submit_problem_language'), ('entryPoint', '#submit_problem_entry_point')):

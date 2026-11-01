@@ -50,6 +50,8 @@ def main():
         cases = [
             ('visual-parity', ['preflight/guest_visual_parity.py', '--reference-snapshot',
                                'preflight/visual-reference/rendered', '--width', '1440', '--height', '880']),
+            ('home-refresh', ['preflight/guest_home_parity.py', '--reference-snapshot',
+                              'preflight/visual-reference/rendered']),
             ('resources', ['preflight/guest_resource_cache.py']),
             ('administration', ['preflight/guest_admin_flow.py']),
             ('receipts', ['preflight/guest_transport_diagnostics.py']),

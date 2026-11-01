@@ -57,7 +57,7 @@ function environment() {
   return {context, state, elements, selected, actions};
 }
 
-test("team Home has submissions only and the official-style Jury list owns contest creation", () => {
+test("team Home keeps Submissions and Clarifications while the Jury list owns contest creation", () => {
   const nav = html.slice(html.indexOf("<nav "), html.indexOf("</nav>"));
   const home = html.slice(html.indexOf('<section id="home-view"'), html.indexOf('<section id="problems-view"'));
   const jury = html.slice(html.indexOf('<section id="jury-view"'), html.indexOf('<div id="session-modal"'));
@@ -65,6 +65,10 @@ test("team Home has submissions only and the official-style Jury list owns conte
   assert.doesNotMatch(nav, /<select|id="new-session"/);
   assert.match(nav, /id="nav-jury"[^>]+href="#jury"/); assert.match(nav, /id="nav-team"[^>]+href="#home"/);
   assert.doesNotMatch(home, /id="(?:rankland-settings|open-resources|start-session|finish-session|archive-session|delete-session|new-session)"|teamoverview">Contest/);
+  assert.match(home, /id="team-submissions" class="col"/);
+  assert.match(home, /id="team-clarifications" class="col"/);
+  assert.match(home, /teamoverview">Clarifications/); assert.match(home, /teamoverview">Clarification Requests/);
+  assert.match(home, /尚未接入 QOJ 讨论同步/); assert.doesNotMatch(home, /No clarifications\.|No clarification request\./);
   assert.match(jury, /id="jury-contests-table"[\s\S]*id="new-session" class="btn btn-primary"/);
   assert.match(jury, /id="delete-session"/); assert.match(jury, /id="jury-config-form"/);
 });

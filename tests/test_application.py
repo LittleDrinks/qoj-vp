@@ -155,6 +155,10 @@ class ApplicationIntegrationTests(unittest.TestCase):
         history = self.call('qoj_submissions', {'sessionId': self.session['sessionId']})
         unknown = [item for item in history['submissions'] if item.get('state') == 'unknown']
         self.assertEqual(len(unknown), 1)
+        from tests.test_detail_metadata import detail_page
+        self.fixture.detail_overrides['1000001'] = detail_page(sid='1000001', owner='FixtureUser', pid='15419',
+            date='2026-10-31T09:00:00+08:00') + ('<div class="card"><div class="card-header">answer</div>'
+            '<div class="card-body"><pre><code class="sh_cpp">' + CODE.decode() + '</code></pre></div></div>')
         resolved = self.call('qoj_reconcile', {'sessionId': self.session['sessionId'],
                                               'operationId': 'test-operation', 'submissionId': '1000001'})
         self.assertEqual(resolved['submission']['id'], '1000001')

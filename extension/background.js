@@ -3,7 +3,7 @@
   const HOST = "org.littledrinks.qoj_vp";
   const methods = new Set(["hello", "create_session", "start_session", "list_sessions", "inspect_session", "archive_session", "update_session",
     "qoj_contest", "qoj_problem_form", "qoj_samples", "qoj_submit", "qoj_submissions", "qoj_reconcile", "rankland_queue", "rankland_ack", "prepare_rankland",
-    "resource_manifest", "prepare_resource", "resource_chunk", "import_samples", "delete_session", "finish_session"]);
+    "resource_manifest", "prepare_resource", "resource_chunk", "import_samples", "delete_session", "finish_session", "session_snapshot"]);
   function ranklandIdentity(raw) {
     const url = new URL(raw), q = url.searchParams;
     return JSON.stringify([url.origin, q.get("contest"), q.get("run"), q.get("rule") || "auto",
@@ -354,7 +354,87 @@
     deletingSessions.set(id, deletion);
     return deletion;
   }
+  const providerReads = new Map();
+  function providerRead(method, args) {
+    if (method !== "qoj_contest" && !(method === "qoj_submissions" && args.refresh !== false)) return native(method, args);
+    // An F5 creates a new UI context while the previous native task continues.
+    // Join only identical reads; writes and local snapshots stay independent.
+    const normalized = {...args};
+    if (method === "qoj_submissions") normalized.refresh = true;
+    const key = JSON.stringify([method, Object.keys(normalized).sort().map(name => [name, normalized[name]])]);
+    if (!providerReads.has(key)) {
+      const pending = native(method, args).finally(() => providerReads.delete(key));
+      providerReads.set(key, pending);
+    }
+    return providerReads.get(key);
+  }
+  const resolvingScoreboards = new Map();
+  let helperInfo;
+  function qojBoardUrl(contest, session) {
+    const fallback = "https://qoj.ac/contest/" + session.contestId;
+    try {
+      const url = new URL(contest?.scoreboardUrl);
+      if (url.origin !== "https://qoj.ac" || url.username || url.password || url.hash) return fallback;
+      if (!["/contest/" + session.contestId + "/standings", "/results/QOJ" + session.contestId].includes(url.pathname.replace(/\/$/, ""))) return fallback;
+      if ([...url.searchParams].some(([key, value]) => key !== "mode" || value !== "pc2") || [...url.searchParams].length > 1) return fallback;
+      return url.href;
+    } catch (_) { return fallback; }
+  }
+  async function resolveScoreboard(sessionId, refresh = false) {
+    const snapshot = await native("session_snapshot", {sessionId});
+    let {session, contest} = snapshot;
+    const configured = current => ({source: "rankland", state: "configured", url: current.ranklandUrl, session: current});
+    if (session.ranklandUrl) return configured(session);
+    const fallback = reason => ({source: "qoj", state: "unavailable", reason, url: qojBoardUrl(contest, session), session});
+    // Isolated guest suites never contact public providers implicitly.
+    if (!helperInfo) helperInfo = native("hello").catch(error => { helperInfo = null; throw error; });
+    if ((await helperInfo).fixture) return {...fallback("FIXTURE"), state: "unmatched"};
+    if (!contest?.scoreboardUrl) {
+      try { contest = await providerRead("qoj_contest", {contestId: session.contestId, sessionId}); }
+      catch (_) { /* Cached title/problems and the original contest link remain usable. */ }
+    }
+    if (!contest) return fallback("CONTEST_UNAVAILABLE");
+    const signature = JSON.stringify([session.account, session.contestId, session.durationMs, contest.name, contest.title, contest.titles,
+      contest.scoreboardUrl, contest.problems?.map(problem => [problem.id, problem.label])]);
+    const key = "scoreboard-source-v1:" + sessionId;
+    const saved = (await browser.storage.local.get(key))[key];
+    let result = !refresh && saved?.signature === signature && Date.now() - saved.checkedAt >= 0 &&
+      Date.now() - saved.checkedAt < (["unavailable", "unverified"].includes(saved.result?.state) ? 30000 : 3600000) ? saved.result : null;
+    if (!result) {
+      result = await VpScoreboardSources.resolve(contest, session.durationMs);
+      await browser.storage.local.set({[key]: {signature, checkedAt: Date.now(), result}});
+    }
+    // The native compare-and-set prevents a slow automatic match from
+    // overwriting a setting edited in Jury while public metadata was loading.
+    if (result.source === "rankland" && result.state === "matched") {
+      session = await native("update_session", {sessionId, ranklandUrl: result.ranklandUrl,
+        expectedRanklandUrl: null, expectedDurationMs: session.durationMs});
+      if (session.ranklandUrl) {
+        await browser.storage.local.set({sessions: (await native("list_sessions")).sessions});
+        return {...result, ...configured(session), state: "matched"};
+      }
+      result = {...result, source: "qoj", state: "unverified", reason: "SESSION_CHANGED"};
+    }
+    const current = await native("inspect_session", {sessionId});
+    if (current.ranklandUrl) return configured(current);
+    return {...result, source: "qoj", url: qojBoardUrl(contest, current), session: current};
+  }
+  function scoreboardSource(args) {
+    if (!resolvingScoreboards.has(args.sessionId)) {
+      const task = resolveScoreboard(args.sessionId, args.refresh === true).finally(() => resolvingScoreboards.delete(args.sessionId));
+      resolvingScoreboards.set(args.sessionId, task);
+    }
+    return resolvingScoreboards.get(args.sessionId);
+  }
   async function dispatch(method, args) {
+    if (method === "scoreboard.resolve") return scoreboardSource(args);
+    if (method === "scoreboard.open") {
+      const source = await scoreboardSource(args);
+      if (source.source === "rankland") return {...await dispatch("rankland.open", args), source: "rankland"};
+      if (source.reason === "FIXTURE") return {source: "qoj", url: source.url, opened: false, fixture: true};
+      const tab = await browser.tabs.create({url: source.url, active: true});
+      return {source: "qoj", tabId: tab.id, url: source.url};
+    }
     if (method === "rankland.snapshot") return ranklandScore(args.sessionId);
     if (method === "rankland.open") {
       const blocked = syncUnavailable(args.sessionId);
@@ -369,7 +449,7 @@
     if (method === "rankland.sync") return exclusiveSync(args.sessionId, true);
     if (method === "delete_session") return deleteSession(args);
     if (!methods.has(method)) throw new Error("UNKNOWN_METHOD");
-    const result = await native(method, args);
+    const result = await providerRead(method, args);
     if (["create_session", "start_session", "finish_session", "archive_session", "update_session"].includes(method)) {
       await browser.storage.local.set({sessions: (await native("list_sessions")).sessions});
     }
@@ -408,7 +488,7 @@
     if (alarm.name !== "vp-refresh") return;
     const sessions = (await browser.storage.local.get("sessions")).sessions || [];
     for (const session of sessions.filter(item => item.state === "running" && Date.now() < item.startAt + item.durationMs)) {
-      try { await native("qoj_submissions", {sessionId: session.sessionId, refresh: true}); await exclusiveSync(session.sessionId); }
+      try { await providerRead("qoj_submissions", {sessionId: session.sessionId, refresh: true}); await exclusiveSync(session.sessionId); }
       catch (_) { /* The UI and durable queue expose failures on the next interaction. */ }
     }
   });

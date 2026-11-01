@@ -297,6 +297,10 @@ class HistoryApplicationIntegrationTests(unittest.TestCase):
                 row = next(row for row in imported['submissions'] if row['id'] == '3331061')
                 self.assertEqual((row['verdict'], row['submittedAt']), ('CORRECT', SUBMITTED_AT))
                 self.assertEqual(app.ledger.operation(args['operationId'])['state'], 'unknown')
+                from tests.test_detail_metadata import detail_page
+                fixture.detail_overrides['3331061'] = detail_page() + (
+                    '<div class="card"><div class="card-header">answer</div><div class="card-body">'
+                    '<pre><code class="sh_cpp">int main() { return 0; }\n</code></pre></div></div>')
                 reconciled = app.dispatch('qoj_reconcile', {'sessionId': session['sessionId'],
                     'operationId': args['operationId'], 'submissionId': '3331061'}, fixture.exchange)
                 self.assertEqual((reconciled['state'], reconciled['submission']['id']), ('confirmed', '3331061'))

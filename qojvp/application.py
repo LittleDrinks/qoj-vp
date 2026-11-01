@@ -20,9 +20,9 @@ from bs4 import BeautifulSoup
 
 from . import __version__
 from .account import current_account
-from .history import detail_verdict, parse_history, submission_time_metadata
+from .history import detail_verdict, parse_history, submission_source_hashes, submission_time_metadata
 from .inline_samples import statement_language_paths, statement_page_path, statement_sample_files
-from .ledger import Ledger, session_duration
+from .ledger import Ledger, receipt_metadata_matches, session_duration
 from .resources import ResourceCache, ResourceError, problem_id
 from .transport import BASE, BrowserSession, MAX_SOURCE_BYTES
 
@@ -118,6 +118,14 @@ class Application:
                 return self.create_session(args)
             if method == 'list_sessions':
                 return {'sessions': [self.view(s) for s in self.ledger.sessions()]}
+            if method == 'session_snapshot':
+                with self.ledger.transaction(write=False):
+                    session = self.ledger.session(args.get('sessionId'))
+                    contest = self.ledger.contest(session.get('account'), session['contestId'])
+                    if contest is not None:
+                        contest = {**contest, 'account': session.get('account'),
+                                   'problems': self.problem_list(contest), 'source': 'verified-cache'}
+                    return {'session': self.view(session), 'contest': contest, 'history': self.cached_history(session)}
             if method in {'inspect_session', 'start_session', 'archive_session', 'finish_session', 'delete_session',
                           'update_session', 'prepare_rankland'}:
                 return self.session_action(method, args)
@@ -137,8 +145,7 @@ class Application:
                     return manual
             if method == 'qoj_submissions' and args.get('refresh') is False:
                 session = self.ledger.session(args.get('sessionId'))
-                return {'submissions': self.ledger.submissions(session['sessionId']), 'account': session.get('account'),
-                        'coverage': {'complete': False, 'pages': 0, 'warning': 'Cached history; refresh to query QOJ'}}
+                return self.cached_history(session)
             if method not in {'qoj_contest', 'qoj_problem_form', 'qoj_samples', 'qoj_submit', 'qoj_submissions', 'qoj_reconcile', 'prepare_resource'}:
                 raise ApplicationError('UNKNOWN_METHOD', 'Unknown application method')
             if not callable(exchange):
@@ -149,7 +156,7 @@ class Application:
             try:
                 if method == 'qoj_contest':
                     account, _ = current_account(client)
-                    contest = client.contest(modules[0].contest_id(str(args.get('contestId', ''))))
+                    contest = self.read_contest(client, modules[0].contest_id(str(args.get('contestId', ''))))
                     self.ledger.save_contest(account, contest)
                     return {**contest, 'account': account, 'problems': self.problem_list(contest),
                             'source': 'fixture' if self.fixture_origin else 'real-qoj-browser'}
@@ -159,7 +166,7 @@ class Application:
                 if method == 'prepare_resource':
                     return self.prepare_resource(session, args, client, modules, transport)
                 self.authenticate(client, session)
-                contest = client.contest(session['contestId'])
+                contest = self.read_contest(client, session['contestId'])
                 self.ledger.save_contest(session.get('account'), contest)
                 if method == 'qoj_problem_form':
                     problem = self.problem(contest, args)
@@ -180,9 +187,10 @@ class Application:
                             'zipBase64': base64.b64encode(data).decode('ascii'),
                             **{key: metadata[key] for key in ('files', 'warnings', 'extraFiles', 'sampleSource')}}
                 refreshed = self.refresh(session, contest, client,
-                                         preferred_sid=str(args.get('submissionId', '')) if method == 'qoj_reconcile' else None)
+                                         preferred_sid=str(args.get('submissionId', '')) if method == 'qoj_reconcile' else None,
+                                         recover_receipts=method != 'qoj_reconcile')
                 if method == 'qoj_reconcile':
-                    return self.reconcile(session, args, refreshed)
+                    return self.reconcile(session, args, refreshed, client)
                 return refreshed
             except modules[0].QojError as exc:
                 raise self.upstream_error(exc) from exc
@@ -279,7 +287,7 @@ class Application:
         label = None
         try:
             self.authenticate(client, session)
-            contest = client.contest(session['contestId'])
+            contest = self.read_contest(client, session['contestId'])
             self.ledger.save_contest(session.get('account'), contest)
             problem = self.problem(contest, {'problemId': pid})
             label = next(key for key, item in contest['problems'].items() if str(item['id']) == pid)
@@ -381,8 +389,12 @@ class Application:
                 self.ledger.delete_session(sid)
                 return {'deleted': True, 'sessionId': sid}
             elif method == 'update_session':
-                if set(args) - {'sessionId', 'ranklandUrl', 'title', 'durationMs'}:
+                if set(args) - {'sessionId', 'ranklandUrl', 'expectedRanklandUrl', 'title', 'durationMs', 'expectedDurationMs'}:
                     raise ValueError('Only session title, duration and RankLand URL may be changed')
+                if 'expectedRanklandUrl' in args and record.get('ranklandUrl') != args['expectedRanklandUrl']:
+                    return self.view(record)
+                if 'expectedDurationMs' in args and record['durationMs'] != args['expectedDurationMs']:
+                    return self.view(record)
                 if ('title' in args or 'durationMs' in args) and record['state'] != 'prepared':
                     raise ApplicationError('SESSION_NOT_PREPARED', 'Title and duration can only be edited before starting')
                 if 'title' in args:
@@ -410,6 +422,13 @@ class Application:
         if target_changed:
             self.ledger.requeue_session(sid)
         return self.view(record)
+
+    @staticmethod
+    def read_contest(client, cid):
+        from .scoreboards import contest_navigation
+        contest = client.contest(cid)
+        response = client.session.last_response
+        return {**contest, **contest_navigation(response.text, contest['id'])}
 
     @staticmethod
     def problem_list(contest):
@@ -479,7 +498,7 @@ class Application:
             raise ApplicationError('SESSION_NOT_RUNNING', 'Start a VP session before submitting')
         # Validate all read-only state before recording the send intent.
         self.authenticate(client, session)
-        contest = client.contest(session['contestId'])
+        contest = self.read_contest(client, session['contestId'])
         self.ledger.save_contest(session.get('account'), contest)
         problem = self.problem(contest, args)
         form = client.form(contest['id'], problem['id'])
@@ -501,7 +520,14 @@ class Application:
         except modules[0].UnknownSubmission:
             record.update(state='unknown', rawVerdict='Receipt unknown; check QOJ before retrying')
             self.ledger.save_operation(record, 'unknown')
-            return self.operation_result(record)
+            # QOJ can legitimately redirect to the contest submission list.
+            # Recover only through read-only history/source verification; the
+            # original source must never be sent again to obtain a receipt.
+            try:
+                self.refresh(session, contest, client)
+            except Exception:
+                pass  # Keep the durable unknown intent if QOJ cannot be read.
+            return self.operation_result(self.ledger.operation(operation_id))
         except modules[0].QojError as exc:
             record.update(state='rejected', rawVerdict='QOJ rejected the submission')
             self.ledger.save_operation(record, 'rejected')
@@ -514,6 +540,10 @@ class Application:
             saved = self.ledger.save_submission(session['sessionId'], submission)
         return {'submission': saved, 'state': 'confirmed'}
 
+    def cached_history(self, session):
+        return {'submissions': self.ledger.submissions(session['sessionId']), 'account': session.get('account'),
+                'coverage': {'complete': False, 'pages': 0, 'warning': 'Cached history; refresh to query QOJ'}}
+
     def operation_result(self, operation):
         if operation.get('id'):
             fact = self.ledger.provider_submission(operation['account'], operation['id'])
@@ -523,9 +553,9 @@ class Application:
         view = self.ledger.submission_view(operation['sessionId'], self.ledger.operation_view(operation))
         return {'submission': view, 'state': view['state']}
 
-    def refresh(self, session, contest, client, *, preferred_sid=None):
+    def refresh(self, session, contest, client, *, preferred_sid=None, recover_receipts=True):
         warnings, pages, seen = [], 0, set()
-        complete = False
+        complete, history_verified = False, True
         deadline = time.monotonic() + 35
         time_candidates, time_attempts, known_time_ids = {}, {}, set()
         backfill_times = session.get('startAt') is not None and session.get('state') == 'running'
@@ -550,6 +580,7 @@ class Application:
             warnings.extend(parsed['warnings'])
             if parsed['malformedRows']:
                 warnings.append('Some submission rows could not be verified')
+                history_verified = False
             page_new = 0
             for item in parsed['submissions']:
                 if item['id'] in seen:
@@ -643,25 +674,74 @@ class Application:
             self.ledger.save_submission(session['sessionId'], item)
         verified_warnings = {f'#{sid}: absolute submission time is not verified' for sid in known_time_ids}
         warnings = [warning for warning in warnings if warning not in verified_warnings]
+        if recover_receipts and complete and history_verified:
+            self.recover_receipts(session, client, deadline, seen)
         return {'submissions': self.ledger.submissions(session['sessionId']), 'account': session['account'],
                 'coverage': {'complete': complete and not warnings, 'pages': pages,
                              **({'warning': '; '.join(dict.fromkeys(warnings))} if warnings else {})}}
 
-    def reconcile(self, session, args, refreshed):
+    def receipt_source_evidence(self, session, operation, submission, client):
+        sid = str(submission['id'])
+        detail = client.get(f'/submission/{sid}?locale=en')
+        final = urlparse(detail.url)
+        if (detail.status_code != 200 or final.scheme != 'https' or final.netloc != 'qoj.ac' or
+                final.path.rstrip('/') != f'/submission/{sid}'):
+            raise ApplicationError('RECEIPT_SOURCE_UNVERIFIED', 'QOJ did not expose the selected submission source')
+        hashes = submission_source_hashes(detail.text, session['contestId'], session['account'], sid,
+                                          operation['problemId'], operation['language'])
+        if not hashes or hashes['submittedAt'] != submission.get('submittedAt'):
+            raise ApplicationError('RECEIPT_SOURCE_UNVERIFIED', 'The submission source and metadata could not be verified')
+        match = next(((ending, value) for ending, value in hashes['variants'].items()
+                      if value['sha256'] == operation['sourceSha256']), None)
+        if not match:
+            raise ApplicationError('RECEIPT_SOURCE_MISMATCH', 'The selected submission contains different source code')
+        ending, value = match
+        return {key: item for key, item in hashes.items() if key != 'variants'} | {
+            'sourceSha256': value['sha256'], 'sourceBytes': value['bytes'], 'lineEndings': ending}
+
+    def recover_receipts(self, session, client, deadline, verified_ids):
+        attempts = 0
+        for operation in self.ledger.operations(session['sessionId']):
+            if attempts >= 3 or time.monotonic() >= deadline:
+                break
+            if operation['state'] != 'unknown' or operation.get('id') or not operation.get('sourceSha256'):
+                continue
+            facts = [item for item in self.ledger._provider_rows(session['sessionId']) if item['id'] in verified_ids]
+            candidates = [item for item in facts if receipt_metadata_matches(operation, item, automatic=True)]
+            if len(candidates) != 1:
+                continue
+            claimed = self.ledger.claim_receipt_probe(operation['operationId'], self.clock())
+            if not claimed:
+                continue
+            attempts += 1
+            status = 'unavailable'
+            try:
+                evidence = self.receipt_source_evidence(session, claimed, candidates[0], client)
+                self.ledger.confirm_operation(operation['operationId'], str(candidates[0]['id']), evidence=evidence, automatic=True)
+                continue
+            except ApplicationError as exc:
+                if exc.code == 'RECEIPT_SOURCE_MISMATCH':
+                    status = 'source-mismatch'
+            except ValueError:
+                status = 'ambiguous'
+            except Exception:
+                pass  # A failed GET never permits another source submission.
+            self.ledger.receipt_probe_result(operation['operationId'], claimed['receiptProbeAttemptAt'], status)
+
+    def reconcile(self, session, args, refreshed, client):
         operation = self.ledger.operation(str(args.get('operationId', '')))
         if not operation or operation['sessionId'] != session['sessionId']:
             raise ValueError('Unknown submission operation')
+        sid = str(args.get('submissionId', ''))
+        if operation['state'] == 'confirmed' and operation.get('id') == sid:
+            return self.operation_result(operation)
         if operation['state'] not in {'unknown', 'submitting', 'preparing'}:
             raise ValueError('Only an unknown receipt can be reconciled')
-        sid = str(args.get('submissionId', ''))
         submission = next((item for item in refreshed['submissions'] if item.get('id') == sid), None)
         if not submission:
             raise ValueError('The submission ID is not verified in this account history')
-        if submission['problemId'] != operation['problemId'] or submission.get('language') != operation['language']:
-            raise ValueError('The selected submission does not match this operation problem and language')
-        at = submission.get('submittedAt')
-        if at is None or not operation['submittedAt'] - 60000 <= at <= operation['submittedAt'] + 10 * 60000:
+        if not receipt_metadata_matches(operation, submission):
             raise ValueError('The selected submission time could not be matched to this operation')
-        operation.update(id=sid, url=submission['url'], state='confirmed')
-        self.ledger.save_operation(operation, 'confirmed')
-        return {'submission': {**submission, 'operationId': operation['operationId']}, 'state': 'confirmed'}
+        evidence = self.receipt_source_evidence(session, operation, submission, client) if operation.get('sourceSha256') else None
+        confirmed = self.ledger.confirm_operation(operation['operationId'], sid, evidence=evidence)
+        return self.operation_result(confirmed)
