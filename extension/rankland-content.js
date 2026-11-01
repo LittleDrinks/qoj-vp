@@ -41,6 +41,57 @@
     const cells = [...row.cells], index = cells.indexOf(cell);
     return {score: cells[index + 1]?.textContent.trim() || null, visible: Boolean(row.getClientRects().length)};
   }
+  function scoreSnapshot(sessionId, expectedUrl) {
+    let currentUrl;
+    try {
+      currentUrl = new URL(location.href);
+      if (currentUrl.origin !== "https://vp.xcpc.link" || currentUrl.pathname !== "/" ||
+          !sessionId || currentUrl.searchParams.get("run") !== sessionId ||
+          !expectedUrl || identity(location.href) !== identity(expectedUrl)) {
+        return {ready: false, reason: "SESSION_MISMATCH"};
+      }
+    } catch (_) { return {ready: false, reason: "SESSION_MISMATCH"}; }
+    const board = document.querySelector('[data-id="vp-ranklist-content"]');
+    if (!board) return {ready: false, reason: "CONTEST_LOADING"};
+    const archive = saved();
+    if (!archive) return {ready: false, reason: "STORAGE_NOT_READY"};
+    const ownName = archive.value.ownName;
+    if (typeof ownName !== "string" || !ownName.trim()) return {ready: false, reason: "TEAM_REQUIRED"};
+    if (ownName.length > 80 || /[\x00-\x1f\x7f]/.test(ownName) ||
+        !Number.isFinite(archive.value.elapsed) || archive.value.elapsed < 0 ||
+        typeof archive.value.running !== "boolean") return {ready: false, reason: "STORAGE_FORMAT_CHANGED"};
+    const candidates = [];
+    for (const table of board.querySelectorAll("table.srk-main")) {
+      for (const name of table.querySelectorAll(".srk-user-name-text")) {
+        if (name.textContent.trim() !== ownName) continue;
+        const row = name.closest("tr"), cell = name.closest("td");
+        if (row && cell && row.closest("table") === table && row.getClientRects().length) candidates.push({table, row, cell});
+      }
+    }
+    if (candidates.length !== 1) return {ready: false, reason: candidates.length ? "OWN_ROW_AMBIGUOUS" : "OWN_ROW_NOT_VISIBLE"};
+    const {table, row, cell} = candidates[0], headers = [...(table.tHead?.rows[0]?.cells || [])], cells = [...row.cells];
+    const nameIndex = cells.indexOf(cell), scoreIndex = nameIndex + 1, timeIndex = nameIndex + 2;
+    const scoreLabel = headers[scoreIndex]?.textContent.trim() || "", timeLabel = headers[timeIndex]?.textContent.trim() || "";
+    if (nameIndex < 1 || headers.length !== cells.length ||
+        !/^(score|得分|分数|解题数|题数)$/i.test(scoreLabel) || !/^(time|时间|用时|罚时)$/i.test(timeLabel)) {
+      return {ready: false, reason: "SCORE_COLUMNS_CHANGED"};
+    }
+    const integer = (text, minimum = 0) => {
+      if (!/^\d+$/.test(text)) return null;
+      const value = Number(text);
+      return Number.isSafeInteger(value) && value >= minimum ? value : null;
+    };
+    const ranks = headers.flatMap((header, index) => header.classList.contains("srk-series-header") && index < nameIndex ?
+      [{label: header.textContent.trim().slice(0, 80), value: integer(cells[index]?.textContent.trim() || "", 1)}] : []);
+    const score = integer(cells[scoreIndex]?.textContent.trim() || "");
+    const penaltyText = cells[timeIndex]?.textContent.trim() || "", penaltyMinutes = integer(penaltyText);
+    if (!ranks.length || score === null || (penaltyMinutes === null && !/^(?:-|—)$/.test(penaltyText))) {
+      return {ready: false, reason: "SCORE_VALUES_CHANGED"};
+    }
+    return {ready: true, reason: "READY", snapshot: {version: 1, sessionId, url: currentUrl.href,
+      identity: identity(currentUrl.href), targetKey: archive.key, ownName, rank: ranks[0].value,
+      ranks, score, penaltyMinutes, elapsedMs: archive.value.elapsed, running: archive.value.running, observedAt: Date.now()}};
+  }
   function setValue(element, value, event) {
     if (!element || !visible(element)) throw new Error("RankLand 提交表单发生变化，请在原站核对。");
     element.value = String(value);
@@ -195,6 +246,7 @@
   let busy = false, preparing = null;
   browser.runtime.onMessage.addListener((message, sender) => {
     if (sender.id !== browser.runtime.id) return undefined;
+    if (message?.type === 'vp.rankland.snapshot') return Promise.resolve(scoreSnapshot(message.sessionId, message.expectedUrl));
     if (message?.type === 'vp.rankland.ready') return Promise.resolve(readiness(message.expectedUrl, message.sessionId));
     if (message?.type === 'vp.rankland.prepare') {
       if (busy) return Promise.resolve({ready: false, reason: 'DELIVERY_BUSY'});

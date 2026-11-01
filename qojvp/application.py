@@ -18,9 +18,10 @@ import uuid
 
 from bs4 import BeautifulSoup
 
+from . import __version__
 from .account import current_account
 from .history import detail_verdict, parse_history, submission_time_metadata
-from .inline_samples import statement_sample_files
+from .inline_samples import statement_language_paths, statement_page_path, statement_sample_files
 from .ledger import Ledger
 from .resources import ResourceCache, ResourceError, problem_id
 from .transport import BASE, BrowserSession, MAX_SOURCE_BYTES
@@ -111,7 +112,7 @@ class Application:
             raise ApplicationError('VALIDATION_ERROR', 'Task arguments must be an object')
         try:
             if method == 'hello':
-                return {'version': '0.1.0', 'capabilities': ['qoj', 'sessions', 'samples', 'resource-cache', 'submission-history', 'rankland-outbox'],
+                return {'version': __version__, 'capabilities': ['qoj', 'sessions', 'samples', 'resource-cache', 'submission-history', 'rankland-outbox'],
                         'helperPid': os.getpid(), 'stateDir': str(self.ledger.directory), 'fixture': bool(self.fixture_origin)}
             if method == 'create_session':
                 return self.create_session(args)
@@ -195,6 +196,33 @@ class Application:
         return ApplicationError(code, message)
 
     @staticmethod
+    def statement_resource_files(contest, problem, client):
+        response = client.get(f"/contest/{contest['id']}/problem/{problem['id']}")
+
+        def extract(page):
+            if urlparse(page.url).path.startswith('/login'):
+                raise ApplicationError('LOGIN_REQUIRED', 'The QOJ session expired while reading statement samples')
+            if statement_page_path(page.url, contest['id'], problem['id']) is None:
+                raise ApplicationError('SAMPLES_UNAVAILABLE', 'The statement response does not belong to the requested problem')
+            return statement_sample_files(page.text) if page.status_code == 200 else {}
+
+        files = extract(response)
+        if files:
+            return files
+        paths = statement_language_paths(response.text, response.url, contest['id'], problem['id'])
+        visited = {urlparse(response.url).path}
+        for path in paths:
+            if path in visited:
+                continue
+            visited.add(path)
+            response = client.get(path, allow_404=True)
+            files = extract(response)
+            visited.add(urlparse(response.url).path)
+            if files:
+                return files
+        return {}
+
+    @staticmethod
     def extract_resource(contest, problem, client, modules, transport, *, interactive_hint=False):
         if not isinstance(interactive_hint, bool):
             raise ValueError('interactiveHint must be a boolean')
@@ -211,10 +239,7 @@ class Application:
                 raise ApplicationError('SAMPLES_UNAVAILABLE', 'The attachment response is empty or is not a verified resource')
         if (not interactive_hint and not samples and not extras and attachment_response is not None
                 and attachment_response.status_code == 404):
-            response = client.get(f"/contest/{contest['id']}/problem/{problem['id']}")
-            if urlparse(response.url).path.startswith('/login'):
-                raise ApplicationError('LOGIN_REQUIRED', 'The QOJ session expired while reading statement samples')
-            raw_files = statement_sample_files(response.text)
+            raw_files = Application.statement_resource_files(contest, problem, client)
             if raw_files:
                 organized, special, count, pairs = modules[1].organize(raw_files)
                 if not special and count > 0 and count == pairs:

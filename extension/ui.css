@@ -1,5 +1,8 @@
 /* QOJ VP adaptations to DOMjudge 9.0.1; GPL-2.0-or-later. */
-.vp-session-select { max-width: 18rem; }
+#navbarDropdownContests { white-space: nowrap; }
+.vp-contest-label { display: inline-block; max-width: 18rem; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+#session-select { max-width: min(30rem, calc(100vw - 1.5rem)); }
+#session-select .dropdown-item { white-space: normal; overflow-wrap: anywhere; }
 .vp-clock { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .vp-progress { height: 10px; margin-top: -16px; }
 .vp-progress .progress-bar { width: 0; }
@@ -12,11 +15,10 @@
 .data-table tr:hover { background: #ffffcc !important; }
 .data-table .vp-reconcile { padding: 1px 5px; font-size: .8rem; }
 .vp-pending-label { color: #6c757d; }
-.vp-download-note { overflow-wrap: anywhere; }
 .modal [aria-busy="true"] { cursor: progress; }
 [hidden] { display: none !important; }
 @media (max-width: 767.98px) {
-  .vp-session-select { max-width: none; margin-top: .5rem; margin-bottom: .5rem; }
+  .vp-contest-label { max-width: calc(100vw - 5rem); }
   #menuDefault > .me-3 { margin-top: .5rem; }
   .vp-clock { margin-top: .5rem; }
 }

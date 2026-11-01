@@ -17,6 +17,65 @@
       try { return ranklandIdentity(item.url) === identity; } catch (_) { return false; }
     });
   }
+  const readingRanklandScores = new Map();
+  function validRanklandScore(snapshot, session) {
+    try {
+      const nonnegative = value => Number.isSafeInteger(value) && value >= 0;
+      const rank = value => value === null || (Number.isSafeInteger(value) && value > 0);
+      return snapshot?.version === 1 && snapshot.sessionId === session.sessionId &&
+        new URL(session.ranklandUrl).searchParams.get("run") === session.sessionId &&
+        snapshot.identity === ranklandIdentity(session.ranklandUrl) && ranklandIdentity(snapshot.url) === snapshot.identity &&
+        typeof snapshot.ownName === "string" && snapshot.ownName.length > 0 && snapshot.ownName.length <= 200 &&
+        typeof snapshot.targetKey === "string" && snapshot.targetKey.length > 0 && snapshot.targetKey.length <= 4096 &&
+        rank(snapshot.rank) && nonnegative(snapshot.score) && (snapshot.penaltyMinutes === null || nonnegative(snapshot.penaltyMinutes)) &&
+        Array.isArray(snapshot.ranks) && snapshot.ranks.length > 0 && snapshot.ranks.length <= 12 &&
+        snapshot.ranks.every(item => typeof item.label === "string" && item.label.length <= 80 && rank(item.value)) &&
+        Number.isFinite(snapshot.elapsedMs) && snapshot.elapsedMs >= 0 && typeof snapshot.running === "boolean" &&
+        Number.isSafeInteger(snapshot.observedAt) && snapshot.observedAt > 0 && snapshot.observedAt <= Date.now() + 5000;
+    } catch (_) { return false; }
+  }
+  async function readRanklandScore(session) {
+    const url = session.ranklandUrl || null;
+    if (!url) return {state: "not_configured", snapshot: null, url};
+    const key = "rankland-score-v1:" + session.sessionId + ":" + ranklandIdentity(url);
+    const saved = (await browser.storage.local.get(key))[key];
+    const cached = validRanklandScore(saved, session) ? saved : null;
+    const fallback = (reason, state = "unavailable") => ({state: cached ? "cached" : state, snapshot: cached, reason, url});
+    const tabs = await matchingRanklandTabs(url);
+    if (!tabs.length) return fallback("TAB_CLOSED");
+    if (tabs.length !== 1) return fallback("MULTIPLE_TABS", "attention");
+    let deadline;
+    try {
+      const query = async () => {
+        const message = {type: "vp.rankland.snapshot", sessionId: session.sessionId, expectedUrl: url};
+        try { return await browser.tabs.sendMessage(tabs[0].id, message); }
+        catch (_) {
+          const frames = await browser.scripting.executeScript({target: {tabId: tabs[0].id}, files: ["rankland-content.js"]});
+          if (frames.some(frame => frame.error)) throw new Error("BRIDGE_UNAVAILABLE");
+          return browser.tabs.sendMessage(tabs[0].id, message);
+        }
+      };
+      const result = await Promise.race([query(), new Promise((_, reject) => {
+        deadline = setTimeout(() => reject(new Error("BRIDGE_UNAVAILABLE")), 3000);
+      })]);
+      if (!result?.ready) return fallback(result?.reason || "PAGE_NOT_READY");
+      if (!validRanklandScore(result.snapshot, session) || Date.now() - result.snapshot.observedAt > 15000) return fallback("SNAPSHOT_MISMATCH");
+      const {version, sessionId, identity, targetKey, ownName, rank, ranks, score, penaltyMinutes, elapsedMs, running, observedAt} = result.snapshot;
+      const snapshot = {version, sessionId, url, identity, targetKey, ownName, rank, ranks, score, penaltyMinutes, elapsedMs, running, observedAt};
+      await browser.storage.local.set({[key]: snapshot});
+      return {state: "live", snapshot, url};
+    } catch (_) { return fallback("BRIDGE_UNAVAILABLE"); }
+    finally { clearTimeout(deadline); }
+  }
+  async function ranklandScore(sessionId) {
+    const session = await native("inspect_session", {sessionId});
+    const key = JSON.stringify([sessionId, session.ranklandUrl || null]);
+    if (!readingRanklandScores.has(key)) {
+      const task = readRanklandScore(session).finally(() => readingRanklandScores.delete(key));
+      readingRanklandScores.set(key, task);
+    }
+    return readingRanklandScores.get(key);
+  }
   function native(method, args = {}) {
     return new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
@@ -258,12 +317,12 @@
       message: attention || (count ? `已将 ${count} 条判定同步至原站。` : "已确认的判定均已同步。")};
   }
   const synchronizing = new Map();
-  let htmlPdfBusy = false;
   function exclusiveSync(id, open = false) {
     if (!synchronizing.has(id)) synchronizing.set(id, sync(id, open).finally(() => synchronizing.delete(id)));
     return synchronizing.get(id);
   }
   async function dispatch(method, args) {
+    if (method === "rankland.snapshot") return ranklandScore(args.sessionId);
     if (method === "rankland.open") {
       const session = await native("prepare_rankland", args);
       const tab = await ranklandTab(session, true);
@@ -271,63 +330,6 @@
       return {tabId: tab.id, url: session.ranklandUrl};
     }
     if (method === "rankland.sync") return exclusiveSync(args.sessionId, true);
-    if (method === "problem.pdf") {
-      const form = await native("qoj_problem_form", args);
-      const candidate = form.pdfCandidates?.[0];
-      const url = typeof candidate === "string" ? candidate : candidate?.url;
-      if (url) { await browser.tabs.create({url}); return {method: "original-pdf", url}; }
-      if (htmlPdfBusy) throw new Error("请先完成当前题面的 PDF 保存。");
-      htmlPdfBusy = true;
-      const requestId = crypto.randomUUID();
-      let tab, prepared = false, stylesInserted = false, cssRemoved = false, cleanup = null, result = null;
-      try {
-        tab = await browser.tabs.create({url: form.statementUrl, active: true});
-        for (let n = 0; n < 100 && (await browser.tabs.get(tab.id)).status !== "complete"; n++) await VpTransport.pause(100);
-        const assertPrintTab = async () => {
-          const loaded = await browser.tabs.get(tab.id);
-          const active = (await browser.tabs.query({active: true, currentWindow: true}))[0];
-          if (loaded.status !== "complete" || new URL(loaded.url).origin !== new URL(form.statementUrl).origin ||
-              !new URL(loaded.url).pathname.startsWith(new URL(form.statementUrl).pathname)) throw new Error("题面尚未加载完成，未导出 PDF。");
-          if (active?.id !== tab.id) throw new Error("请保持新打开的题面页处于当前标签，再重新导出 PDF。");
-        };
-        await assertPrintTab();
-        if (typeof browser.tabs.saveAsPDF !== "function") throw new Error("当前 Firefox 不支持题面 PDF 导出。");
-        const frames = await browser.scripting.executeScript({target: {tabId: tab.id}, files: ["pdf-content.js"]});
-        if (frames.some(frame => frame.error)) throw new Error("题面打印准备未能加载，未导出 PDF。");
-        await browser.scripting.insertCSS({target: {tabId: tab.id}, files: ["pdf-print.css"], origin: "USER"});
-        stylesInserted = true;
-        const isolation = await browser.tabs.sendMessage(tab.id, {type: "vp.pdf.prepare", requestId,
-          expectedUrl: form.statementUrl, problemLabel: form.problemLabel, problemName: form.problemName, stylesheetReady: true});
-        if (!isolation?.ok) throw new Error("无法唯一识别题面正文，未导出 PDF。");
-        prepared = true;
-        await assertPrintTab();
-        const status = await browser.tabs.saveAsPDF({headerLeft: "", headerCenter: "", headerRight: "",
-          footerLeft: "", footerCenter: "", footerRight: ""});
-        result = {method: "firefox-save-as-pdf", status, isolation};
-        return result;
-      } finally {
-        try {
-          if (tab) cleanup = await browser.tabs.sendMessage(tab.id, {type: "vp.pdf.restore", requestId});
-        } catch (_) { /* A closed or navigated dedicated tab has discarded the prepared document. */ }
-        if (stylesInserted) {
-          try {
-            await browser.scripting.removeCSS({target: {tabId: tab.id}, files: ["pdf-print.css"], origin: "USER"});
-            cssRemoved = true;
-          } catch (_) { /* Closed/navigated documents have no retained print CSS. */ }
-        }
-        htmlPdfBusy = false;
-        if (prepared && (!cleanup?.ok || !cssRemoved)) {
-          let remains = false;
-          try {
-            const current = await browser.tabs.get(tab.id);
-            remains = new URL(current.url).origin === new URL(form.statementUrl).origin &&
-              new URL(current.url).pathname.startsWith(new URL(form.statementUrl).pathname);
-          } catch (_) { /* The dedicated tab has closed. */ }
-          if (remains) throw new Error("题面打印清理未获确认，请关闭新开的题面页。");
-        }
-        if (result && cleanup) result.cleanup = {...cleanup, printStylesheetRemoved: cssRemoved};
-      }
-    }
     if (!methods.has(method)) throw new Error("UNKNOWN_METHOD");
     const result = await native(method, args);
     if (["create_session", "start_session", "archive_session", "update_session"].includes(method)) {

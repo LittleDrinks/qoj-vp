@@ -240,7 +240,8 @@ def run_ui_probe(driver, output_dir, source_path, rankland_url, *, get_post_coun
         _require(urlsplit(rankland_url).scheme == "https" and urlsplit(rankland_url).hostname == "vp.xcpc.link",
                  "Use the actual RankLand origin and a dedicated test run")
 
-        _click(driver, "new-session")
+        _click(driver, "nav-home")
+        _click(driver, "new-session" if driver.find_element(By.ID, "new-session").is_displayed() else "empty-new-session")
         _modal_visible(driver, "session-modal")
         _fill(driver, "contest-input", "3387")
         _click(driver, "load-contest")
@@ -277,10 +278,10 @@ def run_ui_probe(driver, output_dir, source_path, rankland_url, *, get_post_coun
         for card in cards:
             label = card.find_element(By.CSS_SELECTOR, ".problem-badge").text
             _require(card.find_element(By.CSS_SELECTOR, "[data-submit-problem]").is_enabled(), "Per-problem Submit is disabled")
-            _require(card.find_element(By.CSS_SELECTOR, "[data-pdf-problem]").is_displayed(), "Per-problem PDF action missing")
+            _require(card.find_element(By.CSS_SELECTOR, "[data-statement-problem]").is_displayed(), "Per-problem statement link missing")
             _require(card.find_element(By.CSS_SELECTOR, "[data-samples-problem]").is_displayed(), "Per-problem samples action missing")
             _require(card.find_element(By.CSS_SELECTOR, "a[href*='/contest/3387/problem/']").is_displayed(), "Original statement link missing")
-            card_evidence.append({"label": label, "actions": ["Submit", "statement (PDF)", "samples"]})
+            card_evidence.append({"label": label, "actions": ["Submit", "statement (QOJ link)", "samples"]})
         _record(report, "problemset_per_problem_actions", card_evidence)
         _screenshot(driver, output, "problemset", report)
 
@@ -467,7 +468,8 @@ def run_unknown_ui_probe(driver, output_dir, source_path, rankland_url, *, get_p
         if get_post_count is not None:
             _require(get_post_count() == 0, "Unknown receipt acceptance requires a fresh zero-POST fixture")
 
-        _click(driver, "new-session")
+        _click(driver, "nav-home")
+        _click(driver, "new-session" if driver.find_element(By.ID, "new-session").is_displayed() else "empty-new-session")
         _modal_visible(driver, "session-modal")
         _fill(driver, "contest-input", "3387")
         _click(driver, "load-contest")

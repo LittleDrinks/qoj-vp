@@ -1,8 +1,9 @@
 # MVP implementation contract
 
-2026-11-01. QOJ only; no CF/Gym or custom scoreboard. This file describes interfaces,
-not an all-green acceptance claim. Current verified/pending status is in
-MVP_RESULT.md and ACTIVE_WORK.md.
+2026-11-01, 0.2.0 follow-up in progress. QOJ only; no CF/Gym or custom scoreboard.
+This file describes interfaces, not an all-green acceptance claim. Current
+verified/pending status is in ACTIVE_WORK.md; MVP_RESULT.md is the dated 0.1.0
+record, including the now-retired PDF export behavior.
 
 ## Ownership and layout
 
@@ -41,7 +42,29 @@ absolute date and the reconciliation/details entry stays available. Remaining
 history is accessible through the original-site history link. A prepared session
 without current/local operations keeps the original No submissions state.
 
-Additional browser methods root provides: `rankland.open {sessionId}` (restore exact original-site URL), `rankland.sync {sessionId}`, `problem.pdf {sessionId,problemId}` (prefer original PDF; HTML invokes Firefox's save-as-PDF flow). UI never labels a missing attachment as an existing PDF.
+Additional browser methods: `rankland.open {sessionId}` restores the exact
+original-site URL; `rankland.sync {sessionId}` delivers confirmed judgements.
+`rankland.snapshot {sessionId}` returns `{state,snapshot,reason?,url}` with state
+`live`, `cached`, `unavailable`, `not_configured`, or `attention`.
+
+A non-null snapshot contains `{version:1,sessionId,url,identity,targetKey,ownName,
+rank,ranks,score,penaltyMinutes,elapsedMs,running,observedAt}`. It is read from the
+unique visible own-team row of the original RankLand table, with exact
+contest/run/rule/clock identity checks. An unranked team has `rank:null`;
+unavailable penalty remains null. No synthetic ranking or penalty is inferred.
+The validated snapshot is persisted in extension storage by session and board
+identity. A closed, ambiguous or not-ready page returns an explicitly cached
+snapshot if available; it must not refresh `observedAt` on a cache hit.
+
+While the workbench is visible, a 10-second timer refreshes this read-only
+snapshot; showing the workbench again also refreshes it. Home uses the original
+board's rank, score and penalty, displaying cached observation time explicitly.
+Without a snapshot, rank/penalty stay unknown and the local confirmed solve count
+remains available. This read path never joins a team or inserts a submission.
+
+Problemset statement is a normal QOJ problem link opened in a new tab. There is
+no `problem.pdf` operation or automatic Firefox PDF export in 0.2.0. The navigation
+uses the original DOMjudge 9.0.1 trophy dropdown; New contest remains on Home.
 
 Scoreboard identity includes origin, contest, run, rule, count, ratio, at and from. Opening is serialized. Automatic delivery stops when more than one tab can write the same original-site storage slot; the user keeps one before continuing. Acknowledgements are scoped to both source submission and destination, and rejudging an already delivered result requires review.
 
@@ -130,19 +153,22 @@ RankLand recovery. Resource browser acceptance distinguishes offline file reads
 from whole-page offline bootstrap. Official 9.0.1 server-rendered snapshots and
 original assets are replayed in the same Firefox for computed-style/field/modal
 comparison; this does not claim a live VM DOMjudge backend or full-page pixel
-equality. Current core visual regression passed 27 checks plus five cleanup
-checks. Home is captured separately, not certified for parity: its Contest
-controls adapt the original Clarifications area.
+equality. Home is captured separately, not certified for parity: its Contest
+controls adapt the original Clarifications area. The 0.2.0 navigation and snapshot
+changes require fresh regression results; earlier counts are historical evidence.
 
 The one real QOJ source POST is submission 3331061, now AC and explicitly linked
 through normal reconciliation UI. Do not send another real source POST or create
-an official VP to finish acceptance. Real RankLand delivery/reopen, C statement
-PDF/samples and Changchun preparation entry/I (22918) attachment checks have now
-passed; see MVP_RESULT.md for their distinct evidence. The earlier D PDF tool
-observation is not the verified attachment case. Real old native submission
+an official VP to finish acceptance. The earlier RankLand delivery/reopen,
+C samples and Changchun preparation entry/I (22918) attachment checks are recorded
+in MVP_RESULT.md. Its PDF evidence describes the retired 0.1.0 export implementation;
+it is not the current statement behavior. Real old native submission
 1511772 also obtained a verified absolute timestamp through production refresh;
 the current queue still contains only 3331061, synced. The original real receipt
 loss remains unexplained; no later real source POST re-tested automatic receipt.
-Python 63 and Node 28 tests pass. Temporary product diagnostics were removed;
-XPI/wheel are built and byte-verified. Final captures/source inventory, source
-archive, delivery copies and local commit are still being finalized.
+The current GitHub CI tests and packages XPI/wheel/source without user state.
+Hydro Firefox CI requires a separately provisioned, registered runner and explicit
+enablement; it has not yet run on a dedicated CI VM. See CI.md. Temporary Firefox
+installation ends at browser restart; AMO unlisted signing for normal persistent
+installation is planned, with no signing credentials configured and no global
+signature preference changes.

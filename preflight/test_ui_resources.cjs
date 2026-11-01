@@ -36,13 +36,13 @@ const state = {session: {sessionId: "session-1", account: "LittleDrinks", contes
   resources: new Map(), resourceActivity: new Map(), resourceInteractive: new Map(), resourceDownloads: new Set(), resourceJob: null,
   resourcesLoaded: false, resourceManifestError: "", resourceSummary: "", resourceReadSequence: 0, resourceMutation: 0};
 let calls = [], downloads = [], modalShows = 0, handler;
-const context = {state, crypto: webcrypto, Blob, atob, MAX_RESOURCE_BYTES: 67108864, RESOURCE_CHUNK_BYTES: 262144,
+const context = {state, crypto: webcrypto, Blob, atob, URL, MAX_RESOURCE_BYTES: 67108864, RESOURCE_CHUNK_BYTES: 262144,
   document: {createElement: tag => new Element(tag)},
   $: id => ids[id] || Object.values(ids).flatMap(walk).find(element => element.id === id),
   current: (sessionId, generation) => state.session.sessionId === sessionId && state.generation === generation,
   problemById: id => state.contest.problems.find(problem => problem.id === String(id)), contestName: contest => contest.name,
-  cardSubmit: () => new Element("a"), problemUrl: problem => "https://qoj.ac/problem/" + problem.id,
-  regularClick: () => true, downloadPdf: () => {}, humanReadableBytes: bytes => bytes + " B",
+  cardSubmit: () => new Element("a"),
+  regularClick: () => true, humanReadableBytes: bytes => bytes + " B",
   showMessage: (target, message) => {target.textContent = message; target.classList.remove("d-none");},
   hideMessage: target => {target.textContent = ""; target.classList.add("d-none");}, message: error => error.message,
   modals: {resources: {show: () => modalShows++}},
@@ -50,7 +50,7 @@ const context = {state, crypto: webcrypto, Blob, atob, MAX_RESOURCE_BYTES: 67108
   saveBlob: (blob, filename) => downloads.push({blob, filename}),
 };
 vm.createContext(context);
-for (const [begin, end] of [["  function node(", "  function showMessage("], ["  function actionBusy(", "  function regularClick("], ["  function badge(", "  function contestName("], ["  function renderProblems(", "  function isProblemsRoute("], ["  function interactiveResource(", "  function saveBlob("]]) {
+for (const [begin, end] of [["  function node(", "  function showMessage("], ["  function actionBusy(", "  function regularClick("], ["  function safeQojUrl(", "  function badge("], ["  function badge(", "  function contestName("], ["  function renderProblems(", "  function isProblemsRoute("], ["  function interactiveResource(", "  function saveBlob("]]) {
   vm.runInContext(source.slice(source.indexOf(begin), source.indexOf(end)), context);
 }
 function reset() {
@@ -67,6 +67,19 @@ async function download() { await context.downloadResource(state.contest.problem
 const results = [];
 async function check(name, test) { reset(); await test(); results.push(name); }
 (async () => {
+  await check("statement links open their QOJ problem without a native task or busy handler", async () => {
+    context.renderProblems();
+    const links = walk(ids["problems-list"]).filter(element => element.dataset.statementProblem);
+    assert.equal(links.length, 3);
+    for (const link of links) {
+      assert.equal(link.href, "https://qoj.ac/contest/1051/problem/" + link.dataset.statementProblem);
+      assert.equal(link.target, "_blank");
+      assert.equal(link.rel, "noopener noreferrer");
+      assert.equal(link.listeners.click, undefined);
+      assert.equal(link.getAttribute("aria-disabled"), null);
+    }
+    assert.equal(calls.length, 0);
+  });
   await check("pending manifest disables real preparation and clears only after read", async () => {
     let resolve;
     handler = method => { assert.equal(method, "resource_manifest"); return new Promise(done => resolve = done); };

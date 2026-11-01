@@ -1,10 +1,29 @@
 # 当前工作状态
 
-更新：2026-11-01（Asia/Shanghai）。本阶段实现和验收已完成：VMware Firefox 中的 QOJ
-提交、题目资源、原版 RankLand 联动和 DOMjudge 9.0.1 参考回归。CF/Gym 不接入。
-以下是当前状态；历史失败与旧 checkpoint 留在各自 artifacts 中，不作为当前结论。
+更新：2026-11-01（Asia/Shanghai）。**0.2.0 后续修复进行中**，本轮源码改动尚需完成
+虚拟机回归、打包、部署和 GitHub Actions 实跑。CF/Gym 不接入。
 
-## 已验证
+## 本轮改动与待验证项
+
+- RankLand 本队名次、得分、罚时从原站已显示的队伍行只读回填；工作台可见时每
+  10 秒刷新。快照按准确比赛/run 身份缓存，保留 `observedAt`；关榜单或读取失败时
+  明确显示上次同步时间，不能把缓存称为实时数据。原站回填与关闭后缓存待本轮 VM 核验。
+- 按用户最新选择，statement 改成新标签直接打开 QOJ 原题面；移除自动 PDF 导出。
+  下文旧 PDF 引擎/文件验证属于 0.1.0 历史，不再代表当前产品功能。
+- 右上角换成官方 DOMjudge 9.0.1 奖杯下拉菜单，New contest 留在 Home；需要重新
+  验证实际 Firefox 的菜单操作与样式，不复用旧包的视觉结论。
+- 临时扩展重启后被 Firefox 移除；可重新载入同一扩展恢复工作台入口，助手账本保留。
+  长期安装拟使用 AMO unlisted 签名，目前没有配置凭据或上传，也不改全局签名检查设置。
+- 私有仓库已创建：[LittleDrinks/qoj-vp](https://github.com/LittleDrinks/qoj-vp)，
+  当前尚未推送本轮源码。GitHub 自动测试/打包配置已写，首次云端运行待推送后验证。
+  专用 Hydro CI VM 尚未创建、注册；手动工作流在注册并启用前明确报未配置。
+- 西安 A 题真实 HTML 的成对样例已核对；后端语言回退适配在补充测试，不能提前写成
+  资源全套下载已重新通过。本轮不沿用旧版的 63/28 测试计数。
+
+当前范围、接口与安装说明见 [MVP_CONTRACT.md](MVP_CONTRACT.md)、[CI.md](CI.md)。
+下列内容保留为 **0.1.0 / daddc97 的历史交付记录**；不是 0.2.0 完成证明。
+
+## 0.1.0 已验证
 
 - Python 完整测试 63 项通过：`artifacts/backend-final-tests.txt`。六个前端脚本由
   Node 测试运行器报告 28 项通过、0 失败：`artifacts/frontend-final-tests.txt`；
@@ -57,15 +76,15 @@
   含 LICENSE，标准 isolated build 成功。大小、SHA 见 `artifacts/extension-package-final.json`
   与 `artifacts/wheel-package-final.json`。
 
-## 交付清单
+## 0.1.0 交付清单
 
 产物位于 `dist/`；共享交付目录为 `E:\shared\qoj-vp-mvp-release`。
 完整源码包、文件哈希、部署读回及本地 commit 由 `artifacts/release-final.json` 记录，
 以该清单的最终状态为准。
 
-## 当前部署与操作边界
+## 旧版部署记录与持续操作边界
 
-- 当前 XPI SHA-256：`b4b8043403aa06efdd38552deb3b578dd2eaeaba3402f89e7d2150f3b762e0c6`。
+- 0.1.0 XPI SHA-256：`b4b8043403aa06efdd38552deb3b578dd2eaeaba3402f89e7d2150f3b762e0c6`。
   wheel SHA-256：`1772e0874062d8b44b06d9380f68a7adf256cb8f3301c09bf817b48607588001`。
   XPI 未签名，Firefox 临时加载在重启后仍需重新载入。
 - 代码与证据：`/home/q2635/wsl-workspace/qoj-vp`。
@@ -81,4 +100,4 @@
   不把真实 profile、凭据、Cookie、CSRF 值写入报告或发布包。
 
 验收详情见 [MVP_RESULT.md](MVP_RESULT.md)，协议见 [MVP_CONTRACT.md](MVP_CONTRACT.md)。
-工作区证据不包含账号凭据；实际最终交付状态以发布清单为准。
+工作区证据不包含账号凭据；旧发布清单只能证明对应版本，不能代替本轮部署读回。

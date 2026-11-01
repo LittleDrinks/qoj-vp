@@ -2,14 +2,44 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
+
+
+def statement_page_path(url, contest_id, problem_id):
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    prefix = f'/contest/{contest_id}/problem/{problem_id}'
+    if (parsed.scheme != 'https' or parsed.netloc != 'qoj.ac' or parsed.username or parsed.password
+            or parsed.query or parsed.fragment or parsed.params
+            or not re.fullmatch(re.escape(prefix) + r'(?:/statement/[A-Za-z][A-Za-z0-9_-]{0,31})?/?', parsed.path)):
+        return None
+    return parsed.path
+
+
+def statement_language_paths(html, current_url, contest_id, problem_id):
+    current_path = statement_page_path(current_url, contest_id, problem_id)
+    if current_path is None:
+        return []
+    paths = []
+    for link in BeautifulSoup(html, 'html.parser').select('a[href]'):
+        try:
+            candidate = statement_page_path(urljoin(current_url, link['href']), contest_id, problem_id)
+        except ValueError:
+            continue
+        if candidate and '/statement/' in candidate and candidate != current_path and candidate not in paths:
+            paths.append(candidate)
+    priorities = {'zh_cn': 0, 'zh': 1, 'en': 2, 'default': 3}
+    return sorted(paths, key=lambda path: priorities.get(path.rstrip('/').rsplit('/', 1)[-1].casefold(), 4))[:3]
 
 
 def statement_sample_files(html):
     """Return raw .in/.ans pairs suitable for upstream samples.organize.
 
-    Live QOJ 1051/C exposes one active tab's article, an H2 or H3 样例 section,
+    Live QOJ 1051/A and C expose one active tab's article, an H2 or H3 样例 section,
     numbered H4 输入/输出 labels and adjacent plain-text PRE elements. Text in
     source snippets, explanations, inactive tabs and unrelated PREs is not data.
     Ambiguous, empty or incomplete sections are deliberately not guessed.

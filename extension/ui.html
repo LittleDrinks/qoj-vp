@@ -24,8 +24,12 @@
           <li class="nav-item"><a id="nav-scoreboard" class="nav-link" aria-disabled="true"><i class="fas fa-list-ol" aria-hidden="true"></i> Scoreboard</a></li>
         </ul>
         <div class="ml-auto me-3"><a id="open-submit" class="nav-link" aria-disabled="true" tabindex="-1"><span class="btn btn-success btn-sm disabled" disabled><i class="fas fa-cloud-upload-alt" aria-hidden="true"></i> Submit</span></a></div>
-        <div class="vp-session-select me-3"><label class="visually-hidden" for="session-select">Contest</label><select id="session-select" class="form-select form-select-sm" disabled><option value="">No contest</option></select></div>
-        <button id="new-session" class="btn btn-outline-light btn-sm me-3" type="button" disabled><i class="fas fa-plus" aria-hidden="true"></i> New contest</button>
+        <ul class="navbar-nav">
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle disabled" href="#" id="navbarDropdownContests" role="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false" aria-disabled="true" tabindex="-1"><i class="fas fa-trophy" aria-hidden="true"></i> <span id="session-label" class="vp-contest-label">no contest</span></a>
+            <div id="session-select" class="dropdown-menu scrollable-menu" aria-labelledby="navbarDropdownContests" data-current-contest=""><a class="dropdown-item disabled" href="#" tabindex="-1" aria-disabled="true">Change Contest</a></div>
+          </li>
+        </ul>
         <div class="navbar-text vp-clock"><i class="fas fa-clock" aria-hidden="true"></i> <span id="timeleft">no contest</span></div>
       </div>
     </div>
@@ -77,6 +81,7 @@
               <button id="archive-session" class="btn btn-outline-secondary btn-sm" type="button">归档</button>
               <button id="open-scoreboard" class="btn btn-secondary btn-sm" type="button"><i class="fas fa-list-ol" aria-hidden="true"></i> 打开榜单</button>
               <button id="sync-scoreboard" class="btn btn-outline-secondary btn-sm" type="button"><i class="fas fa-sync-alt" aria-hidden="true"></i> 同步榜单</button>
+              <button id="new-session" class="btn btn-outline-secondary btn-sm" type="button" disabled><i class="fas fa-plus" aria-hidden="true"></i> New contest</button>
             </div>
             <p id="rankland-status" class="small text-muted mt-2" role="status" aria-live="polite"></p>
           </aside>

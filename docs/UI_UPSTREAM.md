@@ -14,9 +14,10 @@ Source byte/Git-blob verification is in `preflight/domjudge-reference/source-man
 | --- | --- |
 | `templates/base.html.twig` | Local CSS/script ordering and container structure in `ui.html`; dynamic server routes become extension actions. |
 | `templates/team/menu.html.twig` | Dark fixed navbar, Home/Problemset/Scoreboard navigation, literal `a.nav-link > span.btn.btn-success.btn-sm` Submit control and countdown. Out-of-scope menu items omitted. |
+| `templates/partials/menu_change_contest.html.twig` | Original trophy `a.nav-link.dropdown-toggle`, `dropdown-menu scrollable-menu`, and Change Contest row. The current session appears in the toggle; other saved sessions, including archived ones, appear as links. New contest lives in the Home controls and empty state. Long QOJ titles truncate in the navbar, retaining the full title and accessible name. |
 | `templates/team/partials/index_content.html.twig` | Top team's progress, teamoverview heading and submissions region. Clarifications are omitted; the right column contains VP controls. |
 | `templates/team/partials/submission_list.html.twig` | `data-table table table-hover table-striped table-sm` and time/problem/lang/result columns. Added QOJ receipt link and explicit unknown-outcome reconciliation. |
-| `templates/partials/problem_list.html.twig` | Actual responsive card grid, badge/title/card-subtitle and ordinary-flow layout. Submit retains literal `a.justify-content-center > span.btn.btn-success`; statement/samples remain the original two secondary anchors. Ordinary statement click opens/downloads the PDF; modifier/middle-click retains the raw QOJ link. Unknown time/memory/type metadata is omitted instead of invented. |
+| `templates/partials/problem_list.html.twig` | Actual responsive card grid, badge/title/card-subtitle and ordinary-flow layout. Submit retains literal `a.justify-content-center > span.btn.btn-success`; statement/samples remain secondary anchors. The statement control is an ordinary QOJ problem link with a document icon, opening a new tab without a native-helper or printing operation. Unknown time/memory/type metadata is omitted instead of invented. |
 | `templates/team/submit_modal.html.twig` | Original `h5.modal-title`, single source-file input, form row classes, file size/mtime `alert` without a gray background, Cancel/Submit. Per-problem modal hides the selected Problem row and uses the actual problem name in its title. QOJ does not expose entry-point input, which remains hidden. |
 | `templates/team/partials/submit_scripts.html.twig` | File-basename problem detection only while autodetect is selected, selectable language, file/problem/language confirmation. No QOJ Java/Kotlin entry-point field is invented. |
 | `public/js/domjudge.js` | `humanReadableTimeDiff` and `humanReadableBytes` adapted with the same interval thresholds. The rest of the server AJAX code is not loaded. |
@@ -24,6 +25,13 @@ Source byte/Git-blob verification is in `preflight/domjudge-reference/source-man
 | `public/style_domjudge.css` | Copied byte-for-byte into `extension/assets/domjudge/style_domjudge.css`. |
 
 Twig is a server template language. `ui.html` and `ui.js` retain the listed DOM structure and classes but replace Twig loops/routes/filters with DOM updates and native-helper requests. No PHP/Twig runtime is packaged. `ui.css` contains the small VP-specific additions; the upstream stylesheet remains unchanged.
+
+The Home row reads the original RankLand team's primary rank, score and penalty
+every ten seconds while the workbench is visible. Per-problem cells retain QOJ's
+confirmed submissions. A closed or unavailable scoreboard can supply a saved
+snapshot, clearly labeled with its original observation time; unknown rank or
+penalty remains a dash. Session changes and replay URL changes invalidate the
+previous snapshot. The read-only score request does not refresh or submit to QOJ.
 
 Language preferences match `qoj-submitter`'s `choose_language` aliases at pinned commit `807ce1be13d67916b2716f8221a10a12731977fe`, including C++20, Python3 and Java21. Only exact normalized available options are inferred; missing/ambiguous variants require a manual selection. The actual selected language is still validated by the backend before submission.
 
@@ -54,7 +62,7 @@ The UI calls the message contract in `MVP_CONTRACT.md`. Additional agreed method
 3. Submit: select the source file; infer exact problem/available language; allow manual overrides; the original DOMjudge-style browser `confirm` shows the chosen file/account/contest/problem/language before sending. Cancel does not send a native submit task.
 4. Confirmed receipts display the provider ID and poll detailed verdicts. The UI updates only the history and progress row, preserving any open file input and selected language.
 5. Uncertain delivery retains a stable operation ID and source digest in extension storage, with no source-code copy. A matching unresolved intent cannot be re-sent by the UI. The backend ledger remains the authority and independently prevents duplicate POSTs.
-6. RankLand opens the durable exact original-site URL stored with the session. Sync failure does not re-submit source code. Problemset offers the original three controls: Submit, statement (the PDF entry), and each problem's own samples ZIP.
+6. RankLand opens the durable exact original-site URL stored with the session. Sync failure does not re-submit source code. Problemset offers Submit, statement (the original QOJ problem link), and each prepared problem's samples or attachment ZIP.
 
 For submit errors, `LOGIN_REQUIRED`, `ACCOUNT_UNKNOWN`, `ACCOUNT_MISMATCH`, and `SESSION_NOT_RUNNING` are definitive pre-send failures: `Application.submit` raises them before creating the durable send intent and calling `QojClient.submit`. The local UI metadata is marked rejected, allowing a fresh explicit attempt after fixing login/account/session state. Generic `QOJ_ERROR`, `INTERNAL_ERROR`, and transport disconnection remain uncertain. An HTTP 503 outcome also stays unknown and requires explicit reconciliation.
 
@@ -68,7 +76,8 @@ Use the actual VM Firefox to validate:
 - Select `A.cpp` through `#submit_problem_code`, observe inferred problem/language, manually override both, then cancel without a POST.
 - Submit one controlled fixture source through the actual confirm action; verify receipt ID, pending-to-final transition, and that a polling update preserves an independently open selected file.
 - Force an uncertain receipt; refresh/reopen, select the same source, verify that no second POST is emitted. Use the explicit reconciliation dialog for a real matching provider receipt.
-- Problemset per-problem Submit preselection, own samples archive and distinct HTML/original-PDF behavior.
+- Problemset per-problem Submit preselection, own samples archive and an ordinary QOJ statement link.
+- Actual Bootstrap contest dropdown click, Escape, ArrowDown and Enter, with selection and archived entries preserved.
 - Open stored RankLand, close the tab, reopen it and verify the same original-site VP run/progress. Validate sync through original controls, without writing localStorage directly.
 
 For an actual DOMjudge visual/interaction reference, run or obtain a real team session at the fixed upstream version and capture Home, Problemset, and Submit at the same Firefox viewport. Compare those pages with the workbench; a static adaptation rendered by this extension is not an independent real-DOMjudge reference. The reference source alone does not certify pixel equivalence.

@@ -1,5 +1,11 @@
 # PDF statement isolation QA
 
+Historical record only. On 2026-11-01 the user removed PDF export from the
+product scope: Problemset statement controls now link directly to the original
+QOJ problem page. The production PDF scripts and background export handler have
+been removed. The renderer harness below applies to the earlier implementation,
+not the current acceptance suite.
+
 The prior whole-page `saveAsPDF` path can retain navigation link annotations containing credential query parameters. A raw PDF-byte search is insufficient because PDF streams can be compressed. No retained test input here uses real user HTML, cookies or credential values.
 
 ## Candidate boundary

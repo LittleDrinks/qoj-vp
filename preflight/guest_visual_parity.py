@@ -432,10 +432,11 @@ class VisualHarness(MvpHarness):
         def ready():
             nonlocal stable_since, last_signature
             value = self.driver.execute_script('''
-              const s=window.qojVpUi?.getState(),select=document.getElementById('session-select');
+              const s=window.qojVpUi?.getState(),menu=document.getElementById('session-select');
               return {connected:!!s?.connected,selectedSessionId:s?.session?.sessionId||null,
                 problemCount:s?.contest?.problemCount??null,lastError:s?.lastError||null,
-                optionIds:select?[...select.options].map(o=>o.value):[],selectValue:select?.value||null,
+                optionIds:menu?[menu.dataset.currentContest,...menu.querySelectorAll('[data-session-id]')].map(value=>typeof value==='string'?value:value.dataset.sessionId).filter(Boolean):[],
+                selectValue:menu?.dataset.currentContest||null,
                 refreshDisabled:document.getElementById('refresh-submissions')?.disabled??null,
                 refreshStatus:document.getElementById('refresh-status')?.textContent.trim()||''};
             ''')
@@ -458,6 +459,36 @@ class VisualHarness(MvpHarness):
             last_signature = signature
             return None
         return self.wait(ready, 'completed UI initialization, both options and stable provider refresh')
+
+    def contest_navigation(self):
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.common.keys import Keys
+        before = self.driver.execute_script('return window.qojVpUi.getState().session.sessionId;')
+        target = self.prepared_session_id if before == self.running_session_id else self.running_session_id
+        require(not self.driver.find_elements(By.CSS_SELECTOR, 'nav select, nav #new-session'),
+                'The native select or New contest control remains in the navbar')
+        toggle = self.driver.find_element(By.ID, 'navbarDropdownContests')
+        require('nav-link dropdown-toggle' in toggle.get_attribute('class'), 'Contest toggle lost the original navbar classes')
+        toggle.click()
+        self.wait(lambda: toggle.get_attribute('aria-expanded') == 'true', 'normal Bootstrap dropdown click')
+        require(self.driver.find_element(By.CSS_SELECTOR, f'#session-select [data-session-id="{target}"]').is_displayed(),
+                'The alternate session is not visible in the dropdown')
+        require(self.driver.get_screenshot_as_file(str(self.results / 'extension-contest-dropdown.png')),
+                'Could not capture the real contest dropdown')
+        toggle.send_keys(Keys.ESCAPE)
+        self.wait(lambda: toggle.get_attribute('aria-expanded') == 'false', 'Escape dismissing the dropdown')
+        toggle.send_keys(Keys.ARROW_DOWN)
+        self.wait(lambda: self.driver.execute_script('return document.activeElement?.dataset.sessionId;') == target,
+                  'ArrowDown focusing the alternate contest')
+        self.driver.switch_to.active_element.send_keys(Keys.ENTER)
+        self.wait(lambda: self.driver.execute_script('''
+          const s=window.qojVpUi.getState();return s.session?.sessionId===arguments[0]&&s.contest?.problemCount===12;
+        ''', target), 'Enter selecting the alternate contest')
+        self.wait_boot_ready()
+        require(toggle.get_attribute('aria-expanded') == 'false', 'Selecting a contest left the dropdown open')
+        return {'clickOpens': True, 'escapeCloses': True, 'arrowDownFocusesChoice': True,
+                'enterSelects': True, 'previousSessionId': before, 'selectedSessionId': target,
+                'newContestOutsideNavbar': True, 'upstream': 'DOMjudge 9.0.1 menu_change_contest.html.twig'}
 
     def capture_control(self, side, name, visual_selector, trigger_selector=None):
         from selenium.webdriver.common.by import By
@@ -714,6 +745,8 @@ def main():
             h.driver.refresh()
             boot = h.step('ui_bootstrap_finishes_before_one_visual_session_selection', h.wait_boot_ready)
             require(boot is not None, 'The real UI initialization did not complete before visual setup')
+            require(h.step('original_contest_dropdown_click_and_keyboard', h.contest_navigation) is not None,
+                    'The real Bootstrap contest dropdown failed its navigation checks')
             h.select_visual_session(h.running_session_id)
             def resources_rendered():
                 value = h.driver.execute_script('''
@@ -753,7 +786,7 @@ def main():
             h.step('problemset_has_no_home_summary_or_global_success_notice', product_problemset_scope)
             for name, visual, trigger in (
                 ('cardSubmit', '#problems-list .card a.justify-content-center > span.btn-success', '#problems-list .card a.justify-content-center'),
-                ('statement', '#problems-list .card a[data-pdf-problem]', None),
+                ('statement', '#problems-list .card a[data-statement-problem]', None),
                 ('samples', '#problems-list .card a[data-samples-problem]', None),
                 ('navbarSubmit', '#open-submit > span.btn-success', '#open-submit')):
                 h.step('extension_' + name + '_four_states', lambda n=name, v=visual, t=trigger: h.capture_control('extension', n, v, t))
