@@ -93,3 +93,24 @@ regression. The existing optional online RankLand check remains separate.
 
 Both the Firefox extension and the on-demand Python helper must be updated to
 0.3.4; the new helper methods are needed for this synchronization path.
+
+## Signed release
+
+The [0.3.4 release](https://github.com/LittleDrinks/qoj-vp/releases/tag/v0.3.4)
+is published from `db6bfcc6bda8abc9164ce88147a85fc8e2020b99`.
+The [signing workflow](https://github.com/LittleDrinks/qoj-vp/actions/runs/41429095357)
+passed its Python/Node tests, Mozilla lint, AMO unlisted signing and payload
+verification. The downloaded release checksums and Python source match the
+tested files. The signed XPI hash is
+`29a470deab68ac76b00cfb5159554395af1c469a2bbe3a61629a0c1b940a3bcd`.
+
+All release assets were copied to
+`E:\shared\qoj-vp-mvp-release\0.3.4-signed` and read back for checksum verification.
+The normal VMware Firefox profile and its helper were not replaced. This release
+does not claim a new permanent-install/restart test; the prior signing-flow
+installation evidence remains in [0.3.3 release verification](RELEASE_0.3.3.md).
+
+The live `https://vp.xcpc.link/` script was fetched on 2026-11-02 and matched both
+the pinned path and SHA-256 above. This is a script compatibility check, not a
+real-account VP or source-submission test.
+Local delivery proof: `artifacts/release-0.3.4-delivery.json`.

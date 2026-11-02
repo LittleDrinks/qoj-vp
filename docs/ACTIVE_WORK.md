@@ -1,6 +1,6 @@
 # 当前工作状态
 
-更新：2026-11-02（Asia/Shanghai）。**0.3.4 延迟判定同步已通过独立 Hydro Firefox 回归，正在发布签名包；常用 profile 未替换。**
+更新：2026-11-02（Asia/Shanghai）。**0.3.4 延迟判定同步已通过独立 Hydro Firefox 回归，签名版已发布；常用 profile 未替换。**
 
 ## 0.3.4
 
@@ -9,6 +9,8 @@
 - 原版 RankLand version-2 存档在旧回放页面退出后受控更新，保存备份与恢复日志，由原站重算。
 - Python 165、Node 193 项通过，Mozilla lint 0 错误/3 个原有警告。
 - Hydro Firefox 原版 RankLand 的 7 项回归通过，包含关闭已结束榜单后的自动补判；真实源码 POST 为 0。
+- [0.3.4 签名 Release](https://github.com/LittleDrinks/qoj-vp/releases/tag/v0.3.4) 已发布；[CD](https://github.com/LittleDrinks/qoj-vp/actions/runs/41429095357) 成功。签名包与测试文件一致，下载及共享目录读回校验通过。
+- 完整安装包位于 `E:\shared\qoj-vp-mvp-release\0.3.4-signed`，扩展和按需助手需一起升级。
 - 具体行为、兼容限制与验收证据见 [同步修复记录](RANKLAND_SYNC_0.3.4.md)。
 
 ## 0.3.3 发布记录

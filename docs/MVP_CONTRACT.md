@@ -1,6 +1,6 @@
 # MVP implementation contract
 
-2026-11-01, 0.3.0 administration and manual sample interface. QOJ only; no CF/Gym or custom scoreboard.
+2026-11-02, 0.3.4 delayed-result synchronization, administration and manual samples. QOJ only; no CF/Gym or custom scoreboard.
 This file describes interfaces, not an all-green acceptance claim. Current
 verified/pending status is in ACTIVE_WORK.md; MVP_RESULT.md is the dated 0.1.0
 record, including the now-retired PDF export behavior.
@@ -32,6 +32,9 @@ Methods (camelCase JSON fields):
 - `qoj_samples {sessionId,problemLabel}` → `{zipFilename,zipBase64,files,warnings,extraFiles}`. Legacy single-problem CLI method remains; the UI uses the resource cache methods below.
 - `qoj_submit {sessionId,problemId,problemLabel,language,filename,contentsBase64,operationId}` → `{submission,state}`. Confirmed receipt state `confirmed`; uncertain state `unknown` never silently retried. Submission shape below.
 - `qoj_submissions {sessionId,refresh?:true}` → `{submissions:[submission],account,coverage:{complete,pages,warning?}}`. Refresh collects same-account original-site history/detail and persists updates; uncertain outcomes require reconciliation before resubmission.
+- `rankland_plan {sessionId}` → `{sessionId,items,waiting,allItems,pendingCount,blockedCount,planToken}`. `items` is the complete desired owned projection, sorted by verified submission time and numeric provider ID. Same-problem pending or unknown earlier submissions hold later final results. `allItems` also includes withdrawal candidates.
+- `rankland_ack_batch {sessionId,acknowledgements,planToken}` atomically acknowledges every current `allItems` ID and revision, or rejects a stale plan. An empty plan uses an empty batch. Applied withdrawal is acknowledged without inventing a new result.
+- `refresh_sessions {}` → `{sessions}` with `refreshRequired` and `syncRequired`. Started, unarchived sessions remain eligible after the deadline while outcomes, complete post-deadline history or projection acknowledgements are outstanding.
 
 Session: `{sessionId,contestId,title,account,startAt,durationMs,state,effectiveState,elapsedMs,ranklandUrl,createdAt,finishedAt?}`. Keep exact durable URL, including stable unique run, not a browser tab ID. Time is derived from a timestamp, never a permanently running Python timer.
 
@@ -59,8 +62,11 @@ history is accessible through the original-site history link. A prepared session
 without current/local operations keeps the original No submissions state.
 
 Additional browser methods: `rankland.open {sessionId}` restores the exact
-original-site URL; `rankland.sync {sessionId}` delivers confirmed judgements.
-`rankland.snapshot {sessionId}` returns `{state,snapshot,reason?,url}` with state
+original-site URL; `rankland.sync {sessionId}` first refreshes QOJ, delivers the
+current projection and enables later automatic delivery. QOJ outages preserve
+the retry intent. Automatic delivery may reopen the exact board in an inactive
+tab while Firefox is running; closing Firefox suspends polling.
+`rankland.snapshot {sessionId}` returns `{state,snapshot,reason?,url,syncStatus?}` with state
 `live`, `cached`, `unavailable`, `not_configured`, or `attention`.
 
 A non-null snapshot contains `{version:1,sessionId,url,identity,targetKey,ownName,
@@ -86,7 +92,17 @@ belong to the separate Jury view: Jury → Contests → Add new contest. They ar
 player Home actions. The Jury layout follows the official administrator entry
 structure while its local-session semantics remain an extension adaptation.
 
-Scoreboard identity includes origin, contest, run, rule, count, ratio, at and from. Opening is serialized. Automatic delivery stops when more than one tab can write the same original-site storage slot; the user keeps one before continuing. Acknowledgements are scoped to both source submission and destination, and rejudging an already delivered result requires review.
+Scoreboard identity includes origin, contest, run, rule, count, ratio, at and from.
+Opening is serialized. Automatic delivery stops when more than one tab can write
+the same original-site storage slot. The adapter pins the supported bundle path
+and archive schema, navigates the old replay away to finish its writes, then
+compares and replaces its owned records using a durable journal and backup.
+The original application restores the archive and recalculates its scoreboard.
+Unchanged records do not reload the page. Owned rejudgements replace or withdraw
+earlier results; unowned manual records remain. Conflicting manual edits or
+ambiguous ownership require review. Acknowledgements cover the entire current
+plan, including source revisions and destination identity. Implementation and
+compatibility limits are recorded in [0.3.4 synchronization](RANKLAND_SYNC_0.3.4.md).
 
 ## Verified submission timestamps
 
