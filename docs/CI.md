@@ -15,7 +15,7 @@ Hydro Contest OS 虚拟机；当前用户正在使用的比赛 VM 不注册为 C
 已有临时版可先重启 Firefox 再安装签名版，助手账本保持原路径。
 **XPI 不会自行安装 Python 助手**，两者需要使用同一版本。
 
-当前尚未配置 AMO 凭据，因此只有开发包/开发草稿；不能把未签名包当作长期安装版。
+安装时以 Release 中的 `-signed.xpi` 为准；未签名开发包不能作为长期安装版。
 
 ## 一次性配置 Mozilla 签名
 
@@ -28,10 +28,13 @@ Hydro Contest OS 虚拟机；当前用户正在使用的比赛 VM 不注册为 C
 3. 打开 [Actions 工作流](https://github.com/LittleDrinks/qoj-vp/actions/workflows/ci.yml)，
    点击 **Run workflow**，选 `main`，将 `release_mode` 设为 `signed`。
 
-凭据只传入签名步骤环境变量。测试通过后，固定版本的 web-ext 向 AMO 提交，下载签名包，
+凭据只传入 AMO 查询/签名步骤环境变量。测试通过后，固定版本的 web-ext 向 AMO 提交，下载签名包，
 校验扩展内容与测试源码逐文件相同，上传安装说明/助手/源码/校验值，最后发布 GitHub Release。
 签名需要 Mozilla 账号且仍可能进入人工审核；CI 设置 20 分钟等待，超时不会发布不完整版本。
-等待超时时先查看 AMO 该版本审核状态和工作流提示的开发者页面；不要不断重发同一版本。
+等待超时时先查看 AMO 该版本审核状态和工作流提示的开发者页面。重跑时先查询该版本：
+已批准则下载原签名包并校验 AMO 的 SHA256，不重复上传；仍在审核或认证失败则停止。
+只有版本不存在时才上传。下载的原始签名包保留为 `amo-output-提交号` artifact，
+即使后续组包失败也可取回分析；组包仍逐文件核对源码，不能用恢复机制替换不同内容的同版本包。
 [Mozilla 签名和审核说明](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/)。
 
 0.3.3 起最低 Firefox 为 **140**，与已验证的 Hydro Firefox ESR 140.16 相容。

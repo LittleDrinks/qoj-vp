@@ -45,7 +45,10 @@ def verify_xpi(path, extension, *, signed):
         actual = {entry.filename: archive.read(entry) for entry in entries}
     signatures = {name: actual.pop(name) for name in SIGNATURE_FILES if name in actual}
     if actual != expected:
-        raise ValueError('XPI payload differs from the tested extension')
+        missing = sorted(expected.keys() - actual.keys())
+        extra = sorted(actual.keys() - expected.keys())
+        changed = sorted(name for name in actual.keys() & expected.keys() if actual[name] != expected[name])
+        raise ValueError(f'XPI payload differs from the tested extension: missing={missing}, extra={extra}, changed={changed}')
     has_signature = (
         all(signatures.get(name) for name in ('META-INF/mozilla.rsa', 'META-INF/mozilla.sf', 'META-INF/manifest.mf'))
         or all(signatures.get(name) for name in ('META-INF/cose.sig', 'META-INF/cose.manifest'))

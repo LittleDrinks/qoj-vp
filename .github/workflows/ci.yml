@@ -155,8 +155,15 @@ jobs:
       - name: Install pinned signing tool
         if: steps.release.outputs.mode == 'signed'
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Sign privately with Mozilla (unlisted)
+      - name: Recover an already approved AMO version
         if: steps.release.outputs.mode == 'signed'
+        id: recover
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: node scripts/recover_amo_version.mjs
+      - name: Sign privately with Mozilla (unlisted)
+        if: steps.release.outputs.mode == 'signed' && steps.recover.outputs.downloaded != 'true'
         env:
           WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
           WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
@@ -166,6 +173,14 @@ jobs:
             --channel unlisted --no-config-discovery --approval-timeout 1200000 \
             --amo-metadata dist/amo-metadata.json \
             --upload-source-code dist/qoj-vp-mvp-source.tar.gz
+      - name: Retain the AMO result for release recovery
+        if: always() && steps.release.outputs.mode == 'signed'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: amo-output-${{ github.sha }}
+          path: dist/amo/*.xpi
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Assemble verified release
         env:
           SOURCE_COMMIT: ${{ github.sha }}
