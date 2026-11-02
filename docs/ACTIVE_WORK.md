@@ -4,10 +4,10 @@
 
 - CD 支持测试/lint 后 AMO unlisted 签名并发布 GitHub Release；无需公开上架商店。
 - AMO 凭据已配置，0.3.3 已完成 unlisted 签名。已取回原包核实：仅 manifest 格式改变，JSON 内容与其余文件均相同。
-- CD 已支持恢复 AMO 已批准版本，避免组包失败后重复上传；实际发布状态以 GitHub Release 和工作流为准。
+- CD 已支持恢复 AMO 已批准版本，避免组包失败后重复上传；[0.3.3 已正式发布](https://github.com/LittleDrinks/qoj-vp/releases/tag/v0.3.3)。
 - 扩展/助手版本、tag、源码提交、签名后内容均校验；打包附助手、完整源码、安装说明和 SHA256SUMS。
 - 0.3.3 要求 Firefox 140+ 并声明实际数据传输，使用内置安装同意机制。当前 Hydro ESR 140.16 满足此版本要求。
-- 上轮 CI Python 138、Node 148 项通过；本轮签名校验 12 项通过并用真实 AMO 包重现修复。Firefox 长期安装尚未验证。
+- 发布 CI Python 142、Node 148 项通过；Hydro Firefox 140.16 独立 profile 的正式安装、签名检查、重启保留及篡改包拒绝均通过，见 [发布验证](RELEASE_0.3.3.md)。
 - 原生 submit 与页面 URL 的研究见 [兼容方案](research/2026-11-02/native-submit-and-routes.md)；HTTP 兼容服务尚未实施。
 - VP 架构与体验建议见 [调研](research/2026-11-02/vp-experience.md)：统一本地练习快照与本队计分，RankLand 作为可选投影；尚未实施产品重构。
 
