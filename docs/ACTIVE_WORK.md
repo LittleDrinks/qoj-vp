@@ -3,11 +3,13 @@
 更新：2026-11-02（Asia/Shanghai）。**0.3.3 增加 Firefox CD；VM 当前仍为已验证的 0.3.2**。
 
 - CD 支持测试/lint 后 AMO unlisted 签名并发布 GitHub Release；无需公开上架商店。
-- 签名凭据尚未配置。未签名开发包明确标记，手动可生成开发草稿；签名流程缺凭据会停止。
+- AMO 凭据已配置，0.3.3 已完成 unlisted 签名。已取回原包核实：仅 manifest 格式改变，JSON 内容与其余文件均相同。
+- CD 已支持恢复 AMO 已批准版本，避免组包失败后重复上传；实际发布状态以 GitHub Release 和工作流为准。
 - 扩展/助手版本、tag、源码提交、签名后内容均校验；打包附助手、完整源码、安装说明和 SHA256SUMS。
 - 0.3.3 要求 Firefox 140+ 并声明实际数据传输，使用内置安装同意机制。当前 Hydro ESR 140.16 满足此版本要求。
-- 本地 Python 138、Node 142 项通过，actionlint 通过，Mozilla lint 无错误（3 个已记录警告）。实际签名/安装未执行。
+- 上轮 CI Python 138、Node 148 项通过；本轮签名校验 12 项通过并用真实 AMO 包重现修复。Firefox 长期安装尚未验证。
 - 原生 submit 与页面 URL 的研究见 [兼容方案](research/2026-11-02/native-submit-and-routes.md)；HTTP 兼容服务尚未实施。
+- VP 架构与体验建议见 [调研](research/2026-11-02/vp-experience.md)：统一本地练习快照与本队计分，RankLand 作为可选投影；尚未实施产品重构。
 
 ## 0.3.2 已验证
 
@@ -78,8 +80,7 @@
 
 ## 保留限制
 
-- 扩展已重新临时加载；未签名 XPI 在 Firefox 重启后仍需重载，助手账本保留。
-  AMO unlisted 签名尚未配置，没有修改全局签名检查。
+- VM 常用 profile 仍是临时加载的 0.3.2；本轮签名包尚未在该 profile 安装，没有修改全局签名检查。
 - Hydro 手动工作流及可选线上 RankLand 检查已配置；专用 VM runner 尚未注册，
   当前日常比赛 VM 没有被注册为 CI runner。
 - 首次真实提交丢回执的根因仍未证实；旧样例/PDF/回执证据不作为本轮重新实测。
