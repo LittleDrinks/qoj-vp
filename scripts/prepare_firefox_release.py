@@ -34,6 +34,19 @@ def release_identity(root, tag=None):
     return manifest
 
 
+def canonical_manifest(contents):
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('XPI manifest contains duplicate fields')
+            result[key] = value
+        return result
+    # Compare typed JSON values, not Python dict equality (where True == 1).
+    return json.dumps(json.loads(contents, object_pairs_hook=unique_object),
+                      sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+
 def verify_xpi(path, extension, *, signed):
     expected = {str(p.relative_to(extension)): p.read_bytes()
                 for p in sorted(extension.rglob('*')) if p.is_file()
@@ -44,6 +57,11 @@ def verify_xpi(path, extension, *, signed):
             raise ValueError('XPI contains duplicate paths')
         actual = {entry.filename: archive.read(entry) for entry in entries}
     signatures = {name: actual.pop(name) for name in SIGNATURE_FILES if name in actual}
+    # The signing pipeline reformats manifest.json. Only that file may differ
+    # in JSON formatting; never rewrite the downloaded, signed ZIP itself.
+    if signed and 'manifest.json' in actual and 'manifest.json' in expected:
+        if canonical_manifest(actual['manifest.json']) == canonical_manifest(expected['manifest.json']):
+            actual['manifest.json'] = expected['manifest.json']
     if actual != expected:
         missing = sorted(expected.keys() - actual.keys())
         extra = sorted(actual.keys() - expected.keys())

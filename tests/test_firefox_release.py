@@ -95,6 +95,37 @@ class FirefoxReleaseTests(unittest.TestCase):
         self.assertEqual((self.output / result['xpi']).read_bytes(), signed.read_bytes())
         self.assertFalse((self.output / self.unsigned.name).exists())
 
+    def test_signed_manifest_can_be_reformatted_without_changing_the_download(self):
+        signed = self.artifacts / 'from-amo.xpi'
+        self.write_xpi(signed, signatures=True,
+                       override={'manifest.json': json.dumps(self.manifest, indent=2).encode()})
+        result = self.prepare(signed_xpi=signed)
+        self.assertEqual((self.output / result['xpi']).read_bytes(), signed.read_bytes())
+
+    def test_unsigned_manifest_still_requires_exact_build_bytes(self):
+        self.write_xpi(self.unsigned,
+                       override={'manifest.json': json.dumps(self.manifest, indent=2).encode()})
+        with self.assertRaisesRegex(ValueError, 'payload differs'):
+            verify_xpi(self.unsigned, self.ext, signed=False)
+
+    def test_signed_manifest_changes_are_rejected(self):
+        signed = self.artifacts / 'from-amo.xpi'
+        for changes in ({'version': '1.2.4'}, {'permissions': ['cookies']},
+                        {'browser_specific_settings': {'gecko': {'id': 'other@example'}}}):
+            with self.subTest(changes=changes):
+                altered = {**self.manifest, **changes}
+                self.write_xpi(signed, signatures=True,
+                               override={'manifest.json': json.dumps(altered, indent=2).encode()})
+                with self.assertRaisesRegex(ValueError, 'payload differs'):
+                    verify_xpi(signed, self.ext, signed=True)
+
+    def test_signed_manifest_duplicate_fields_are_rejected(self):
+        signed = self.artifacts / 'from-amo.xpi'
+        repeated = '{"version":"9.9.9",' + json.dumps(self.manifest)[1:]
+        self.write_xpi(signed, signatures=True, override={'manifest.json': repeated.encode()})
+        with self.assertRaises(ValueError):
+            verify_xpi(signed, self.ext, signed=True)
+
     def test_wrong_source_commit_cannot_ship_with_extension(self):
         self.write_source('b' * 40)
         with self.assertRaisesRegex(ValueError, 'Source archive'):
