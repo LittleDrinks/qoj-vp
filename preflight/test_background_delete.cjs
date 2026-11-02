@@ -17,7 +17,7 @@ function deferred() {
 }
 function nativeError(code) { return Object.assign(new Error(code), {code}); }
 function harness() {
-  const nativeCalls = [], messages = [], events = [], hooks = {};
+  const nativeCalls = [], messages = [], transfers = [], events = [], hooks = {};
   const sessions = new Map([sid, otherSid].map(id => [id, {
     sessionId: id, state: "finished", startAt: 1000, durationMs: 5000, account: "Example",
     ranklandUrl: `https://vp.xcpc.link/?contest=example&run=${id}&at=2026-11-01T00%3A00%3A00Z`
@@ -28,12 +28,22 @@ function harness() {
   const listener = {addListener() {}};
   function defaultNative(method, args) {
     if (method === "list_sessions") return {sessions: Array.from(sessions.values())};
+    if (method === "refresh_sessions") return {sessions: Array.from(sessions.values()).filter(session => session.refreshRequired)};
     const session = sessions.get(args.sessionId);
     if (!session) throw nativeError("NOT_FOUND");
     if (method === "prepare_rankland" || method === "inspect_session") return {...session};
     if (method === "qoj_submissions") return {submissions: [], account: session.account};
-    if (method === "rankland_queue") return {items: [{queueId: 1, submissionId: "1001", revision: 1, verdict: "AC"}]};
-    if (method === "rankland_ack") return {acked: true};
+    if (method === "rankland_plan") {
+      const item = {queueId: "queue-" + args.sessionId, submissionId: "1001", revision: 1, verdict: "CORRECT"};
+      return {sessionId: args.sessionId, planToken: "plan-" + args.sessionId, items: [item], allItems: [item], pendingCount: 0, blockedCount: 0};
+    }
+    if (method === "rankland_ack_batch") {
+      assert.equal(args.planToken, "plan-" + args.sessionId);
+      assert.deepEqual(JSON.parse(JSON.stringify(args.acknowledgements)), [
+        {queueId: "queue-" + args.sessionId, revision: 1, state: "synced"}
+      ]);
+      return {accepted: true};
+    }
     if (method === "delete_session") {
       assert.equal(args.confirmed, true);
       sessions.delete(args.sessionId);
@@ -92,16 +102,21 @@ function harness() {
   };
   function defaultMessage(_id, message) {
     if (message.type === "vp.rankland.ready") return {ready: true};
-    if (message.type === "vp.rankland.deliver") return {state: "synced", receipt: {submissionId: message.item.submissionId}};
     throw Error("Unexpected tab message: " + message.type);
   }
   vm.runInNewContext(source, {
     browser, URL, Map, Set, Promise, Date, crypto: require("node:crypto").webcrypto,
     VpTransport: {pause: async () => {}, diagnostics: () => ({})},
+    VpRanklandTransfer: {sync: async request => {
+      transfers.push(request); events.push(`transfer:${request.session.sessionId}`);
+      assert.equal(request.plan.sessionId, request.session.sessionId);
+      assert.equal(tabs.find(tab => tab.id === request.tabId)?.url, request.session.ranklandUrl);
+      return hooks.transfer ? hooks.transfer(request) : {synced: request.plan.items.length};
+    }},
     setTimeout: (...args) => setTimeout(...args).unref(), clearTimeout
   }, {filename: "extension/background.js"});
   return {
-    hooks, nativeCalls, messages, events, sessions, cache,
+    hooks, nativeCalls, messages, transfers, events, sessions, cache,
     task: (method, args = {}) => onMessage({type: "vp.task", method, args}, {id: extensionId, url: origin + "ui.html"}),
     alarm: () => onAlarm({name: "vp-refresh"}),
     count: (method, id = sid) => nativeCalls.filter(call => call.method === method && call.args.sessionId === id).length
@@ -110,12 +125,11 @@ function harness() {
 
 test("deletion waits for production deliver and ack, blocks new sync, and keeps other sessions independent", async () => {
   const h = harness(), deliver = deferred(), ack = deferred();
-  h.hooks.message = (id, message, fallback) => message.type === "vp.rankland.deliver" && message.sessionId === sid
-    ? deliver.promise : fallback(id, message);
-  h.hooks.native = (method, args, fallback) => method === "rankland_ack" && args.sessionId === sid ? ack.promise : fallback(method, args);
+  h.hooks.transfer = request => request.session.sessionId === sid ? deliver.promise : {synced: request.plan.items.length};
+  h.hooks.native = (method, args, fallback) => method === "rankland_ack_batch" && args.sessionId === sid ? ack.promise : fallback(method, args);
   const syncing = h.task("rankland.sync", {sessionId: sid});
   await tick();
-  assert.equal(h.messages.filter(message => message.type === "vp.rankland.deliver").length, 1);
+  assert.equal(h.transfers.length, 1);
   let deleted = false;
   const deleting = h.task("delete_session", {sessionId: sid, confirmed: true}).then(value => { deleted = true; return value; });
   const duplicate = h.task("delete_session", {sessionId: sid, confirmed: true});
@@ -124,22 +138,27 @@ test("deletion waits for production deliver and ack, blocks new sync, and keeps 
   const blocked = await h.task("rankland.sync", {sessionId: sid});
   assert.equal(blocked.error.code, "SESSION_DELETING");
   assert.equal(h.count("prepare_rankland"), 1, "a rejected sync must not reach the helper");
+  assert.equal(h.count("qoj_submissions"), 1, "a rejected sync cannot refresh QOJ either");
   assert.equal(h.count("delete_session"), 0);
   assert.equal(deleted, false);
   const other = await h.task("rankland.sync", {sessionId: otherSid});
   assert.equal(other.ok, true); assert.equal(other.result.synced, 1);
-  assert.equal(h.count("rankland_ack", otherSid), 1);
-  deliver.resolve({state: "synced", receipt: {submissionId: "1001"}});
+  assert.equal(h.count("rankland_ack_batch", otherSid), 1);
+  deliver.resolve({synced: 1});
   await tick();
-  assert.equal(h.count("rankland_ack"), 1); assert.equal(h.count("delete_session"), 0);
+  assert.equal(h.count("rankland_ack_batch"), 1); assert.equal(h.count("delete_session"), 0);
   assert.equal(deleted, false, "delivery alone must not release deletion before ack");
-  ack.resolve({acked: true});
-  assert.equal((await syncing).result.synced, 1);
+  const acknowledgement = h.nativeCalls.find(call => call.method === "rankland_ack_batch" && call.args.sessionId === sid);
+  assert.equal(acknowledgement.args.planToken, "plan-" + sid);
+  assert.equal(acknowledgement.args.acknowledgements[0].queueId, "queue-" + sid);
+  ack.resolve({accepted: true});
+  const synchronized = await syncing;
+  assert.equal(synchronized.result.synced, 1); assert.equal(synchronized.result.state, "ready");
   const result = await deleting;
   assert.equal(result.ok, true); assert.equal(result.result.deleted, true);
   assert.equal((await duplicate).result.deleted, true);
   assert.equal(h.count("delete_session"), 1, "duplicate confirmed requests must share one deletion");
-  assert.ok(h.events.indexOf(`reply:rankland_ack:${sid}`) < h.events.indexOf(`native:delete_session:${sid}`));
+  assert.ok(h.events.indexOf(`reply:rankland_ack_batch:${sid}`) < h.events.indexOf(`native:delete_session:${sid}`));
   const after = h.events.length;
   assert.equal((await h.task("rankland.sync", {sessionId: sid})).error.code, "SESSION_DELETED");
   assert.equal((await h.task("rankland.open", {sessionId: sid})).error.code, "SESSION_DELETED");
@@ -149,25 +168,28 @@ test("deletion waits for production deliver and ack, blocks new sync, and keeps 
 });
 
 test("an existing failed sync settles before local deletion and does not block it", async () => {
-  const h = harness(), queue = deferred();
-  h.hooks.native = (method, args, fallback) => method === "rankland_queue" ? queue.promise : fallback(method, args);
+  const h = harness(), plan = deferred();
+  h.hooks.native = (method, args, fallback) => method === "rankland_plan" ? plan.promise : fallback(method, args);
   const syncing = h.task("rankland.sync", {sessionId: sid});
   await tick();
-  assert.equal(h.count("rankland_queue"), 1);
+  assert.equal(h.count("rankland_plan"), 1);
   const deleting = h.task("delete_session", {sessionId: sid, confirmed: true});
   assert.equal(h.count("delete_session"), 0);
-  queue.reject(nativeError("QUEUE_UNAVAILABLE"));
-  assert.equal((await syncing).error.code, "QUEUE_UNAVAILABLE");
+  plan.reject(nativeError("PLAN_UNAVAILABLE"));
+  assert.equal((await syncing).error.code, "PLAN_UNAVAILABLE");
   assert.equal((await deleting).result.deleted, true);
-  assert.equal(h.count("rankland_ack"), 0);
-  assert.equal(h.messages.some(message => message.type === "vp.rankland.deliver"), false);
+  assert.equal(h.count("rankland_ack_batch"), 0);
+  assert.equal(h.transfers.length, 0);
 });
 
 for (const trigger of ["task", "alarm"]) {
   test(`a late ${trigger} refresh cannot start a sync after deletion has succeeded`, async () => {
     const h = harness(), refresh = deferred();
     h.hooks.native = (method, args, fallback) => method === "qoj_submissions" ? refresh.promise : fallback(method, args);
-    if (trigger === "alarm") h.cache.sessions = [{...h.sessions.get(sid), state: "running", startAt: Date.now(), durationMs: 60000}];
+    if (trigger === "alarm") {
+      h.cache.sessions = [];
+      h.sessions.get(sid).refreshRequired = true;
+    }
     const refreshing = trigger === "task" ? h.task("qoj_submissions", {sessionId: sid, refresh: true}) : h.alarm();
     await tick();
     assert.equal(h.count("qoj_submissions"), 1);
@@ -177,7 +199,8 @@ for (const trigger of ["task", "alarm"]) {
     assert.equal(h.count("inspect_session"), 0, "tombstone must reject before another helper starts");
     assert.equal(h.count("prepare_rankland"), 0);
     assert.equal(h.messages.length, 0);
-    assert.equal(h.count("rankland_ack"), 0);
+    assert.equal(h.count("rankland_ack_batch"), 0);
+    assert.equal(h.transfers.length, 0);
   });
 }
 

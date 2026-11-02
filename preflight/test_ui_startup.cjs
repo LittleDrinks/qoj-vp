@@ -28,7 +28,7 @@ function stores() {
     storage:{local:{get:async keys=>Object.fromEntries((Array.isArray(keys)?keys:typeof keys==="string"?[keys]:Object.keys(local)).map(k=>[k,structuredClone(local[k])])),
       set:async values=>Object.assign(local,structuredClone(values)),remove:async key=>{delete local[key];}}}};
 }
-function page(saved, {blocked=false, snapshot=fixture(), search="", hash="#problems"}={}) {
+function page(saved, {blocked=false, snapshot=fixture(), search="", hash="#problems", handler}={}) {
   const elements=new Map(), calls=[], gates=new Map(), timers=[];
   const $=id=>{if(!elements.has(id)){const e=new Element();e.id=id;elements.set(id,e);}return elements.get(id);};
   for(const match of html.matchAll(/<([\w-]+)\b([^>]*\bid="([^"]+)"[^>]*)>/g)) {
@@ -38,10 +38,11 @@ function page(saved, {blocked=false, snapshot=fixture(), search="", hash="#probl
   const window={addEventListener(){},localStorage:saved.localStorage};
   const context={window,localStorage:saved.localStorage,document:{getElementById:$,createElement:t=>new Element(t),querySelectorAll:()=>[],addEventListener(){},hidden:false},
     location,URL,URLSearchParams,Date,console,TextEncoder,TextDecoder,Uint8Array,ArrayBuffer,structuredClone,
-    setTimeout,clearTimeout,setInterval:f=>timers.push(f),clearInterval(){},
+    setTimeout,clearTimeout,setInterval:(handler,delay)=>timers.push({handler,delay}),clearInterval(){},
     bootstrap:{Modal:class {show(){} hide(){}},Dropdown:{getInstance:()=>null}},
     browser:{storage:saved.storage,runtime:{getURL:name=>"moz-extension://fixture/"+name,sendMessage:async message=>{
       calls.push(message); const method=message.method;
+      if(handler) {const reply=await handler(message);if(reply!==undefined)return reply;}
       if(blocked) {if(!gates.has(method))gates.set(method,deferred());return gates.get(method).promise;}
       if(method==="hello")return {ok:true,result:{fixture:true,version:"0.3.1"}};
       if(method==="list_sessions")return {ok:true,result:{sessions:[snapshot.session]}};
@@ -137,4 +138,106 @@ test("display persistence omits source files and form tokens",async()=>{
   const serialized=[...saved.persistent.values()].join("\n");
   assert.doesNotMatch(serialized,/fake-sensitive-token|fake-source-code/);
   assert.match(serialized,/3338719/);
+});
+
+function ranklandPage({sync, configured=true, nextSnapshot, syncStatus=()=>null}={}) {
+  const data=fixture();
+  if(configured) data.session.ranklandUrl="https://vp.xcpc.link/?contest=synthetic&run="+sid;
+  let imported=false;
+  const view=page(stores(),{snapshot:data,hash:"#home",handler:async request=>{
+    const {method,args}=request;
+    if(method==="rankland.sync") {const result=await sync?.(request);imported=true;return {ok:true,result:result||{state:"ready",synced:1,pending:0}};}
+    const selected=nextSnapshot?.session.sessionId===args?.sessionId?nextSnapshot:data;
+    if(method==="session_snapshot")return {ok:true,result:structuredClone(selected)};
+    if(method==="qoj_contest")return {ok:true,result:structuredClone(selected.contest)};
+    if(method==="qoj_submissions")return {ok:true,result:{...structuredClone(selected.history),submissions:selected.history.submissions.map(item=>({...item,verdict:imported?"TIMELIMIT":item.verdict}))}};
+    if(method==="rankland.snapshot")return {ok:true,result:{state:"unavailable",url:selected.session.ranklandUrl,snapshot:null,syncStatus:syncStatus()}};
+    if(method==="scoreboard.resolve")return {ok:true,result:{source:configured?"rankland":"qoj",state:configured?"configured":"unmatched",url:selected.session.ranklandUrl||"https://qoj.ac/contest/4569",session:structuredClone(selected.session)}};
+  }});
+  return {...view,data};
+}
+
+test("the participant can sync to RankLand from Home, while unconfigured contests hide the action",async()=>{
+  const view=ranklandPage();await ticks();
+  assert.equal(view.$("sync-rankland").hidden,false);
+  assert.equal(view.$("sync-rankland").disabled,false);
+  assert.equal(typeof view.$("sync-rankland").listeners.click,"function");
+  await view.$("sync-rankland").listeners.click();
+  assert.equal(view.calls.filter(item=>item.method==="rankland.sync").length,1);
+  assert.equal(view.context.location.hash,"#home");
+  const other=ranklandPage({configured:false});await ticks();
+  assert.equal(other.$("sync-rankland").hidden,true);
+});
+
+test("participant and Jury sync clicks share one flight, then refresh saved history without fetching QOJ twice",async()=>{
+  const gate=deferred(),view=ranklandPage({sync:()=>gate.promise});await ticks();
+  const firstCard=view.$("problems-list").children[0],sourceInput=view.$("submit_problem_code"),language=view.$("submit_problem_language");
+  const selected=Object.freeze({name:"L.cpp",size:27});sourceInput.files=[selected];language.value="C++20";
+  view.context.document.activeElement=language;view.context.window.scrollY=340;
+  const before=view.calls.filter(item=>item.method==="qoj_submissions").length;
+  assert.equal(typeof view.$("sync-rankland").listeners.click,"function");
+  const first=view.$("sync-rankland").listeners.click();
+  assert.equal(view.$("sync-rankland").disabled,true);assert.equal(view.$("sync-scoreboard").disabled,true);
+  const repeated=view.$("sync-rankland").listeners.click();
+  view.context.location.hash="#jury/contest/"+sid;
+  const jury=view.$("sync-scoreboard").listeners.click();
+  await ticks();assert.equal(view.calls.filter(item=>item.method==="rankland.sync").length,1);
+  view.context.location.hash="#home";
+  gate.resolve({state:"waiting",synced:2,pending:1});await Promise.all([first,repeated,jury]);await ticks();
+  const following=view.calls.filter(item=>item.method==="qoj_submissions").slice(before);
+  assert.deepEqual(following.map(item=>item.args.refresh),[false],"rankland.sync owns the provider refresh; UI reads its saved result");
+  assert.equal(view.state().submissions[0].verdict,"TIMELIMIT");
+  assert.match(view.$("rankland-sync-status").textContent,/2.*1.*待判.*自动/);
+  assert.equal(view.$("rankland-sync-status").textContent,view.$("rankland-status").textContent);
+  assert.equal(view.$("sync-rankland").disabled,false);assert.equal(view.$("sync-scoreboard").disabled,false);
+  assert.equal(sourceInput.files[0],selected);assert.equal(language.value,"C++20");
+  assert.equal(view.$("problems-list").children[0],firstCard);assert.equal(view.context.document.activeElement,language);
+  assert.equal(view.context.window.scrollY,340);assert.equal(view.context.location.hash,"#home");
+});
+
+test("sync failure leaves existing records available and releases both actions for a retry",async()=>{
+  const view=ranklandPage({sync:()=>{throw new Error("RankLand unavailable");}});await ticks();
+  assert.equal(typeof view.$("sync-rankland").listeners.click,"function");
+  await view.$("sync-rankland").listeners.click();
+  assert.equal(view.state().submissions[0].verdict,"CORRECT");
+  assert.match(view.$("rankland-sync-status").textContent,/RankLand unavailable/);
+  assert.equal(view.$("sync-rankland").disabled,false);assert.equal(view.$("sync-scoreboard").disabled,false);
+});
+
+test("a reply for the old contest cannot change the newly selected contest or its sync status",async()=>{
+  const other="00000000-0000-4000-8000-000000000002",nextSnapshot=fixture();
+  nextSnapshot.session.sessionId=other;
+  nextSnapshot.session.ranklandUrl="https://vp.xcpc.link/?contest=another&run="+other;
+  const gate=deferred(),view=ranklandPage({sync:()=>gate.promise,nextSnapshot});await ticks();
+  const syncing=view.$("sync-rankland").listeners.click();
+  await view.context.window.qojVpUi.selectSession(other);await ticks();
+  const reads=view.calls.filter(item=>item.method==="qoj_submissions").length;
+  assert.equal(view.$("rankland-sync-status").hidden,true);
+  gate.resolve({state:"ready",synced:12,pending:0,message:"OLD-CONTEST-RESULT"});await syncing;
+  assert.equal(view.state().session.sessionId,other);
+  assert.equal(view.$("rankland-sync-status").hidden,true);
+  assert.doesNotMatch(view.$("rankland-status").textContent,/OLD-CONTEST/);
+  assert.equal(view.calls.filter(item=>item.method==="qoj_submissions").length,reads);
+  assert.equal(view.$("sync-rankland").disabled,false);
+});
+
+test("background completion clears the pending sync note without an extra click and older observations cannot roll it back",async()=>{
+  const identity=JSON.stringify(["https://vp.xcpc.link","synthetic",sid,"auto",50,20,"null",0]);
+  const observedAt=Date.now();
+  let status={identity,state:"waiting",synced:1,pending:1,message:"1 条待判，判定后自动补齐。",observedAt};
+  const gate=deferred(),view=ranklandPage({sync:()=>gate.promise,syncStatus:()=>status});await ticks();
+  assert.match(view.$("rankland-sync-status").textContent,/1 条待判/);
+  const polling=view.timers.find(timer=>timer.delay===10000).handler;
+  const syncing=view.$("sync-rankland").listeners.click();
+  status={...status,observedAt:observedAt+1,message:"OLD-POLL-DURING-CLICK"};polling();await ticks();
+  assert.doesNotMatch(view.$("rankland-sync-status").textContent,/OLD-POLL/);
+  gate.resolve({state:"waiting",synced:1,pending:1,observedAt:observedAt+2});await syncing;
+  status={...status,observedAt:observedAt+1,message:"OLD-POLL-AFTER-CLICK"};polling();await ticks();
+  assert.doesNotMatch(view.$("rankland-sync-status").textContent,/OLD-POLL/);
+  status={...status,state:"ready",synced:2,pending:0,observedAt:observedAt+3,message:"已同步 2 条判定。"};polling();await ticks();
+  assert.equal(view.$("rankland-sync-status").textContent,"已同步 2 条判定。");
+  assert.doesNotMatch(view.$("rankland-sync-status").textContent,/待判/);
+  status={...status,identity:identity.replace("synthetic","other"),observedAt:observedAt+4,message:"WRONG-RUN"};polling();await ticks();
+  assert.equal(view.$("rankland-sync-status").textContent,"已同步 2 条判定。");
+  assert.equal(view.calls.filter(item=>item.method==="rankland.sync").length,1);
 });

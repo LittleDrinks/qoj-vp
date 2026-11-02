@@ -55,6 +55,7 @@ def main():
             ('resources', ['preflight/guest_resource_cache.py']),
             ('administration', ['preflight/guest_admin_flow.py']),
             ('receipts', ['preflight/guest_transport_diagnostics.py']),
+            ('rankland-sync', ['preflight/guest_rankland_sync.py']),
         ]
         if args.rankland_online:
             cases.append(('rankland-online', ['preflight/guest_rankland_readiness.py', '--mode', 'verify']))

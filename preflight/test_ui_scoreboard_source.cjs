@@ -15,7 +15,8 @@ function environment(initialUrl=null){
   showMessage:(_,text)=>messages.push(text),message:e=>e.message,
  };
  vm.createContext(context);
- for(const [begin,end] of [["  function safeQojUrl(","  function problemUrl("],["  function ranklandViewIdentity(","  function validRanklandSnapshot("],
+ for(const [begin,end] of [["  function epoch(","  function formatDate("],["  function renderRanklandSyncControls(","  function ranklandViewIdentity("],
+  ["  function safeQojUrl(","  function problemUrl("],["  function ranklandViewIdentity(","  function validRanklandSnapshot("],
   ["  function scoreboardFallback(","  async function syncScoreboard("]])vm.runInContext(source.slice(source.indexOf(begin),source.indexOf(end)),context);
  return {context,state,calls,messages,snapshots,nodes,setHandler:value=>handler=value};
 }

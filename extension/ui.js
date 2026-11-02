@@ -34,6 +34,7 @@
     resourceManifestError: "", resourceSummary: "", resourceReadSequence: 0, resourceMutation: 0,
     ranklandSnapshot: null, ranklandSnapshotState: "unavailable", ranklandSnapshotMessage: "",
     ranklandRequestSequence: 0, ranklandRequest: null,
+    ranklandSyncRequest: null, ranklandSyncStatus: null,
     scoreboardSource: null, scoreboardRequestSequence: 0, scoreboardRequest: null,
     juryRequest: null, adminBusy: false, manualProblem: null, manualSessionId: null, manualBusy: false, deleteSessionId: null,
   };
@@ -260,6 +261,7 @@
     for (const item of document.querySelectorAll("[data-submit-problem]")) submitAvailability(item, canSubmit());
   }
   function renderSession() {
+    renderRanklandSyncControls();
     const session = state.session;
     if (!session) return;
     $("open-resources").disabled = !state.connected || !state.contest;
@@ -280,11 +282,36 @@
     if (session.account) historyUrl.searchParams.set("submitter", session.account);
     $("qoj-history-link").href = historyUrl.href;
     $("archive-session").disabled = session.state === "archived" || sessionState() === "running" || state.adminBusy;
-    $("sync-scoreboard").disabled = !session.ranklandUrl;
-    $("rankland-status").textContent = "";
     renderScoreboardSource();
     document.title = (session.title || "Contest " + session.contestId) + " — QOJ";
     renderClock();
+  }
+  function renderRanklandSyncControls() {
+    const configured = Boolean(state.session?.ranklandUrl);
+    const started = epoch(state.session?.startAt);
+    const disabled = !configured || !state.connected || state.submitting || started === null || started > Date.now() || Boolean(state.ranklandSyncRequest);
+    $("sync-rankland").hidden = !configured;
+    $("sync-rankland").disabled = disabled;
+    $("sync-scoreboard").disabled = disabled;
+    const status = state.ranklandSyncStatus && state.ranklandSyncStatus.sessionId === state.session?.sessionId &&
+      state.ranklandSyncStatus.identity === ranklandViewIdentity(state.session?.ranklandUrl) ? state.ranklandSyncStatus.text : "";
+    $("rankland-sync-status").textContent = status;
+    $("rankland-sync-status").hidden = !configured || !status;
+    $("rankland-status").textContent = status;
+  }
+  function applyRanklandSyncStatus(result, explicit = false) {
+    const sessionId = state.session?.sessionId, identity = ranklandViewIdentity(state.session?.ranklandUrl);
+    if (!result || !sessionId || !identity || !explicit && state.ranklandSyncRequest) return;
+    if ((!explicit || result.identity) && result.identity !== identity) return;
+    const observedAt = Number.isSafeInteger(result.observedAt) && result.observedAt >= 0 ? result.observedAt : explicit ? Date.now() : null;
+    if (observedAt === null) return;
+    const previous = state.ranklandSyncStatus;
+    if (!explicit && previous?.sessionId === sessionId && previous.identity === identity && previous.observedAt > observedAt) return;
+    const synced = Number.isSafeInteger(result.synced) && result.synced >= 0 ? result.synced : 0;
+    const pending = Number.isSafeInteger(result.pending) && result.pending >= 0 ? result.pending : 0;
+    state.ranklandSyncStatus = {sessionId, identity, observedAt, text: result.message || (pending ?
+      `已同步 ${synced} 条，${pending} 条待判，判定后自动补齐。` : `已同步 ${synced} 条判定。`)};
+    renderRanklandSyncControls();
   }
   function ranklandViewIdentity(raw) {
     try {
@@ -357,6 +384,7 @@
         state.ranklandSnapshotState = snapshot ? result.state === "live" ? "live" : "cached" :
           result?.state === "not_configured" ? "not_configured" : "unavailable";
         state.ranklandSnapshotMessage = String(result?.message || "");
+        if (result?.syncStatus) applyRanklandSyncStatus(result.syncStatus);
         renderSummary();
         return result;
       } catch (_) {
@@ -1468,6 +1496,7 @@
       {source: "qoj", state: "unverified", url: `https://qoj.ac/contest/${state.session?.contestId || ""}`};
   }
   function renderScoreboardSource() {
+    renderRanklandSyncControls();
     const source = state.scoreboardSource || scoreboardFallback();
     const link = $("scoreboard-source-link"); link.textContent = source.source === "rankland" ? "RankLand" : "QOJ";
     link.href = source.url;
@@ -1505,7 +1534,6 @@
           url = safeQojUrl(result.url, `https://qoj.ac/contest/${state.session.contestId}`);
         }
         state.scoreboardSource = {source: result.source, state: result.state, url, checkedAt: result.checkedAt};
-        $("sync-scoreboard").disabled = !state.session.ranklandUrl;
         return state.scoreboardSource;
       } catch (_) {
         if (current(sessionId, generation) && request.sequence === state.scoreboardRequestSequence && (state.session.ranklandUrl || null) === initialUrl)
@@ -1535,16 +1563,29 @@
     } catch (error) { if (current(sessionId, generation)) showMessage($("notice"), "榜单打开失败：" + message(error)); }
   }
   async function syncScoreboard() {
-    if (!state.session || !isJuryRoute()) return;
+    if (!state.session?.ranklandUrl || !state.connected || state.submitting || state.ranklandSyncRequest) return;
+    const started = epoch(state.session.startAt);
+    if (started === null || started > Date.now()) return;
     const sessionId = state.session.sessionId, generation = state.generation;
-    $("sync-scoreboard").disabled = true;
+    const request = {sessionId, generation};
+    state.ranklandSyncRequest = request;
+    state.ranklandSyncStatus = {sessionId, identity: ranklandViewIdentity(state.session.ranklandUrl), observedAt: Date.now(), text: "正在同步到 RankLand…"};
+    renderRanklandSyncControls();
     try {
       const result = await call("rankland.sync", {sessionId});
       if (!current(sessionId, generation)) return;
-      $("rankland-status").textContent = result?.message || "判定同步已检查。";
-      await refreshRanklandSnapshot(true);
-    } catch (error) { if (current(sessionId, generation)) $("rankland-status").textContent = message(error); }
-    finally { if (current(sessionId, generation)) $("sync-scoreboard").disabled = !state.session?.ranklandUrl; }
+      if (result?.url && !adoptRanklandUrl(result.url) && state.session.ranklandUrl !== result.url) return;
+      applyRanklandSyncStatus(result, true);
+      // The background sync already refreshed QOJ. Read the resulting local
+      // facts without issuing a second network refresh or resetting the view.
+      await Promise.all([refresh(false), refreshRanklandSnapshot(true)]);
+    } catch (error) {
+      if (current(sessionId, generation)) state.ranklandSyncStatus = {sessionId,
+        identity: ranklandViewIdentity(state.session.ranklandUrl), observedAt: Date.now(), text: message(error)};
+    } finally {
+      if (state.ranklandSyncRequest === request) state.ranklandSyncRequest = null;
+      renderRanklandSyncControls();
+    }
   }
   function openReconcile(submission) {
     state.reconcileOperation = submission.operationId;
@@ -1596,6 +1637,7 @@
     });
     $("rankland-settings").addEventListener("click", openRanklandSettings);
     $("sync-scoreboard").addEventListener("click", syncScoreboard);
+    $("sync-rankland").addEventListener("click", syncScoreboard);
     $("rankland-form").addEventListener("submit", async event => {
       event.preventDefault(); const control = event.submitter; control.disabled = true;
       const sessionId = state.session.sessionId, generation = state.generation;

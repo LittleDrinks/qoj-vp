@@ -24,6 +24,10 @@ Environment:
 - `QOJ_VP_QOJ_PATH`: upstream checkout, default `<project>/vendor/qoj-submitter`.
 - `QOJ_VP_FIXTURE_ORIGIN`: installation-only optional loopback test routing.
   A UI task cannot choose or change it.
+  Only when configured, RankLand URL normalization also permits a fixture at
+  `http(s)://localhost:<port>/` or `http(s)://127.0.0.1:<port>/`. An explicit
+  nonzero port is required; credentials, other hosts, paths and fragments are
+  rejected. Normal installations accept only `https://vp.xcpc.link/`.
 
 Methods and common fields follow `docs/MVP_CONTRACT.md`. Additional methods:
 
@@ -62,9 +66,58 @@ Methods and common fields follow `docs/MVP_CONTRACT.md`. Additional methods:
   `submissionId`, `sourceId`, `problemId`, `problemLabel`, `elapsedMs`, `verdict`,
   `rawVerdict`, `state`, `attempts`. Items are independently persisted from the
   QOJ submission; failure to deliver cannot cause a repeated code POST.
+- `rankland_plan {sessionId}` returns the complete desired RankLand projection,
+  not merely a batch of appended records. `items` contains eligible final
+  verdicts in original submission-time / numeric QOJ ID order; each retains its
+  stable `sourceId`, `queueId`, current `revision` and exact `elapsedMs`.
+  Pending verdicts and unknown local receipts hold back only later submissions
+  of the same problem. `waiting` describes those unresolved/held records;
+  `pendingCount` counts unresolved records and `blockedCount` counts held final
+  verdicts. Other problems can synchronize immediately. Confirmed final
+  rejudgements appear even if their legacy queue state is `needs-review`.
+  `allItems` retains prior queue records so a projection adapter can withdraw
+  previously delivered results now pending or outside the session window.
+  A local send-intent timestamp never substitutes for QOJ's confirmed acceptance
+  time: records with only that timestamp remain `time-unverified` until a
+  verified history/detail response supplies `provider-absolute` time.
+  It must preserve unrelated original-site records and reconcile owned source
+  IDs instead of interpreting this plan as repeated form submissions.
+  `planToken` identifies the exact desired membership, ordering, unresolved
+  barriers, source revisions/times and target URL. It excludes delivery attempts
+  and polling times, remaining stable across retries and helper restarts.
+- `refresh_sessions {}` returns started, non-archived sessions requiring
+  `refreshRequired` (QOJ history) and/or `syncRequired` (RankLand reconciliation).
+  It includes finished sessions with unresolved records and sessions lacking
+  one verified complete history pass begun at/after their fixed end time.
+  Failures do not mark that catch-up complete; metadata survives helper and
+  Firefox restarts. A successful QOJ refresh should still reconcile its new
+  plan even when the earlier scheduling snapshot had `syncRequired:false`.
+  A finished session with only undelivered final records needs RankLand retry,
+  without another QOJ fetch on every alarm. Archiving opts out of automatic
+  polling. Manual refresh/sync remains available for later rejudgements.
+  `inspect_session` exposes `lastHistoryRefreshAt`, `lastHistoryCompleteAt`
+  and `lastHistoryRefreshComplete`. A failed explicit refresh reopens source
+  polling even after a previously settled contest, including cached fallbacks
+  with zero fetched pages and failures before authentication/history completes.
+  An older request finishing later cannot hide a newer incomplete refresh;
+  a subsequent complete pass clears the retry requirement.
 - `rankland_ack {sessionId,queueId,revision,state,receipt?,error?}` accepts synced,
   ambiguous or failed. A stale revision cannot acknowledge a newer verdict.
   Receipt metadata is limited to targetKey/problemIndex/timeMs/result/observedAt.
+- `rankland_ack_batch {sessionId,acknowledgements,planToken?}` applies the same acknowledgements
+  in one transaction and one helper task. Accepts at most 10,000 distinct queue
+  IDs. Any stale revision rejects the whole batch (`accepted:false`); unknown
+  IDs and malformed items reject without mutating other entries. On success it
+  returns `accepted:true` and per-item `results`. A projection adapter can
+  acknowledge removed or intentionally held `allItems` as evaluated/applied;
+  pending source facts remain eligible for history polling independently.
+  The projection adapter supplies `planToken` and every `allItems` queue ID,
+  including an empty batch for an empty plan. A changed plan rejects the whole
+  acknowledgement with `reason:'stale-plan'`. A successful all-synced batch
+  persists that token; `refresh_sessions.syncRequired` also compares it with
+  the current plan, detecting receipt resolution that changes membership
+  without a newer provider verdict. Missing-token calls retain the legacy
+  per-record acknowledgement semantics and cannot settle a projection token.
 
 HTTP requests include `method,url,logicalUrl,headers,timeoutMs,allowRedirects`.
 POST additionally includes `data` as a field dictionary, and `files` as

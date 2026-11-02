@@ -1,6 +1,17 @@
 # 当前工作状态
 
-更新：2026-11-02（Asia/Shanghai）。**0.3.3 增加 Firefox CD；VM 当前仍为已验证的 0.3.2**。
+更新：2026-11-02（Asia/Shanghai）。**0.3.4 延迟判定同步已通过独立 Hydro Firefox 回归，正在发布签名包；常用 profile 未替换。**
+
+## 0.3.4
+
+- 选手 Submissions 一键同步到 RankLand；待判自动补齐、赛后继续结算、关闭榜单可在后台恢复。
+- 使用 QOJ 原始接收时间；同题按时间/提交编号处理，重判替换、重复同步去重，保留原站手工记录。
+- 原版 RankLand version-2 存档在旧回放页面退出后受控更新，保存备份与恢复日志，由原站重算。
+- Python 165、Node 193 项通过，Mozilla lint 0 错误/3 个原有警告。
+- Hydro Firefox 原版 RankLand 的 7 项回归通过，包含关闭已结束榜单后的自动补判；真实源码 POST 为 0。
+- 具体行为、兼容限制与验收证据见 [同步修复记录](RANKLAND_SYNC_0.3.4.md)。
+
+## 0.3.3 发布记录
 
 - CD 支持测试/lint 后 AMO unlisted 签名并发布 GitHub Release；无需公开上架商店。
 - AMO 凭据已配置，0.3.3 已完成 unlisted 签名。已取回原包核实：仅 manifest 格式改变，JSON 内容与其余文件均相同。

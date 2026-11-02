@@ -2,7 +2,7 @@
 (() => {
   const HOST = "org.littledrinks.qoj_vp";
   const methods = new Set(["hello", "create_session", "start_session", "list_sessions", "inspect_session", "archive_session", "update_session",
-    "qoj_contest", "qoj_problem_form", "qoj_samples", "qoj_submit", "qoj_submissions", "qoj_reconcile", "rankland_queue", "rankland_ack", "prepare_rankland",
+    "qoj_contest", "qoj_problem_form", "qoj_samples", "qoj_submit", "qoj_submissions", "qoj_reconcile", "rankland_queue", "rankland_ack", "rankland_ack_batch", "rankland_plan", "refresh_sessions", "prepare_rankland",
     "resource_manifest", "prepare_resource", "resource_chunk", "import_samples", "delete_session", "finish_session", "session_snapshot"]);
   function ranklandIdentity(raw) {
     const url = new URL(raw), q = url.searchParams;
@@ -13,8 +13,10 @@
   const ranklandGuardEvents = [];
   async function matchingRanklandTabs(expectedUrl) {
     const identity = ranklandIdentity(expectedUrl);
+    const gate = new URL("/", expectedUrl);
+    gate.searchParams.set("qoj-vp-transfer", new URL(expectedUrl).searchParams.get("run"));
     return (await browser.tabs.query({})).filter(item => {
-      try { return ranklandIdentity(item.url) === identity; } catch (_) { return false; }
+      try { return ranklandIdentity(item.url) === identity || item.url === gate.href; } catch (_) { return false; }
     });
   }
   const readingRanklandScores = new Map();
@@ -71,7 +73,12 @@
     const session = await native("inspect_session", {sessionId});
     const key = JSON.stringify([sessionId, session.ranklandUrl || null]);
     if (!readingRanklandScores.has(key)) {
-      const task = readRanklandScore(session).finally(() => readingRanklandScores.delete(key));
+      const task = (async () => {
+        const result = await readRanklandScore(session);
+        const statusKey = "rankland-sync-status:" + sessionId;
+        const status = (await browser.storage.local.get(statusKey))[statusKey];
+        return {...result, ...(status?.identity === (session.ranklandUrl ? ranklandIdentity(session.ranklandUrl) : null) ? {syncStatus:status} : {})};
+      })().finally(() => readingRanklandScores.delete(key));
       readingRanklandScores.set(key, task);
     }
     return readingRanklandScores.get(key);
@@ -252,18 +259,26 @@
     return activate ? browser.tabs.update(tab.id, {active: true}) : tab;
   }
   async function sync(sessionId, open = false) {
-    const session = await native(open ? "prepare_rankland" : "inspect_session", {sessionId});
+    let session = await native("inspect_session", {sessionId});
     if (!session.ranklandUrl) return {state: "not_configured", synced: 0, message: "请先配置这场 VP 的 RankLand 比赛链接。"};
+    const autoKey = "rankland-auto-sync:" + sessionId;
+    if (open) await browser.storage.local.set({[autoKey]:true});
+    const auto = open || (await browser.storage.local.get(autoKey))[autoKey] === true;
+    const refreshed = open ? await providerRead("qoj_submissions", {sessionId, refresh:true}) : null;
+    if (auto) session = await native("prepare_rankland", {sessionId});
+    const incomplete = refreshed?.coverage?.complete === false || session.lastHistoryRefreshComplete === false;
     let tab;
     const matches = await matchingRanklandTabs(session.ranklandUrl);
     if (matches.length > 1) return {state: "attention", synced: 0, message: "同一场 VP 打开了多个榜单页。请保留一个，避免原站的多个页面互相覆盖进度。"};
-    if (open) tab = await ranklandTab(session, false);
+    if (auto) tab = await ranklandTab(session, false);
     else {
       tab = matches[0];
     }
     if (!tab) return {state: "waiting_for_scoreboard", synced: 0, message: "判定已保留，打开这场 VP 的榜单后继续同步。"};
     let ready, teamPrepared = false;
-    for (let n = 0; n < 80; n++) {
+    const recovering = new URL(tab.url).searchParams.get("qoj-vp-transfer") === sessionId;
+    if (recovering) ready = {ready:true};
+    for (let n = 0; !recovering && n < 80; n++) {
       try {
         ready = await browser.tabs.sendMessage(tab.id, {type: "vp.rankland.ready", sessionId, expectedUrl: session.ranklandUrl});
         if (ready?.reason === 'TEAM_REQUIRED' && !teamPrepared) {
@@ -279,7 +294,9 @@
       }
       await VpTransport.pause(150);
     }
-    if (!ready?.ready) {
+    // A finished replay has no record form. Its validated v2 archive can still
+    // receive a managed projection while the replay document is unloaded.
+    if (!ready?.ready && ready?.reason !== "RECORD_FORM_CHANGED") {
       const reasons = {
         TEAM_REQUIRED: "请在 RankLand 加入我的队伍后再同步，已确认的判定仍保留。",
         TEAM_NAME_REQUIRED: "请先在工作台读取比赛并确认 QOJ 登录账号，再同步榜单。",
@@ -298,25 +315,38 @@
       return {state: "page_not_ready", synced: 0, reason: ready?.reason || 'BRIDGE_NOT_READY',
         message: reasons[ready?.reason] || "RankLand 页面尚未就绪，已确认的判定仍保留。"};
     }
-    const queue = await native("rankland_queue", {sessionId});
-    const results = [];
-    let attention = "";
-    for (const item of queue.items || []) {
-      const receiptKey = `rankland-receipt:${sessionId}:${item.submissionId}:${ranklandIdentity(session.ranklandUrl)}`;
-      const old = (await browser.storage.local.get(receiptKey))[receiptKey];
-      const delivered = await browser.tabs.sendMessage(tab.id, {type: "vp.rankland.deliver", sessionId, expectedUrl: session.ranklandUrl, receiptKey, item, previous: old || null});
-      if (delivered?.receipt) await browser.storage.local.set({[receiptKey]: {...delivered.receipt, revision: item.revision}});
-      const state = delivered?.state || "failed";
-      await native("rankland_ack", {sessionId, queueId: item.queueId, revision: item.revision, state,
-        receipt: delivered?.receipt || null, error: delivered?.message || null});
-      results.push({submissionId: item.submissionId, state, ...(delivered?.reason ? {reason: delivered.reason} : {})});
-      if (state !== "synced") { attention = delivered?.message || "原站未确认同步，请核对榜单。"; break; }
+    const plan = await native("rankland_plan", {sessionId});
+    try {
+      const delivered = await VpRanklandTransfer.sync({session, plan, tabId:tab.id});
+      const acknowledgements = (plan.allItems || []).map(item => ({queueId:item.queueId, revision:item.revision, state:"synced"}));
+      const ack = await native("rankland_ack_batch", {sessionId, acknowledgements, planToken:plan.planToken});
+      const pending = plan.pendingCount || 0, blocked = plan.blockedCount || 0;
+      const status = {state:ack.accepted ? pending || blocked || incomplete ? "waiting" : "ready" : "waiting",
+        synced:delivered.synced, pending, blocked, observedAt:Date.now(), url:session.ranklandUrl,
+        identity:ranklandIdentity(session.ranklandUrl),
+        needsRefresh:incomplete,
+        message:!ack.accepted ? "判定又有更新，下一次同步将继续补齐。" : incomplete ?
+          "已同步现有判定；QOJ 暂未完整更新，稍后自动重试。" : pending || blocked ?
+          `榜单已更新，${pending} 条待判或待核实${blocked ? `，${blocked} 条等待同题较早提交` : ""}；判定后自动补齐。` : "已确认的判定均已同步。"};
+      await browser.storage.local.set({["rankland-sync-status:" + sessionId]:status});
+      return status;
+    } catch (error) {
+      const messages = {
+        RANKLAND_UNOWNED_CONFLICT:"原站已有相同的手工记录，无法确认归属；请先核对。",
+        RANKLAND_OWNERSHIP_CONFLICT:"原站已同步记录被修改或重置，已保留备份，请先核对。",
+        RANKLAND_JOURNAL_CONFLICT:"上次同步之后存档发生变化，已保留两份记录，请先核对。",
+        RANKLAND_VERSION_CHANGED:"RankLand 页面版本已变化，判定已保留，需更新兼容适配。",
+        RANKLAND_MULTIPLE_WRITERS:"请只保留这场比赛的一个 RankLand 页面，再同步。"
+      };
+      const status = {state:"attention",synced:0,pending:plan.pendingCount || 0,observedAt:Date.now(),
+        url:session.ranklandUrl,identity:ranklandIdentity(session.ranklandUrl), reason:error.code || "RANKLAND_SYNC_FAILED",
+        message:messages[error.code] || "榜单同步尚未确认，判定与恢复记录已保留，可再次同步。"};
+      await browser.storage.local.set({["rankland-sync-status:" + sessionId]:status});
+      return status;
     }
-    const count = results.filter(item => item.state === "synced").length;
-    return {state: attention ? "attention" : "ready", synced: count, results,
-      message: attention || (count ? `已将 ${count} 条判定同步至原站。` : "已确认的判定均已同步。")};
   }
   const synchronizing = new Map();
+  const syncOpening = new Map();
   const deletingSessions = new Map();
   const deletedSessions = new Set();
   function syncUnavailable(id) {
@@ -327,7 +357,15 @@
   function exclusiveSync(id, open = false) {
     const blocked = syncUnavailable(id);
     if (blocked) return Promise.reject(blocked);
-    if (!synchronizing.has(id)) synchronizing.set(id, sync(id, open).finally(() => synchronizing.delete(id)));
+    if (synchronizing.has(id) && open && !syncOpening.get(id)) {
+      // A background pass may have neither refreshed QOJ nor opened a board.
+      // Joining it must not silently discard the user's explicit one-click action.
+      return synchronizing.get(id).catch(() => {}).then(() => exclusiveSync(id, true));
+    }
+    if (!synchronizing.has(id)) {
+      syncOpening.set(id, open);
+      synchronizing.set(id, sync(id, open).finally(() => { synchronizing.delete(id); syncOpening.delete(id); }));
+    }
     return synchronizing.get(id);
   }
   function deleteSession(args) {
@@ -486,9 +524,13 @@
   browser.alarms.create("vp-refresh", {periodInMinutes: 1});
   browser.alarms.onAlarm.addListener(async alarm => {
     if (alarm.name !== "vp-refresh") return;
-    const sessions = (await browser.storage.local.get("sessions")).sessions || [];
-    for (const session of sessions.filter(item => item.state === "running" && Date.now() < item.startAt + item.durationMs)) {
-      try { await providerRead("qoj_submissions", {sessionId: session.sessionId, refresh: true}); await exclusiveSync(session.sessionId); }
+    let sessions;
+    try { sessions = (await native("refresh_sessions")).sessions || []; } catch (_) { return; }
+    for (const session of sessions) {
+      try {
+        if (session.refreshRequired) await providerRead("qoj_submissions", {sessionId:session.sessionId, refresh:true});
+        if (session.ranklandUrl) await exclusiveSync(session.sessionId);
+      }
       catch (_) { /* The UI and durable queue expose failures on the next interaction. */ }
     }
   });

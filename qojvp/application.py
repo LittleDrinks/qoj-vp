@@ -50,12 +50,16 @@ def timestamp_ms(value):
     return int(value)
 
 
-def rankland_url(raw, session_id, start_at):
+def rankland_url(raw, session_id, start_at, *, allow_loopback=False):
     if not raw:
         return None
     parsed = urlparse(str(raw).strip())
-    if (parsed.scheme != 'https' or parsed.netloc != 'vp.xcpc.link' or parsed.username or parsed.password
-            or parsed.path not in ('', '/') or parsed.fragment):
+    official = parsed.scheme == 'https' and parsed.netloc == 'vp.xcpc.link'
+    loopback = (allow_loopback and parsed.scheme in {'http', 'https'}
+                and parsed.hostname in {'127.0.0.1', 'localhost'}
+                and parsed.port is not None and 0 < parsed.port <= 65535)
+    if (not (official or loopback) or parsed.username is not None or parsed.password is not None
+            or parsed.path not in ('', '/') or parsed.params or parsed.fragment):
         raise ValueError('Use a https://vp.xcpc.link/ contest URL')
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     if not query.get('contest'):
@@ -65,7 +69,8 @@ def rankland_url(raw, session_id, start_at):
         query.pop('at', None)
     else:
         query['at'] = datetime.fromtimestamp(start_at / 1000, timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
-    return urlunparse(('https', 'vp.xcpc.link', '/', '', urlencode(query), ''))
+    origin = (parsed.scheme, f'{parsed.hostname}:{parsed.port}') if loopback else ('https', 'vp.xcpc.link')
+    return urlunparse((*origin, '/', '', urlencode(query), ''))
 
 
 def load_upstream(path):
@@ -118,6 +123,8 @@ class Application:
                 return self.create_session(args)
             if method == 'list_sessions':
                 return {'sessions': [self.view(s) for s in self.ledger.sessions()]}
+            if method == 'refresh_sessions':
+                return {'sessions': [self.view(s) for s in self.ledger.refresh_sessions(self.clock())]}
             if method == 'session_snapshot':
                 with self.ledger.transaction(write=False):
                     session = self.ledger.session(args.get('sessionId'))
@@ -131,8 +138,13 @@ class Application:
                 return self.session_action(method, args)
             if method == 'rankland_queue':
                 return {'items': self.ledger.queue(args.get('sessionId'))}
+            if method == 'rankland_plan':
+                return self.ledger.rankland_plan(args.get('sessionId'))
             if method == 'rankland_ack':
                 return self.ledger.ack(args.get('sessionId'), args)
+            if method == 'rankland_ack_batch':
+                return self.ledger.ack_batch(args.get('sessionId'), args.get('acknowledgements'),
+                                             plan_token=args.get('planToken'))
             if method in {'resource_manifest', 'resource_chunk'}:
                 session = self.ledger.session(args.get('sessionId'))
                 return self.resources.manifest(session) if method == 'resource_manifest' else self.resources.chunk(session, args)
@@ -165,6 +177,10 @@ class Application:
                     return self.submit(session, args, client, modules)
                 if method == 'prepare_resource':
                     return self.prepare_resource(session, args, client, modules, transport)
+                if method in {'qoj_submissions', 'qoj_reconcile'}:
+                    # An offline/login failure before the first history page
+                    # must also keep an ended session eligible for retry.
+                    self.ledger.mark_history_refresh(session['sessionId'], self.clock(), complete=False)
                 self.authenticate(client, session)
                 contest = self.read_contest(client, session['contestId'])
                 self.ledger.save_contest(session.get('account'), contest)
@@ -312,7 +328,8 @@ class Application:
         record = {'sessionId': sid, 'contestId': cid, 'title': str(args.get('title') or f'QOJ Contest {cid}')[:200],
                   'account': account, 'startAt': start, 'durationMs': duration,
                   'state': 'running' if start is not None else 'prepared', 'createdAt': self.clock(),
-                  'ranklandUrl': rankland_url(args.get('ranklandUrl'), sid, start),
+                  'ranklandUrl': rankland_url(args.get('ranklandUrl'), sid, start,
+                                              allow_loopback=bool(self.fixture_origin)),
                   'ranklandPrepared': False, 'ranklandPreparedAt': None}
         self.ledger.create_session(record)
         return self.view(record)
@@ -345,13 +362,15 @@ class Application:
                     raise ValueError('A finished or archived session cannot be started')
                 if record['startAt'] is None:
                     record['startAt'], record['state'] = self.clock(), 'running'
-                    record['ranklandUrl'] = rankland_url(record.get('ranklandUrl'), sid, record['startAt'])
+                    record['ranklandUrl'] = rankland_url(record.get('ranklandUrl'), sid, record['startAt'],
+                                                         allow_loopback=bool(self.fixture_origin))
                     record['ranklandPrepared'], record['ranklandPreparedAt'] = False, None
             elif method == 'prepare_rankland':
                 if record.get('startAt') is None or self.clock() < record['startAt']:
                     raise ApplicationError('SESSION_NOT_RUNNING', 'Start the VP session before opening its RankLand replay')
                 if not record.get('ranklandUrl'):
                     raise ApplicationError('RANKLAND_NOT_CONFIGURED', 'Choose a RankLand contest URL first')
+                rankland_url(record['ranklandUrl'], sid, record['startAt'], allow_loopback=bool(self.fixture_origin))
                 if not record.get('ranklandPrepared'):
                     parsed = urlparse(record['ranklandUrl'])
                     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
@@ -407,14 +426,19 @@ class Application:
                         raise ValueError('Invalid contest duration')
                     record['durationMs'] = duration
                 if 'ranklandUrl' in args:
-                    target = rankland_url(args['ranklandUrl'], sid, record['startAt'])
-                    original = rankland_url(record.get('ranklandUrl'), sid, record['startAt'])
+                    target = rankland_url(args['ranklandUrl'], sid, record['startAt'],
+                                          allow_loopback=bool(self.fixture_origin))
+                    original = rankland_url(record.get('ranklandUrl'), sid, record['startAt'],
+                                            allow_loopback=bool(self.fixture_origin))
                     # Compare canonical target configuration while ignoring
                     # managed run/time parameters; preserve the frozen URL.
                     target_changed = (target is None) != (original is None)
                     if target is not None and original is not None:
-                        target_changed = dict(parse_qsl(urlparse(target).query, keep_blank_values=True)) != dict(
-                            parse_qsl(urlparse(original).query, keep_blank_values=True))
+                        target_parts, original_parts = urlparse(target), urlparse(original)
+                        target_changed = ((target_parts.scheme, target_parts.netloc) !=
+                            (original_parts.scheme, original_parts.netloc) or
+                            dict(parse_qsl(target_parts.query, keep_blank_values=True)) !=
+                            dict(parse_qsl(original_parts.query, keep_blank_values=True)))
                     if target_changed:
                         record['ranklandUrl'] = target
                         record['ranklandPrepared'], record['ranklandPreparedAt'] = False, None
@@ -554,11 +578,12 @@ class Application:
         return {'submission': view, 'state': view['state']}
 
     def refresh(self, session, contest, client, *, preferred_sid=None, recover_receipts=True):
+        refresh_started_at = self.clock()
         warnings, pages, seen = [], 0, set()
         complete, history_verified = False, True
         deadline = time.monotonic() + 35
         time_candidates, time_attempts, known_time_ids = {}, {}, set()
-        backfill_times = session.get('startAt') is not None and session.get('state') == 'running'
+        backfill_times = session.get('startAt') is not None and session.get('state') in {'running', 'finished'}
         linked_ids = {str(item['id']) for item in self.ledger.submissions(session['sessionId'])
                       if item.get('id') and item.get('operationId')}
         for page in range(1, 11):
@@ -588,7 +613,8 @@ class Application:
                 page_new += 1
                 seen.add(item['id'])
                 previous = self.ledger.provider_submission(session['account'], item['id']) or {}
-                if item.get('submittedAt') is None and previous.get('submittedAt') is not None:
+                if (item.get('submittedAt') is None and previous.get('submittedAt') is not None
+                        and previous.get('timeSource') == 'provider-absolute'):
                     item.update(submittedAt=previous['submittedAt'], timeSource=previous['timeSource'])
                 if item.get('submittedAt') is not None:
                     known_time_ids.add(item['id'])
@@ -645,7 +671,7 @@ class Application:
             # another unbounded burst of old detail requests.
             with self.ledger.transaction():
                 latest = self.ledger.provider_submission(session['account'], sid) or {}
-                if latest.get('submittedAt') is not None:
+                if latest.get('submittedAt') is not None and latest.get('timeSource') == 'provider-absolute':
                     item.update(submittedAt=latest['submittedAt'], timeSource=latest['timeSource'])
                     known_time_ids.add(sid)
                     self.ledger.save_submission(session['sessionId'], item)
@@ -676,6 +702,11 @@ class Application:
         warnings = [warning for warning in warnings if warning not in verified_warnings]
         if recover_receipts and complete and history_verified:
             self.recover_receipts(session, client, deadline, seen)
+        # Use the pass's start, so a request begun before the deadline cannot
+        # satisfy the post-deadline catch-up. Even a pages=0 cached fallback is
+        # an incomplete attempt that must remain eligible for another refresh.
+        self.ledger.mark_history_refresh(session['sessionId'], refresh_started_at,
+                                        complete=complete and history_verified and not warnings)
         return {'submissions': self.ledger.submissions(session['sessionId']), 'account': session['account'],
                 'coverage': {'complete': complete and not warnings, 'pages': pages,
                              **({'warning': '; '.join(dict.fromkeys(warnings))} if warnings else {})}}

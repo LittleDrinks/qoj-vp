@@ -2,18 +2,20 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm');
 function fixture() {
- const calls=[], callbacks=[], listeners={}, storage={};
+ const calls=[], callbacks=[], listeners={}, storage={}, refreshSessions=[];
  const listener={addListener() {}};
  const context={URL,Map,Set,Promise,Date,crypto:require('node:crypto').webcrypto,setTimeout,clearTimeout,
   VpTransport:{pause:async()=>{}},
-  __native:(method,args)=>{calls.push({method,args});return new Promise((resolve,reject)=>callbacks.push({resolve,reject}));},
+  __native:(method,args)=>{calls.push({method,args});
+    if(method==='refresh_sessions')return Promise.resolve({sessions:refreshSessions});
+    return new Promise((resolve,reject)=>callbacks.push({resolve,reject}));},
   browser:{runtime:{id:'test',getURL:n=>'moz-extension://test/'+n,onMessage:listener,onInstalled:listener},
    action:{onClicked:listener},alarms:{create(){},onAlarm:{addListener:f=>listeners.alarm=f}},
    storage:{local:{get:async k=>({[k]:storage[k]}),set:async v=>Object.assign(storage,v)}}}};
  vm.createContext(context);
  vm.runInContext(fs.readFileSync('extension/background.js','utf8').replace(/\}\)\(\);\s*$/,
   'native=globalThis.__native; exclusiveSync=async()=>({});globalThis.dispatch=dispatch;})();'),context);
- return {...context,calls,callbacks,listeners,storage};
+ return {...context,calls,callbacks,listeners,storage,refreshSessions};
 }
 test('reloads coalesce provider reads while local session snapshot stays independent', async()=>{
  const f=fixture(),pending=[];
@@ -28,17 +30,19 @@ test('reloads coalesce provider reads while local session snapshot stays indepen
  assert.equal(f.calls.length,3);f.callbacks[2].resolve({id:'4569'});await next;
 });
 test('same history refresh joins alarm, fresh tabs and repeated clicks, failed reads can retry', async()=>{
- const f=fixture();f.storage.sessions=[{sessionId:'same',state:'running',startAt:Date.now(),durationMs:3600000}];
+ const f=fixture();f.storage.sessions=[];
+ f.refreshSessions.push({sessionId:'same',state:'finished',refreshRequired:true,ranklandUrl:'https://vp.xcpc.link/?contest=fixture&run=same'});
  const first=f.dispatch('qoj_submissions',{sessionId:'same',refresh:true});
  const alarm=f.listeners.alarm({name:'vp-refresh'});
  await new Promise(setImmediate);
  const second=f.dispatch('qoj_submissions',{refresh:true,sessionId:'same'});
- assert.equal(f.calls.length,1);
+ assert.equal(f.calls.filter(call=>call.method==='refresh_sessions').length,1,"alarm discovers work from the durable ledger");
+ assert.equal(f.calls.filter(call=>call.method==='qoj_submissions').length,1,"alarm, repeated clicks and fresh UI contexts share one provider read");
  f.callbacks[0].resolve({submissions:[]});await Promise.all([first,alarm,second]);
  const failed=f.dispatch('qoj_submissions',{sessionId:'same',refresh:true});
  f.callbacks[1].reject(Error('temporary failure'));await assert.rejects(failed,/temporary/);
  const retry=f.dispatch('qoj_submissions',{sessionId:'same',refresh:true});
- assert.equal(f.calls.length,3);f.callbacks[2].resolve({submissions:[]});await retry;
+ assert.equal(f.calls.filter(call=>call.method==='qoj_submissions').length,3);f.callbacks[2].resolve({submissions:[]});await retry;
 });
 test('different sessions and cached history reads do not join a provider request',async()=>{
  const f=fixture();const jobs=[f.dispatch('qoj_submissions',{sessionId:'a',refresh:true}),f.dispatch('qoj_submissions',{sessionId:'b',refresh:true}),f.dispatch('qoj_submissions',{sessionId:'a',refresh:false})];

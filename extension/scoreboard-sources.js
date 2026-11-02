@@ -172,8 +172,20 @@ globalThis.VpScoreboardSources = (() => {
       return {...fallback("matched", "VERIFIED_PROBLEM_SET", results), source: "rankland", url: ranklandUrl,
         ranklandUrl, contestKey: matched[0].uk};
     }
-    return {resolve};
+    async function describeReplay(raw) {
+      const url = new URL(raw), uk = url.searchParams.get("contest");
+      const loopback = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
+      if ((!loopback && url.origin !== "https://vp.xcpc.link") || url.pathname !== "/" || !key(uk)) throw failure("INVALID_REPLAY");
+      const detail = await request((loopback ? url.origin + "/api/v2/public/contests" : API) + "/" + encodeURIComponent(uk));
+      const durationMs = duration(detail.duration);
+      if (detail.uk !== uk || detail.redirectUK || !durationMs || detail.sorter?.algorithm !== "ICPC" ||
+          !Array.isArray(detail.problems) || !detail.problems.length || detail.problems.length > 200) throw failure("MALFORMED_DETAIL");
+      const problems = detail.problems.map((problem, index) => ({index, label: labels(problem?.alias)}));
+      if (problems.some(problem => !problem.label) || new Set(problems.map(problem => problem.label)).size !== problems.length) throw failure("MALFORMED_DETAIL");
+      return {contestKey: uk, durationMs, problems};
+    }
+    return {resolve, describeReplay};
   }
   const defaults = create();
-  return {create, resolve: defaults.resolve};
+  return {create, resolve: defaults.resolve, describeReplay: defaults.describeReplay};
 })();

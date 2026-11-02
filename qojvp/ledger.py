@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext
+import hashlib
 import json
 import math
 import os
@@ -273,7 +274,7 @@ class Ledger:
             if not incoming.get('language') and old.get('language'):
                 merged['language'] = old['language']
             changed = not row or any(merged.get(k) != old.get(k) for k in
-                                    ('verdict', 'rawVerdict', 'score', 'pending', 'submittedAt', 'problemId'))
+                                    ('verdict', 'rawVerdict', 'score', 'pending', 'submittedAt', 'timeSource', 'problemId', 'problemLabel'))
             revision = row['revision'] + int(changed) if row else 1
             merged['revision'] = revision
             self.db.execute('''INSERT INTO submissions VALUES(?,?,?,?)
@@ -296,7 +297,7 @@ class Ledger:
         verdict = submission.get('verdict')
         previous = self.db.execute('SELECT * FROM rankland_queue WHERE session_id=? AND account=? AND submission_id=?',
                                   (session_id, submission['account'].casefold(), submission['id'])).fetchone()
-        if not eligible:
+        if not eligible and previous is None:
             return
         # Rejudging to pending/unknown invalidates any earlier final outbox
         # receipt but cannot be expressed as a blind extra manual submission.
@@ -304,8 +305,13 @@ class Ledger:
             return
         value = {"sessionId": session_id, "submissionId": submission['id'],
                  "problemId": submission['problemId'], "problemLabel": submission['problemLabel'],
-                 "elapsedMs": at - start, "verdict": verdict, "rawVerdict": submission['rawVerdict'],
+                 "elapsedMs": at - start if at is not None and start is not None else None,
+                 "verdict": verdict, "rawVerdict": submission['rawVerdict'],
                  "sourceId": f"qoj:{submission['account'].casefold()}:{submission['id']}"}
+        if not eligible:
+            # Retain a newer tombstone revision: an older delivered result must
+            # be withdrawn if QOJ corrects its time outside this session.
+            value['withdrawn'] = True
         queue_id = previous['queue_id'] if previous else str(uuid.uuid4())
         if previous and previous['revision'] == revision and not reset:
             return
@@ -369,10 +375,105 @@ class Ledger:
             result.append(item)
         return result
 
+    def rankland_plan(self, session_id):
+        """Return the full desired projection, retaining source identities.
+
+        Pending/unknown results are barriers only for later submissions of the
+        same problem. A delayed WA must precede its later AC when delivered.
+        Previously delivered rejudgements are included: the receiving adapter
+        replaces its owned record instead of appending another attempt.
+        """
+        with self.transaction(write=False) if not self.db.in_transaction else nullcontext():
+            session = self.session(session_id)
+            queued = self.queue(session_id)
+            by_id = {item['submissionId']: item for item in queued}
+            records = [item for item in self.submissions(session_id) if item['inSession']]
+
+            def order(item):
+                sid = str(item.get('id') or '')
+                # Locally uncertain receipts have no provider ID. At the same
+                # instant they must precede every known provider submission.
+                return (item['elapsedMs'], int(sid) if sid.isdecimal() else -1, item.get('operationId', ''))
+
+            blocked, waiting, items = set(), [], []
+            pending_count, blocked_count = 0, 0
+            for record in sorted(records, key=order):
+                pid = str(record['problemId'])
+                if record.get('state') == 'rejected':
+                    continue
+                identity = {'problemId': pid, 'problemLabel': record.get('problemLabel'),
+                            'elapsedMs': record['elapsedMs']}
+                if record.get('id'):
+                    identity['submissionId'] = str(record['id'])
+                elif record.get('operationId'):
+                    identity['operationId'] = record['operationId']
+                unverified_time = record.get('timeSource') != 'provider-absolute'
+                unresolved = (not record.get('id') or unverified_time or record.get('pending') is True
+                              or record.get('verdict') not in FINAL_VERDICTS)
+                if unresolved:
+                    pending_count += 1
+                    blocked.add(pid)
+                    reason = ('receipt-unknown' if not record.get('id') else
+                              'time-unverified' if unverified_time else 'judgement-pending')
+                    waiting.append({**identity, 'reason': reason})
+                elif pid in blocked:
+                    blocked_count += 1
+                    waiting.append({**identity, 'reason': 'earlier-pending'})
+                elif session.get('ranklandUrl') and str(record['id']) in by_id:
+                    item = dict(by_id[str(record['id'])])
+                    # Session membership may change when the user ends early,
+                    # without changing the provider fact or its revision.
+                    item.pop('withdrawn', None)
+                    items.append(item)
+            # This token describes desired content, not delivery bookkeeping.
+            # In particular, resolving an unknown receipt can release a final
+            # record without changing that provider fact's revision.
+            token_value = {'target': session.get('ranklandUrl'), 'startAt': session.get('startAt'),
+                           'durationMs': session_duration(session), 'waiting': waiting,
+                           'items': [[item['sourceId'], item['revision']] for item in items],
+                           'sources': [{key: item.get(key) for key in
+                               ('sourceId', 'revision', 'elapsedMs', 'verdict', 'rawVerdict', 'problemId', 'problemLabel')}
+                               for item in sorted(queued, key=lambda row: row['sourceId'])]}
+            token = hashlib.sha256(json.dumps(token_value, sort_keys=True, separators=(',', ':'),
+                                               allow_nan=False).encode()).hexdigest()
+            return {'sessionId': session_id, 'items': items, 'waiting': waiting, 'allItems': queued,
+                    'pendingCount': pending_count, 'blockedCount': blocked_count, 'planToken': token}
+
+    def mark_history_refresh(self, session_id, started_at, *, complete):
+        with self.transaction():
+            session = self.session(session_id)
+            if started_at >= session.get('lastHistoryRefreshAt', 0):
+                session['lastHistoryRefreshAt'] = started_at
+                session['lastHistoryRefreshComplete'] = complete
+            if complete:
+                session['lastHistoryCompleteAt'] = max(started_at, session.get('lastHistoryCompleteAt', 0))
+            self.save_session(session)
+
+    def refresh_sessions(self, now):
+        """Poll started sessions through settlement, independently of tabs."""
+        result = []
+        for session in self.sessions():
+            start = session.get('startAt')
+            if session['state'] not in {'running', 'finished'} or start is None or start > now:
+                continue
+            end = start + session_duration(session)
+            plan = self.rankland_plan(session['sessionId'])
+            refresh = (now < end or plan['pendingCount'] > 0
+                       or session.get('lastHistoryCompleteAt', 0) < end
+                       or session.get('lastHistoryRefreshComplete') is False
+                       or session.get('lastHistoryRefreshAt', 0) > session.get('lastHistoryCompleteAt', 0))
+            synchronize = bool(session.get('ranklandUrl') and
+                               (session.get('ranklandSyncedPlanToken') != plan['planToken']
+                                or any(item['state'] != 'synced' for item in plan['allItems'])))
+            if refresh or synchronize:
+                result.append({**session, 'refreshRequired': refresh, 'syncRequired': synchronize,
+                               'pendingCount': plan['pendingCount']})
+        return result
+
     def ack(self, session_id, args):
         if args.get('state') not in {'synced', 'ambiguous', 'failed'}:
             raise ValueError('Unknown outbox acknowledgement state')
-        with self.transaction():
+        with self.transaction() if not self.db.in_transaction else nullcontext():
             row = self.db.execute('SELECT * FROM rankland_queue WHERE queue_id=? AND session_id=?',
                                   (args.get('queueId'), session_id)).fetchone()
             if row is None:
@@ -387,6 +488,51 @@ class Ledger:
                                     if k in receipt and isinstance(receipt[k], (str, int, float, bool, type(None)))}
             if args.get('error'):
                 value['syncError'] = str(args['error'])[:300]
+            elif args['state'] == 'synced':
+                value.pop('syncError', None)
             self.db.execute('UPDATE rankland_queue SET state=?,attempts=attempts+1,record_json=? WHERE queue_id=?',
                             (args['state'], json.dumps(value), args['queueId']))
         return {'accepted': True, 'queueId': args['queueId'], 'state': args['state']}
+
+    def ack_batch(self, session_id, acknowledgements, *, plan_token=None):
+        """Acknowledge one applied projection atomically in one helper task."""
+        if not isinstance(acknowledgements, list) or len(acknowledgements) > 10000:
+            raise ValueError('Expected at most 10000 outbox acknowledgements')
+        if plan_token is not None and (not isinstance(plan_token, str) or len(plan_token) != 64
+                                      or any(char not in '0123456789abcdef' for char in plan_token)):
+            raise ValueError('Invalid RankLand plan token')
+        seen = set()
+        for item in acknowledgements:
+            if (not isinstance(item, dict) or not isinstance(item.get('queueId'), str) or not item['queueId']
+                    or type(item.get('revision')) is not int or item['revision'] < 1
+                    or item.get('state') not in {'synced', 'ambiguous', 'failed'}):
+                raise ValueError('Invalid outbox acknowledgement')
+            if item['queueId'] in seen:
+                raise ValueError('A queue item cannot occur twice in one acknowledgement batch')
+            seen.add(item['queueId'])
+        with self.transaction():
+            session = self.session(session_id)
+            if plan_token is not None:
+                current = self.rankland_plan(session_id)
+                if current['planToken'] != plan_token:
+                    return {'accepted': False, 'reason': 'stale-plan', 'results': []}
+                if seen != {item['queueId'] for item in current['allItems']}:
+                    raise ValueError('A projection acknowledgement must cover every planned queue item')
+            stale = set()
+            for item in acknowledgements:
+                row = self.db.execute('SELECT revision FROM rankland_queue WHERE queue_id=? AND session_id=?',
+                                      (item['queueId'], session_id)).fetchone()
+                if row is None:
+                    raise KeyError('Unknown outbox item')
+                if row['revision'] != item['revision']:
+                    stale.add(item['queueId'])
+            if stale:
+                return {'accepted': False, 'reason': 'stale-revision', 'results': [
+                    {'accepted': False, 'queueId': item['queueId'],
+                     'reason': 'stale-revision' if item['queueId'] in stale else 'batch-stale'}
+                    for item in acknowledgements]}
+            results = [self.ack(session_id, item) for item in acknowledgements]
+            if plan_token is not None and all(item['state'] == 'synced' for item in acknowledgements):
+                session['ranklandSyncedPlanToken'] = plan_token
+                self.save_session(session)
+            return {'accepted': True, 'results': results}

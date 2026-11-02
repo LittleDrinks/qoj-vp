@@ -21,8 +21,23 @@ function setup({entries = [entry()], details = {}, handler = null, ...options} =
     const uk = decodeURIComponent(url.slice(API.length + 1));
     return envelope(details[uk] || detail(uk));
   }});
-  return {requests, resolve: (contest = qoj, duration = HOURS) => resolver.resolve(contest, duration)};
+  return {requests, describeReplay: resolver.describeReplay, resolve: (contest = qoj, duration = HOURS) => resolver.resolve(contest, duration)};
 }
+test("replay metadata provides original problem indices and duration using cached public GET only", async () => {
+  const env = setup(), url = "https://vp.xcpc.link/?contest=icpc2022xi_an&run=practice";
+  const first = await env.describeReplay(url), again = await env.describeReplay(url);
+  assert.equal(first.durationMs, HOURS); assert.equal(first.problems[1].index, 1); assert.equal(first.problems[1].label, "B");
+  assert.equal(JSON.stringify(first), JSON.stringify(again)); assert.equal(env.requests.length, 1);
+  assert.equal(env.requests[0].opts.method, "GET"); assert.equal(env.requests[0].opts.credentials, "omit");
+});
+test("replay import rejects mismatched keys, duplicate aliases, redirects and unsupported scoring metadata", async () => {
+  for (const patch of [{uk:"other"}, {redirectUK:"other"}, {sorter:{algorithm:"OI"}}, {duration:[0,"s"]},
+      {problems:[{alias:"A"},{alias:"A"}]}]) {
+    const env = setup({handler:async()=>envelope(detail("icpc2022xi_an",patch))});
+    await assert.rejects(env.describeReplay("https://vp.xcpc.link/?contest=icpc2022xi_an"), error=>error.code==="MALFORMED_DETAIL");
+  }
+  await assert.rejects(setup().describeReplay("https://example.com/?contest=icpc2022xi_an"), error=>error.code==="INVALID_REPLAY");
+});
 test("exact QOJ problem identities and order select the original RankLand URL without starting a replay", async () => {
   const env = setup(), result = await env.resolve();
   assert.equal(result.source, "rankland"); assert.equal(result.state, "matched");

@@ -55,11 +55,13 @@
         <div id="team-overview" class="row">
           <div id="team-submissions" class="col">
             <h1 class="teamoverview">Submissions</h1>
-            <div class="d-flex align-items-center gap-3 my-2 vp-refresh-bar">
+            <div class="d-flex flex-wrap align-items-center gap-3 my-2 vp-refresh-bar">
               <button id="refresh-submissions" class="btn btn-outline-secondary btn-sm" type="button"><i class="fas fa-sync-alt" aria-hidden="true"></i> 刷新判定</button>
               <a id="qoj-history-link" class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener noreferrer">原站记录</a>
+              <button id="sync-rankland" class="btn btn-outline-secondary btn-sm" type="button" hidden><i class="fas fa-sync-alt" aria-hidden="true"></i> 同步到 RankLand</button>
               <span id="refresh-status" class="small text-muted" role="status" aria-live="polite">尚未同步</span>
             </div>
+            <p id="rankland-sync-status" class="small text-muted mb-2" role="status" aria-live="polite" hidden></p>
             <div id="history-warning" class="alert alert-warning d-none" role="status"></div>
             <p id="history-time-status" class="small text-muted mb-2" hidden></p>
             <div id="submissions-empty" class="alert alert-warning">No submissions</div>
