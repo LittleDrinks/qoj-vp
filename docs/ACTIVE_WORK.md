@@ -1,6 +1,17 @@
 # 当前工作状态
 
-更新：2026-11-02（Asia/Shanghai）。**0.3.2 启动显示缓存及移除加载动效已通过 VM Firefox 回归**。
+更新：2026-11-02（Asia/Shanghai）。**0.3.3 增加 Firefox CD；VM 当前仍为已验证的 0.3.2**。
+
+- CD 支持测试/lint 后 AMO unlisted 签名并发布 GitHub Release；无需公开上架商店。
+- 签名凭据尚未配置。未签名开发包明确标记，手动可生成开发草稿；签名流程缺凭据会停止。
+- 扩展/助手版本、tag、源码提交、签名后内容均校验；打包附助手、完整源码、安装说明和 SHA256SUMS。
+- 0.3.3 要求 Firefox 140+ 并声明实际数据传输，使用内置安装同意机制。当前 Hydro ESR 140.16 满足此版本要求。
+- 本地 Python 138、Node 142 项通过，actionlint 通过，Mozilla lint 无错误（3 个已记录警告）。实际签名/安装未执行。
+- 原生 submit 与页面 URL 的研究见 [兼容方案](research/2026-11-02/native-submit-and-routes.md)；HTTP 兼容服务尚未实施。
+
+## 0.3.2 已验证
+
+**0.3.2 启动显示缓存及移除加载动效已通过 VM Firefox 回归**。
 本轮范围和证据见 [STARTUP_0.3.2.md](STARTUP_0.3.2.md)。上一轮见 [FOLLOWUP_0.3.1.md](FOLLOWUP_0.3.1.md)。
 
 - 刷新时同步恢复浏览器内上次显示的比赛、题卡和记录，不等待助手启动；助手核验后启用 Submit。

@@ -2,30 +2,85 @@
 
 普通推送使用 GitHub 托管的 Ubuntu 24.04 runner。真实 Firefox 回归另用专门的
 Hydro Contest OS 虚拟机；当前用户正在使用的比赛 VM 不注册为 CI runner。
-这份配置不等于已创建或注册专机，第一次 GitHub Actions 运行结果才是云端验收证据。
 
-## 自动检查与产物
+## 下载与安装
 
-`.github/workflows/ci.yml` 在 push、pull request 和手动触发时执行：
+从 [GitHub Releases](https://github.com/LittleDrinks/qoj-vp/releases) 下载同一版本的
+`qoj-vp-firefox-版本-signed.xpi`、`qoj-vp-mvp-source.tar.gz` 和 `INSTALL.md`。
+仓库为私有，需要先登录有权限的 GitHub 账号。未签名包名称带 `-unsigned`，只用于开发。
 
-1. 递归检出固定的 `vendor/qoj-submitter` submodule。
-2. Python 3.12 运行 `unittest`；Node 24 运行全部 `preflight/test_*.cjs` 和 `tests/test_*.cjs`。
-3. 构建 Firefox XPI、Python wheel、包含固定 CLI submodule 内容的完整源码 tar.gz。
-4. 上传包、`SHA256SUMS` 和测试日志。源码包只导出 Git 提交，带 `SOURCE_COMMIT`
-   和逐文件 `SOURCE_MANIFEST.json`；工作区缓存、浏览器 profile、账户状态不在包里。
+在 Firefox 所在的 Linux 中按 `INSTALL.md` 安装/更新按需 Python 助手；然后打开
+`about:addons` → 齿轮 → **从文件安装附加组件**，选择签名 XPI。
+签名版重启后仍保留；升级使用同一扩展 ID，直接覆盖安装，不先卸载或删比赛数据。
+已有临时版可先重启 Firefox 再安装签名版，助手账本保持原路径。
+**XPI 不会自行安装 Python 助手**，两者需要使用同一版本。
 
-构建的 XPI 未经 Mozilla 签名。GitHub 打包不改变 Firefox 的签名和临时扩展规则，
-也不会直接更新用户的虚拟机。测试通过只覆盖受控测试，不能当成实际 QOJ 提交的证据。
+当前尚未配置 AMO 凭据，因此只有开发包/开发草稿；不能把未签名包当作长期安装版。
 
-推送 `v*` tag 时，同一工作流测试成功后创建带三个包和校验文件的 **draft release**。
-草稿由仓库所有者检查后发布；普通 commit 不创建 Release。不配置 PyPI、AMO 或其他
-外部发布凭据，默认只使用 GitHub 内置 `GITHUB_TOKEN`。
+## 一次性配置 Mozilla 签名
 
-本地对应命令：
+采用 **unlisted**：由 Mozilla 签名，不公开上架 AMO 商店，签名包放在这个私有仓库的 Release。
+
+1. 用自己的 Mozilla 开发者账号打开 [AMO API 凭据页](https://addons.mozilla.org/developers/addon/api/key/)，
+   获取 JWT issuer 和 JWT secret。
+2. 打开仓库 [Settings → Secrets and variables → Actions](https://github.com/LittleDrinks/qoj-vp/settings/secrets/actions)，
+   添加 `AMO_JWT_ISSUER` 和 `AMO_JWT_SECRET` 两个 repository secrets。不要放到普通 Variables、源码或聊天里。
+3. 打开 [Actions 工作流](https://github.com/LittleDrinks/qoj-vp/actions/workflows/ci.yml)，
+   点击 **Run workflow**，选 `main`，将 `release_mode` 设为 `signed`。
+
+凭据只传入签名步骤环境变量。测试通过后，固定版本的 web-ext 向 AMO 提交，下载签名包，
+校验扩展内容与测试源码逐文件相同，上传安装说明/助手/源码/校验值，最后发布 GitHub Release。
+签名需要 Mozilla 账号且仍可能进入人工审核；CI 设置 20 分钟等待，超时不会发布不完整版本。
+等待超时时先查看 AMO 该版本审核状态和工作流提示的开发者页面；不要不断重发同一版本。
+[Mozilla 签名和审核说明](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/)。
+
+0.3.3 起最低 Firefox 为 **140**，与已验证的 Hydro Firefox ESR 140.16 相容。
+manifest 声明 QOJ 账号、题面/提交内容及比赛进度的必要数据传输；Firefox 安装时展示并征求同意。
+原生助手也在声明范围内，不虚报“完全没有数据传输”。
+[Mozilla 数据同意机制](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/)。
+源代码、第三方来源、构建与受控验证说明见 [AMO_REVIEW.md](AMO_REVIEW.md)。
+
+## 发布触发方式
+
+| 触发 | 结果 |
+| --- | --- |
+| 普通 push / pull request | 测试、Mozilla lint、未签名 XPI / wheel / 完整源码 artifact |
+| 手动 `release_mode=none` | 只运行 CI |
+| 手动 `release_mode=draft-unsigned` | 创建带安装说明和全部包的开发草稿；不调用 AMO，不公开发布 |
+| 手动 `release_mode=signed` | 测试 → AMO unlisted 签名 → GitHub Release 正式发布 |
+| 推送 `v版本` tag | 自动走同一签名发布流程；需要先配置 AMO secrets |
+
+版本同时存在于 `extension/manifest.json`、`pyproject.toml`、`qojvp/__init__.py`。
+发布时三者必须相同，tag 必须为 `v` 加版本号，commit 必须已包含在默认分支。
+手动发布自动选择 manifest 版本；已有 tag 不能移动，已正式发布的 Release 不能覆盖。
+签名失败或凭据缺失不降级成未签名“正式版”。相同提交的开发草稿可用 signed 流程完成发布。
+
+发布新版本示例（先完成三处版本更新、提交并推送）：
+
+```sh
+git tag v0.3.4
+git push origin v0.3.4
+```
+
+也可以使用 `gh workflow run ci.yml -f release_mode=signed`，无需自己建 tag。
+签名 job 串行执行，工作流不会自动取消正在进行的 AMO 上传。
+普通 GitHub artifact 保留 30 天，发布 bundle artifact 保留 90 天；Release 资产长期保存。
+自动更新暂未配置：私有 GitHub 下载地址无法直接交给 Firefox 更新器使用。先从 Release 手动
+下载安装同 ID 新版，后续若选公开 HTTPS 更新源或 AMO 上架，再加入 `update_url`。
+[Mozilla 更新说明](https://extensionworkshop.com/documentation/manage/updating-your-extension/)。
+
+## 自动检查与本地打包
+
+CI 递归检出固定的 `vendor/qoj-submitter`，Python 3.12 运行 `unittest`，Node 24 运行全部
+`preflight/test_*.cjs` 和 `tests/test_*.cjs`，锁定 web-ext 版本运行 Mozilla lint，随后构建三个包。
+源码包只导出 Git HEAD，包含固定 CLI submodule、`SOURCE_COMMIT` 和逐文件 `SOURCE_MANIFEST.json`；
+工作区缓存、浏览器 profile、账号状态不会加入包里。源码包使用 tar.gz，提交源码供 AMO 审核。
 
 ```sh
 git submodule update --init --recursive
 python3 -m pip install . build
+npm ci --ignore-scripts
+npm run lint:firefox
 python3 -m unittest discover -s tests -v
 node --test preflight/test_*.cjs tests/test_*.cjs
 python3 scripts/package_extension.py
@@ -36,24 +91,9 @@ sha256sum *.xpi *.whl *.tar.gz > SHA256SUMS
 sha256sum --check SHA256SUMS
 ```
 
-`package_source.py` 导出 HEAD 的文件，不包含尚未提交的修改；修改应先进入准备发布的提交。
-wheel 只包含按需 Python helper，部署时还需要完整源码包中的固定 QOJ CLI 和安装脚本。
-
-## 长期安装与签名
-
-`about:debugging` 的临时安装在 Firefox 重启后结束，这是开发加载方式的行为，
-不是 GitHub artifact 下载失败。[Mozilla 临时安装说明](https://extensionworkshop.com/documentation/develop/temporary-installation-in-firefox/)。
-
-长期分发可以使用 AMO 的 **unlisted** 签名：扩展不进入公开商店列表，签名后的 XPI
-仍可自行分发和普通安装。CI 后续可在测试通过后调用 `web-ext sign`，把签名产物加入
-Release；这一步需要所有者的 AMO 账号及签名凭据，当前没有上传或配置。
-ESR 的 `xpinstall.signatures.required=false` 是 Mozilla 支持的开发选项，但会放宽整个
-profile 的签名检查，不能把它描述成已获得签名。[Mozilla 签名与分发说明](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/)。
-
-自动更新还需稳定的 HTTPS `update_url` 与版本清单，或选择 AMO 上架分发。
-私有 GitHub Release 的资产需要仓库访问权限，不能直接假设 Firefox 更新器能读取；
-签名前先使用手动下载安装，确定分发地址后再加入更新清单。
-[Mozilla 更新说明](https://extensionworkshop.com/documentation/manage/updating-your-extension/)。
+`package_source.py` 导出 HEAD，不包含未提交修改。发布组包还校验版本、源码提交和扩展内容；
+签名结构检查不等同于独立密码学验签，实际签名由 AMO 提供、Firefox 安装时验证。
+CI 通过不代表已做本轮真实 QOJ 提交或签名安装验证。
 
 ## Hydro 专机
 

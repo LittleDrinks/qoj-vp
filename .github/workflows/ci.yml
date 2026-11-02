@@ -1,16 +1,23 @@
-name: Test and package
+name: Test, package and release Firefox
 
 on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_mode:
+        description: 'none: only CI; draft-unsigned: development draft; signed: installable unlisted release'
+        type: choice
+        options: [none, draft-unsigned, signed]
+        default: none
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a signing upload: AMO may already have consumed the version.
+  cancel-in-progress: false
 
 defaults:
   run:
@@ -31,6 +38,15 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '24'
+          cache: npm
+      - name: Check version and release tag
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: python scripts/prepare_firefox_release.py --check-version --tag "$RELEASE_TAG"
+      - name: Install pinned Firefox release tools
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Mozilla extension validation
+        run: npm run lint:firefox
       - name: Install Python dependencies
         run: |
           sudo apt-get update -qq
@@ -49,7 +65,7 @@ jobs:
       - name: Hash packaged artifacts
         working-directory: dist
         run: sha256sum *.xpi *.whl *.tar.gz > SHA256SUMS
-      - name: Upload installable artifacts
+      - name: Upload development packages
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: qoj-vp-${{ github.sha }}
@@ -65,30 +81,144 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  draft-release:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+  firefox-release:
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_mode != 'none')
     needs: test-and-package
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 35
+    concurrency:
+      group: firefox-release
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+          cache: npm
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: qoj-vp-${{ github.sha }}
           path: dist
-      - name: Create a draft release
+      - name: Check build, tag and existing release
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          REQUESTED_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_MODE: ${{ inputs.release_mode || 'signed' }}
         run: |
-          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > release-state.txt 2>/dev/null; then
-            if [ "$(cat release-state.txt)" != 'true' ]; then
-              echo '::error::The release is already published; its assets were preserved.'
+          version=$(python scripts/prepare_firefox_release.py --check-version --tag "$REQUESTED_TAG")
+          tag="v$version"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "mode=$RELEASE_MODE" >> "$GITHUB_OUTPUT"
+          # Only release commits already on the default branch.
+          git merge-base --is-ancestor "$SOURCE_COMMIT" "refs/remotes/origin/$DEFAULT_BRANCH"
+          # A manual release may create its version tag; an existing tag is immutable.
+          gh api --paginate --slurp "repos/$GH_REPO/git/matching-refs/tags/$tag" > tag-refs.json
+          tag_exists=$(jq -r --arg ref "refs/tags/$tag" 'any(.[][]; .ref == $ref)' tag-refs.json)
+          if [ "$tag_exists" = true ]; then
+            if [ "$(git rev-parse "refs/tags/$tag^{commit}")" != "$SOURCE_COMMIT" ]; then
+              echo '::error::The version tag points to another commit. Bump all three versions.'
               exit 1
             fi
-            gh release upload "$RELEASE_TAG" dist/* --clobber
-          else
-            gh release create "$RELEASE_TAG" dist/* --draft --verify-tag --generate-notes --title "$RELEASE_TAG"
           fi
+          gh api --paginate --slurp "repos/$GH_REPO/releases" > releases.json
+          published=$(jq -r --arg tag "$tag" 'any(.[][]; .tag_name == $tag and .draft == false)' releases.json)
+          if [ "$published" = true ]; then
+            echo '::error::This version is already published. Bump all three versions.'
+            exit 1
+          fi
+          (cd dist && sha256sum --check SHA256SUMS)
+          python scripts/prepare_firefox_release.py --tag "$tag" --commit "$SOURCE_COMMIT" --output dist/checked
+      - name: Check signing credentials
+        if: steps.release.outputs.mode == 'signed'
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          if [ -z "$WEB_EXT_API_KEY" ] || [ -z "$WEB_EXT_API_SECRET" ]; then
+            echo '::error::Add AMO_JWT_ISSUER and AMO_JWT_SECRET in repository Actions secrets. See docs/CI.md. No unsigned release will be published.'
+            exit 1
+          fi
+      - name: Install pinned signing tool
+        if: steps.release.outputs.mode == 'signed'
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Sign privately with Mozilla (unlisted)
+        if: steps.release.outputs.mode == 'signed'
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          python scripts/prepare_firefox_release.py --amo-metadata dist/amo-metadata.json
+          npx --no-install web-ext sign --source-dir extension --artifacts-dir dist/amo \
+            --channel unlisted --no-config-discovery --approval-timeout 1200000 \
+            --amo-metadata dist/amo-metadata.json \
+            --upload-source-code dist/qoj-vp-mvp-source.tar.gz
+      - name: Assemble verified release
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_MODE: ${{ steps.release.outputs.mode }}
+        run: |
+          if [ "$RELEASE_MODE" = signed ]; then
+            shopt -s nullglob
+            signed=(dist/amo/*.xpi)
+            if [ "${#signed[@]}" -ne 1 ]; then
+              echo '::error::AMO has not returned exactly one signed XPI. No release will be published.'
+              exit 1
+            fi
+            python scripts/prepare_firefox_release.py --tag "$RELEASE_TAG" --commit "$SOURCE_COMMIT" \
+              --signed-xpi "${signed[0]}" --output dist/release
+          else
+            mv dist/checked dist/release
+          fi
+      - name: Save verified release bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: firefox-release-${{ github.sha }}
+          path: dist/release/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Create or finish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_MODE: ${{ steps.release.outputs.mode }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          # Keep every release a draft until its exact assets have been uploaded.
+          if gh release view "$RELEASE_TAG" --json isDraft > release-state.json 2>/dev/null; then
+            if [ "$(jq -r .isDraft release-state.json)" != true ]; then
+              echo '::error::Release was published concurrently; existing assets were preserved.'
+              exit 1
+            fi
+            gh release edit "$RELEASE_TAG" --target "$SOURCE_COMMIT" --notes-file dist/release/RELEASE_NOTES.md
+          else
+            gh release create "$RELEASE_TAG" --target "$SOURCE_COMMIT" --draft \
+              --title "QOJ VP Workbench $RELEASE_TAG" --notes-file dist/release/RELEASE_NOTES.md
+          fi
+          gh release upload "$RELEASE_TAG" dist/release/* --clobber
+          if [ "$RELEASE_MODE" = signed ]; then
+            # A development draft of the same commit may contain its old unsigned asset.
+            unsigned="qoj-vp-firefox-${RELEASE_TAG#v}-unsigned.xpi"
+            gh release view "$RELEASE_TAG" --json assets > release-assets.json
+            if jq -e --arg name "$unsigned" 'any(.assets[]; .name == $name)' release-assets.json > /dev/null; then
+              gh release delete-asset "$RELEASE_TAG" "$unsigned" --yes
+            fi
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest
+          fi
+          url=$(gh release view "$RELEASE_TAG" --json url --jq .url)
+          printf 'Release: %s\nMode: %s\nCommit: %s\n' "$url" "$RELEASE_MODE" "$SOURCE_COMMIT" >> "$GITHUB_STEP_SUMMARY"

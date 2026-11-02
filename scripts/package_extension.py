@@ -15,10 +15,10 @@ def main():
     manifest = json.loads((extension / 'manifest.json').read_text())
     out = ROOT / 'dist'
     out.mkdir(exist_ok=True)
-    target = out / f"qoj-vp-firefox-{manifest['version']}.xpi"
+    target = out / f"qoj-vp-firefox-{manifest['version']}-unsigned.xpi"
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(extension.rglob('*')):
-            if path.is_file():
+            if path.is_file() and path.name != '.amo-upload-uuid':
                 archive.write(path, str(path.relative_to(extension)))
     print(json.dumps({'path': str(target), 'bytes': target.stat().st_size,
                       'sha256': hashlib.sha256(target.read_bytes()).hexdigest(), 'signed': False}, indent=2))

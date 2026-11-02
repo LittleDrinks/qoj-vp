@@ -4,9 +4,10 @@ Firefox 扩展，提供复用 DOMjudge 9.0.1 的提交页和 Problemset，直接
 准备样例/附件、提交和同步判定；榜单自动匹配原版 RankLand，未匹配时使用 QOJ 原榜。目标为 VMware 内 Firefox，
 CF/Gym 暂不接入。
 
-当前版本为 0.3.1：缓存题表和历史先显示，网络后台更新；连续刷新合并请求。
-Home 恢复官方 Clarifications 两列布局，QOJ 列表重定向通过源码指纹核对回执，
-榜单自动选择 RankLand 或 QOJ。验证记录见 [0.3.1 修复记录](docs/FOLLOWUP_0.3.1.md)。
+当前版本为 0.3.3：已配置 Firefox CD，支持 AMO unlisted 签名后发布到 GitHub Release。
+使用前需配置两项 AMO secrets；当前未签名包仅供开发，详见 [发布与安装](docs/CI.md)。
+0.3.2 已修复刷新空白与加载动效，使用浏览器显示缓存先恢复页面，助手核验后启用提交。
+验证记录见 [0.3.2 启动修复](docs/STARTUP_0.3.2.md)；上一轮见 [0.3.1 修复记录](docs/FOLLOWUP_0.3.1.md)。
 
 0.3.0 新增独立的 Jury 比赛管理页，选手 Home 保留进度与提交；
 管理员可配置、结束、归档和删除本地比赛，以及上传或粘贴手动样例。
@@ -37,11 +38,14 @@ python3 scripts/package_extension.py
 
 源码压缩包已包含固定子模块内容，可跳过第一条命令。
 
-开发时打开 `about:debugging#/runtime/this-firefox`，临时载入
-`extension/manifest.json`。当前 XPI 未签名；Firefox 重启后需重新载入临时扩展。
-重载同一扩展后可重新打开工作台，助手保存的比赛账本仍保留。长期安装计划使用 AMO
-unlisted 签名，目前尚未配置签名凭据；CI 产物仍为未签名 XPI，不修改浏览器全局签名设置。
-详见 [安装与签名说明](docs/CI.md#长期安装与签名)。
+Firefox 要求 140+。正常安装从 [GitHub Releases](https://github.com/LittleDrinks/qoj-vp/releases)
+下载带 `-signed.xpi` 的包，在 `about:addons` → 齿轮 → 从文件安装附加组件。
+上面的 Python 助手仍需安装；升级下载同版本完整源码，重新运行助手安装，再覆盖安装 XPI。
+保持扩展 ID 和原数据目录不变，不需要先卸载或删除比赛。
+
+开发时打开 `about:debugging#/runtime/this-firefox`，临时载入 `extension/manifest.json`。
+当前尚未配置 AMO 签名凭据，未签名包文件名带 `-unsigned`，临时安装在 Firefox 重启后结束。
+CD 已支持私下签名及发布；一次性配置步骤见 [安装与签名说明](docs/CI.md#一次性配置-mozilla-签名)。
 
 QOJ 登录与安全验证在同一个 Firefox 的原站页面完成。助手按任务启动并退出，无需
 手动常驻服务，不导入 Cookie、不保存密码，也不改系统原有 `submit`。状态默认保存于
