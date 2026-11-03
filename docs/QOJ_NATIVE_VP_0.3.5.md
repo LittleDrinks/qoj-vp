@@ -90,3 +90,30 @@ Python: 187 passing tests, including 22 native VP cases. Node: 233 passing tests
 including 29 lifecycle cases and the full UI startup/resource flow. Mozilla
 validation: zero errors and three existing warnings (Android minimum-version
 metadata and two unmodified Bootstrap assignments).
+
+## Signed delivery
+
+- Source: `27d787f86c56ac12d2e439e57a3f97d81a25d02d`.
+- [CI and AMO signing](https://github.com/LittleDrinks/qoj-vp/actions/runs/41622120523)
+  passed; the [0.3.5 release](https://github.com/LittleDrinks/qoj-vp/releases/tag/v0.3.5)
+  is published with the signed XPI, helper wheel and complete pinned sources.
+- The downloaded signed payload matches the tested extension. SHA256SUMS and
+  shared-directory readback passed. All 341 archived source files were verified
+  before installing the helper in a persistent guest directory.
+- The normal Hydro Firefox profile installed the signed XPI. After a full
+  Firefox restart, `active=true`, `signedState=2`, and no temporary-install flag.
+  Its installed XPI is byte-identical to the released asset.
+- The signed extension called the real native helper after restart and received
+  version `0.3.5`, `fixture=false`. Home was connected, showed five problems,
+  retained session `e2964747-30d0-48ea-a717-2e0d509f3e94` and start
+  `1793699832000`, with no pending start intent.
+- An additional **GET-only** check of QOJ 4597's real confirmation page captured
+  the account, form identity and 120-minute rule with the final content script.
+  The real Python parser accepted it; no token, script, input, textarea or
+  unrelated rule survived the snapshot. That contest was not started.
+
+The bundle is in `E:\shared\qoj-vp-mvp-release\0.3.5-signed`. Local evidence:
+`signed-install-integrity.json`, `signed-helper-install.json`,
+`signed-after-restart.json`, `signed-final-state.json`,
+`native-registration-verified.json`, and `release-ci.txt` under
+`artifacts/prepare-entry-20261103/`.

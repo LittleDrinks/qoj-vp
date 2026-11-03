@@ -1,6 +1,6 @@
 # 当前工作状态
 
-更新：2026-11-03（Asia/Shanghai）。**0.3.5 原生 QOJ VP 开始联动已在常用 Hydro Firefox 验证，正在签名发布。**
+更新：2026-11-03（Asia/Shanghai）。**0.3.5 原生 QOJ VP 开始联动已发布签名版，并安装到常用 Hydro Firefox；重启保留和助手连接通过。**
 
 ## 0.3.5
 
@@ -9,7 +9,9 @@
 - VMware 实际开启一次用户指定的 2644 热身赛，复用准备会话；确认晚到约 22 分钟仍恢复原始 `17:57:12 UTC+8`，没有提交源码。
 - RankLand SDUT 公开元数据经 SRK 文件解析成功；与 2644 题目/时长不一致，不自动关联为同场比赛。
 - Python 187、Node 233 项通过；Mozilla lint 0 错误、3 个原有警告。
-- 签名发布、安装和重启保留的最终结果待补充。行为与验收边界见 [0.3.5 记录](QOJ_NATIVE_VP_0.3.5.md)。
+- [0.3.5 签名 Release](https://github.com/LittleDrinks/qoj-vp/releases/tag/v0.3.5) 和 [CD](https://github.com/LittleDrinks/qoj-vp/actions/runs/41622120523) 成功，源码 `27d787f86c56ac12d2e439e57a3f97d81a25d02d`。
+- 常用 profile 的正式签名扩展重启后仍启用，Firefox `signedState=2`；浏览器实际调用助手返回 0.3.5，五题、原始开始时间和同一比赛保持。
+- 完整安装包位于 `E:\shared\qoj-vp-mvp-release\0.3.5-signed`；源码、签名包及共享目录读回校验通过。行为与验收边界见 [0.3.5 记录](QOJ_NATIVE_VP_0.3.5.md)。
 
 ## 0.3.4
 
