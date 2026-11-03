@@ -13,6 +13,7 @@ function fixture() {
    action:{onClicked:listener},alarms:{create(){},onAlarm:{addListener:f=>listeners.alarm=f}},
    storage:{local:{get:async k=>({[k]:storage[k]}),set:async v=>Object.assign(storage,v)}}}};
  vm.createContext(context);
+ vm.runInContext(fs.readFileSync('extension/qoj-lifecycle.js','utf8'),context);
  vm.runInContext(fs.readFileSync('extension/background.js','utf8').replace(/\}\)\(\);\s*$/,
   'native=globalThis.__native; exclusiveSync=async()=>({});globalThis.dispatch=dispatch;})();'),context);
  return {...context,calls,callbacks,listeners,storage,refreshSessions};

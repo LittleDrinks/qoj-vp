@@ -29,7 +29,7 @@ function stores() {
       set:async values=>Object.assign(local,structuredClone(values)),remove:async key=>{delete local[key];}}}};
 }
 function page(saved, {blocked=false, snapshot=fixture(), search="", hash="#problems", handler}={}) {
-  const elements=new Map(), calls=[], gates=new Map(), timers=[];
+  const elements=new Map(), calls=[], gates=new Map(), timers=[], listeners=[];
   const $=id=>{if(!elements.has(id)){const e=new Element();e.id=id;elements.set(id,e);}return elements.get(id);};
   for(const match of html.matchAll(/<([\w-]+)\b([^>]*\bid="([^"]+)"[^>]*)>/g)) {
     const e=$(match[3]); e.tagName=match[1].toUpperCase(); e.className=match[2].match(/class="([^"]*)"/)?.[1]||""; e.hidden=/\bhidden\b/.test(match[2]);
@@ -40,7 +40,7 @@ function page(saved, {blocked=false, snapshot=fixture(), search="", hash="#probl
     location,URL,URLSearchParams,Date,console,TextEncoder,TextDecoder,Uint8Array,ArrayBuffer,structuredClone,
     setTimeout,clearTimeout,setInterval:(handler,delay)=>timers.push({handler,delay}),clearInterval(){},
     bootstrap:{Modal:class {show(){} hide(){}},Dropdown:{getInstance:()=>null}},
-    browser:{storage:saved.storage,runtime:{getURL:name=>"moz-extension://fixture/"+name,sendMessage:async message=>{
+    browser:{storage:saved.storage,runtime:{id:"fixture-extension",onMessage:{addListener:listener=>listeners.push(listener)},getURL:name=>"moz-extension://fixture/"+name,sendMessage:async message=>{
       calls.push(message); const method=message.method;
       if(handler) {const reply=await handler(message);if(reply!==undefined)return reply;}
       if(blocked) {if(!gates.has(method))gates.set(method,deferred());return gates.get(method).promise;}
@@ -50,7 +50,7 @@ function page(saved, {blocked=false, snapshot=fixture(), search="", hash="#probl
       if(!gates.has(method))gates.set(method,deferred());return gates.get(method).promise;
     }}}};
   vm.createContext(context);vm.runInContext(source,context);
-  return {context,$,calls,gates,timers,state:()=>window.qojVpUi.getState()};
+  return {context,$,calls,gates,timers,listeners,state:()=>window.qojVpUi.getState()};
 }
 
 test("a reopened Problemset restores its title, fourteen cards and history before the helper connects",async()=>{
@@ -138,6 +138,106 @@ test("display persistence omits source files and form tokens",async()=>{
   const serialized=[...saved.persistent.values()].join("\n");
   assert.doesNotMatch(serialized,/fake-sensitive-token|fake-source-code/);
   assert.match(serialized,/3338719/);
+});
+
+test("the register preparation URL runs the real resource workflow after the matching session and manifest load",async()=>{
+  const data=fixture(), gate=deferred();
+  Object.assign(data.session,{state:"prepared",startAt:null,qojVirtual:{mode:"qoj-native"}});
+  data.contest.problems=data.contest.problems.slice(0,3);data.history.submissions=[];
+  const ready=id=>({problemId:id,status:"ready",kind:"samples",resourceId:"a".repeat(64),sha256:"a".repeat(64),totalBytes:123,filename:"samples-"+id+".zip"});
+  const view=page(stores(),{snapshot:data,search:"?session="+sid+"&resources=1&prepare=1",hash:"#home",handler:async request=>{
+    if(request.method==="resource_manifest")return {ok:true,result:{origin:"https://qoj.ac",account:data.session.account,contestId:data.session.contestId,problems:[ready("100")]}};
+    if(request.method==="prepare_resource") {
+      assert.equal(request.args.sessionId,sid);
+      if(request.args.problemId==="101")await gate.promise;
+      return {ok:true,result:ready(request.args.problemId)};
+    }
+  }});
+  await ticks();
+  assert.equal(view.context.location.hash,"#jury/contest/"+sid);
+  assert.equal(view.state().session.sessionId,sid);assert.equal(view.state().session.startAt,null);
+  assert.deepEqual(view.calls.filter(call=>call.method==="prepare_resource").map(call=>call.args.problemId),["101"],"reuse the cached first problem, then prepare sequentially");
+  assert.equal(view.state().resourcePreparing,true);
+  gate.resolve();await ticks();
+  assert.deepEqual(view.calls.filter(call=>call.method==="prepare_resource").map(call=>call.args.problemId),["101","102"]);
+  assert.equal(view.state().resourcePreparing,false);assert.equal(view.state().resources.length,3);
+  assert.equal(view.calls.some(call=>/^(start_session|qoj_confirm_virtual_start|qoj_submit)$/.test(call.method)),false);
+});
+
+test("the actual started message listener verifies native state before returning the prepared view to Home",async()=>{
+  const data=fixture();Object.assign(data.session,{state:"prepared",startAt:null,qojVirtual:{mode:"qoj-native"}});
+  const startAt=Date.now()-71234,started={...data.session,state:"running",startAt,qojVirtual:{mode:"qoj-native",startAt}};
+  const view=page(stores(),{snapshot:data,hash:"#jury/contest/"+sid,handler:async request=>{
+    if(request.method==="inspect_session")return {ok:true,result:started};
+  }});await ticks();
+  const notify=view.listeners[0],message={type:"vp.qoj.started",sessionId:sid};
+  assert.equal(notify(message,{id:"foreign-extension"}),undefined);
+  assert.equal(notify({...message,sessionId:"another"},{id:"fixture-extension"}),undefined);
+  assert.equal(view.calls.some(call=>call.method==="inspect_session"),false);
+  assert.equal((await notify(message,{id:"fixture-extension"})).handled,true);
+  assert.equal(view.context.location.hash,"#home");assert.equal(view.state().session.startAt,startAt);
+  assert.equal(view.state().session.state,"running");
+  assert.equal(view.calls.filter(call=>call.method==="inspect_session").length,1);
+});
+
+test("an older prepared snapshot cannot undo the native Start notification or send Home back to resource preparation",async()=>{
+  const data=fixture(), gate=deferred();
+  Object.assign(data.session,{state:"prepared",startAt:null,qojVirtual:{mode:"qoj-native"}});
+  const startAt=Date.now()-12345,started={...data.session,state:"running",startAt,qojVirtual:{mode:"qoj-native",startAt}};
+  const view=page(stores(),{snapshot:data,search:"?session="+sid+"&resources=1&prepare=1",handler:async request=>{
+    if(request.method==="session_snapshot")return gate.promise;
+    if(request.method==="inspect_session")return {ok:true,result:started};
+    if(request.method==="resource_manifest")return {ok:true,result:{origin:"https://qoj.ac",account:data.session.account,contestId:data.session.contestId,problems:[]}};
+  }});await ticks();
+  assert.equal((await view.listeners[0]({type:"vp.qoj.started",sessionId:sid},{id:"fixture-extension"})).handled,true);
+  assert.equal(view.state().session.startAt,startAt);
+  gate.resolve({ok:true,result:data});await ticks();
+  assert.equal(view.state().session.startAt,startAt);assert.equal(view.state().session.state,"running");
+  assert.equal(view.state().connected,true);assert.equal(view.$("problems-list").children.length,14);
+  assert.equal(view.$("open-submit").getAttribute("aria-disabled"),"false");
+  assert.equal(view.context.location.hash,"#home");
+  assert.equal(view.calls.some(call=>call.method==="prepare_resource"),false);
+});
+
+test("a delayed session list and snapshot retain an already confirmed native start in navigation and display storage",async()=>{
+  const saved=stores(),data=fixture();Object.assign(data.session,{state:"prepared",startAt:null,qojVirtual:{mode:"qoj-native"}});
+  page(saved,{snapshot:data});await ticks();
+  const gate=deferred(),startAt=Date.now()-12345,started={...data.session,state:"running",startAt,qojVirtual:{mode:"qoj-native",startAt}};
+  const view=page(saved,{snapshot:data,handler:async request=>{
+    if(request.method==="list_sessions")return gate.promise;
+    if(request.method==="inspect_session")return {ok:true,result:started};
+  }});await ticks();
+  assert.equal((await view.listeners[0]({type:"vp.qoj.started",sessionId:sid},{id:"fixture-extension"})).handled,true);
+  gate.resolve({ok:true,result:{sessions:[data.session]}});await ticks();
+  assert.equal(view.state().session.startAt,startAt);assert.equal(view.state().session.state,"running");
+  const index=JSON.parse(saved.persistent.get("vpUiDisplayIndexV1"));
+  assert.equal(index.sessions[0].startAt,startAt);assert.equal(index.sessions[0].state,"running");
+  assert.equal(view.context.location.hash,"#home");
+});
+
+test("native Start preserves an in-flight resource job and a late prepared settings reply cannot rewind its clock",async()=>{
+  const data=fixture(), resourceGate=deferred(),settingsGate=deferred();
+  Object.assign(data.session,{state:"prepared",startAt:null,qojVirtual:{mode:"qoj-native"}});
+  data.contest.problems=data.contest.problems.slice(0,2);data.history.submissions=[];
+  const startAt=Date.now()-12345,started={...data.session,state:"running",startAt,qojVirtual:{mode:"qoj-native",startAt}};
+  const ready=id=>({problemId:id,status:"ready",kind:"samples",resourceId:"a".repeat(64),sha256:"a".repeat(64),totalBytes:123,filename:"samples-"+id+".zip"});
+  const view=page(stores(),{snapshot:data,search:"?session="+sid+"&resources=1&prepare=1",handler:async request=>{
+    if(request.method==="resource_manifest")return {ok:true,result:{origin:"https://qoj.ac",account:data.session.account,contestId:data.session.contestId,problems:[]}};
+    if(request.method==="prepare_resource") {if(request.args.problemId==="100")await resourceGate.promise;return {ok:true,result:ready(request.args.problemId)};}
+    if(request.method==="inspect_session")return {ok:true,result:started};
+    if(request.method==="update_session")return settingsGate.promise;
+  }});await ticks();
+  assert.equal(view.state().resourcePreparing,true);
+  const saving=view.$("rankland-form").listeners.submit({preventDefault(){},submitter:{disabled:false}});
+  await ticks();assert.equal(view.calls.filter(call=>call.method==="update_session").length,1);
+  await view.listeners[0]({type:"vp.qoj.started",sessionId:sid},{id:"fixture-extension"});
+  assert.equal(view.state().resourcePreparing,true);assert.equal(view.context.location.hash,"#home");
+  settingsGate.resolve({ok:true,result:data.session});await saving;
+  assert.equal(view.state().session.startAt,startAt);assert.equal(view.state().session.state,"running");
+  resourceGate.resolve();await ticks();
+  assert.equal(view.state().resourcePreparing,false);assert.equal(view.state().resources.length,2);
+  assert.deepEqual(view.calls.filter(call=>call.method==="prepare_resource").map(call=>call.args.problemId),["100","101"]);
+  assert.equal(view.context.location.hash,"#home");
 });
 
 function ranklandPage({sync, configured=true, nextSnapshot, syncStatus=()=>null}={}) {

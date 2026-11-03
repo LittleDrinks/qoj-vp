@@ -30,31 +30,55 @@ function environment(initial = []) {
 const results=[];
 async function check(name,run){await run();results.push(name);}
 
-function contentEnvironment({recognized=true,url="https://qoj.ac/contest/4582"}={}) {
+function contentEnvironment({recognized=true,navigation=false,nestedSensitive=false,url="https://qoj.ac/contest/4582/virtual/register"}={}) {
   let submits=0;const messages=[],listeners=[],observers=[];
+  const escape=value=>String(value).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
+  const matches=(node,selector)=>selector==="*"||selector==="a[href]"&&node.tagName==="A"&&node.getAttribute("href")!==null||node.tagName.toLowerCase()===selector;
   class Element {
-    constructor(tag){this.tagName=tag.toUpperCase();this.children=[];this.attributes={};this.style={};this.listeners={};this.textContent="";this.parentElement=null;this.type="";}
+    constructor(tag){this.tagName=tag.toUpperCase();this.children=[];this.attributes={};this.style={};this.listeners={};this._text="";this.parentElement=null;}
     get isConnected(){return this===body||!!this.parentElement?.isConnected;}
+    get attributes(){return this._attributes;}set attributes(values){this._attributes={...values};Object.defineProperty(this._attributes,Symbol.iterator,{value:function*(){for(const[name,value]of Object.entries(this))yield{name,value};}});}
+    get id(){return this.getAttribute("id")||"";}set id(value){this.setAttribute("id",value);}
+    get type(){return this.getAttribute("type")||"";}set type(value){this.setAttribute("type",value);}
+    get name(){return this.getAttribute("name")||"";}set name(value){this.setAttribute("name",value);}
+    get className(){return this.getAttribute("class")||"";}set className(value){this.setAttribute("class",value);}
+    get textContent(){return this._text+this.children.map(node=>node.textContent).join("");}set textContent(value){this._text=String(value);this.children=[];}
+    get innerHTML(){return escape(this._text)+this.children.map(node=>node.outerHTML).join("");}
+    get outerHTML(){const tag=this.tagName.toLowerCase(),attrs=Object.entries(this.attributes).map(([name,value])=>' '+name+'="'+escape(value)+'"').join("");return '<'+tag+attrs+'>'+this.innerHTML+(['input'].includes(tag)?'':'</'+tag+'>');}
     getAttribute(name){return this.attributes[name]??null;}
-    setAttribute(name,value){this.attributes[name]=value;}
+    setAttribute(name,value){this.attributes[name]=String(value);}removeAttribute(name){delete this.attributes[name];}
     append(...items){for(const item of items){item.parentElement=this;this.children.push(item);}}
     after(item){const parent=this.parentElement;item.parentElement=parent;parent.children.splice(parent.children.indexOf(this)+1,0,item);}
     remove(){this.parentElement.children=this.parentElement.children.filter(item=>item!==this);this.parentElement=null;}
+    querySelectorAll(selector){const selectors=selector.split(",");return this.children.flatMap(walk).filter(node=>selectors.some(value=>matches(node,value)));}
+    cloneNode(deep){const result=new Element(this.tagName);result.attributes=this.attributes;result._text=this._text;if(deep)result.append(...this.children.map(node=>node.cloneNode(true)));return result;}
     addEventListener(type,listener){this.listeners[type]=listener;}
     submit(){submits++;}requestSubmit(){submits++;}
   }
   const body=new Element("body"),form=new Element("form"),nativeButton=new Element("button"),token=new Element("input");
-  form.attributes={id:"form-regvir",method:"POST",action:"/contest/4582"};nativeButton.attributes={id:"button-submit-regvir",type:"submit",name:"submit-regvir"};nativeButton.type="submit";token.attributes={type:"hidden",name:"_token"};
+  form.attributes={id:"form-register_vp",method:"POST",action:"/contest/4582/virtual/register"};nativeButton.attributes={id:"button-submit-register_vp",type:"submit",name:"submit-register_vp"};nativeButton.type="submit";token.attributes={type:"hidden",name:"_token"};
   form.querySelector=selector=>selector.startsWith("input")?token:selector.startsWith("button")&&recognized?nativeButton:null;
   form.append(token,nativeButton);body.append(form);
   const walk=node=>[node,...node.children.flatMap(walk)];
+  let nav;
+  if(navigation){
+    const element=(tag,attrs={},text="")=>{const node=new Element(tag);node.attributes=attrs;node.textContent=text;return node;};
+    nav=element("ul",{class:"nav nav-pills float-right"});
+    const user=element("li",{class:"nav-item",onclick:"SENSITIVE-HANDLER",'data-token':"SECRET-DATA"}),profile=element("a",{href:"/user/profile/LittleDrinks?source=SECRET-QUERY#SECRET-FRAGMENT",class:"nav-link"},account);
+    const logout=element("li"),link=element("a",{href:"/logout?_token=SECRET-LOGOUT"},"Logout");logout.append(link);user.append(profile);nav.append(user,logout);
+    nav.append(element("input",{name:"_token",value:"SECRET-NAV-INPUT"}),element("textarea",{},"SECRET-NAV-TEXTAREA"),element("script",{},"SECRET-NAV-SCRIPT"));
+    const external=element("li"),externalLink=element("a",{href:"https://other.example/?token=SECRET-EXTERNAL"},"Elsewhere");external.append(externalLink);nav.append(external);
+    if(nestedSensitive)user.append(element("textarea",{},"SECRET-NESTED-TEXTAREA"),element("script",{},"SECRET-NESTED-SCRIPT"));
+    const rules=element("ul");rules.append(element("li",{},"The contest is 300 minutes long."),element("li",{},"Each wrong submission (excluding Compiler Error) adds 20 minutes of penalty."));
+    body.append(nav,rules,element("script",{},"SECRET-PAGE-SCRIPT"));token.setAttribute("value","SECRET-FORM-TOKEN");
+  }
   const original=JSON.stringify({form:form.attributes,button:nativeButton.attributes,token:token.attributes,childCount:form.children.length});
   const location=new URL(url);
-  const context={URL,location,document:{body,createElement:tag=>new Element(tag),querySelector:selector=>selector==="form#form-regvir"?form:null,getElementById:id=>walk(body).find(node=>node.id===id)},
+  const context={URL,location,document:{body,createElement:tag=>new Element(tag),querySelector:selector=>selector==="form#form-register_vp"?form:selector==='ul.nav.nav-pills.float-right'?nav:null,querySelectorAll:selector=>body.querySelectorAll(selector),getElementById:id=>walk(body).find(node=>node.id===id)},
     MutationObserver:class{constructor(callback){observers.push(callback);}observe(){}},
     browser:{runtime:{id:"extension-test",onMessage:{addListener:listener=>listeners.push(listener)},sendMessage:async message=>{
       messages.push(message);
-      if(message.type==="vp.resources.prepareContest"){
+      if(message.type==="vp.qoj.prepare"){
         listeners.forEach(listener=>listener({type:"vp.resources.progress",cid,jobId:"test-job",sessionId:sid,done:1,total:2,ready:1,unknown:0},{id:"extension-test"}));
         return{ok:true,result:{jobId:"test-job",cid,sessionId:sid,done:2,total:2,ready:2,unknown:0}};
       }
@@ -65,6 +89,11 @@ function contentEnvironment({recognized=true,url="https://qoj.ac/contest/4582"}=
     snapshot:()=>JSON.stringify({form:form.attributes,button:nativeButton.attributes,token:token.attributes,childCount:form.children.length})};
 }
 (async()=>{
+  await check("register confirmation exposes preparation without submitting native Start",async()=>{
+    const e=contentEnvironment({url:"https://qoj.ac/contest/4582/virtual/register"});
+    assert.ok(e.body.children.find(node=>node.id==="qoj-vp-resource-preparation"),"Preparation entry missing on virtual/register");
+    assert.equal(e.submits,0);assert.equal(e.snapshot(),e.original);
+  });
   await check("same-account/cid concurrent prepare coalesces and creates only prepared session",async()=>{
     const e=environment();const [first,second]=await Promise.all([e.context.prepareResourceContest({cid},sender),e.context.prepareResourceContest({cid},sender)]);
     assert.equal(first.sessionId,second.sessionId);assert.equal(e.calls.filter(call=>call.method==="create_session").length,1);
@@ -99,26 +128,65 @@ function contentEnvironment({recognized=true,url="https://qoj.ac/contest/4582"}=
   await check("actual workbench entry selects requested UUID before opening resource modal",async()=>{
     const ui=fs.readFileSync(path.join(root,"extension/ui.js"),"utf8");
     const begin=ui.indexOf("      const entry = new URLSearchParams(location.search)");
-    const end=ui.indexOf("\n    } catch (error)",begin);let chosen,opened=0,routed=0;
+    const end=ui.indexOf("\n    } catch (error)",begin);let chosen,opened=0,routed=0,prepared=0;
     const target={URLSearchParams,location:{search:"?session="+sid+"&resources=1"},state:{session:null},
       restoreDisplay:()=>{},juryTarget:()=>null,localGet:async()=>[],INTENTS_KEY:"intents",
       listSessions:async preferred=>{chosen=preferred;target.state.session={sessionId:preferred||otherSid};},
       route:()=>{routed++;assert.equal(target.location.hash,"#jury/contest/"+sid);},
-      openResources:async()=>{assert.equal(routed,1);opened++;}};
+      openResources:async()=>{assert.equal(routed,1);opened++;},
+      prepareResources:async()=>{assert.equal(opened,1);assert.equal(target.state.session.sessionId,sid);prepared++;},
+      fail:error=>{throw error;}};
     vm.createContext(target);await vm.runInContext("(async()=>{"+ui.slice(begin,end)+"})()",target);
-    assert.equal(chosen,sid);assert.equal(opened,1);assert.equal(routed,1);
-    target.location.search="?session=invalid&resources=1";opened=0;
-    await vm.runInContext("(async()=>{"+ui.slice(begin,end)+"})()",target);assert.equal(chosen,undefined);assert.equal(opened,0);
+    assert.equal(chosen,sid);assert.equal(opened,1);assert.equal(routed,1);assert.equal(prepared,0);
+    target.location.search="?session="+sid+"&resources=1&prepare=1";opened=0;routed=0;
+    await vm.runInContext("(async()=>{"+ui.slice(begin,end)+"})()",target);
+    assert.equal(prepared,1);assert.equal(chosen,sid);assert.equal(opened,1);
+    target.location.search="?session=invalid&resources=1&prepare=1";opened=0;
+    await vm.runInContext("(async()=>{"+ui.slice(begin,end)+"})()",target);assert.equal(chosen,undefined);assert.equal(opened,0);assert.equal(prepared,1);
+    target.location.search="?session="+sid+"&prepare=1";opened=0;
+    await vm.runInContext("(async()=>{"+ui.slice(begin,end)+"})()",target);assert.equal(opened,0);assert.equal(prepared,1);
   });
   await check("actual content button events keep native Start/form unchanged and submit zero",async()=>{
     const e=contentEnvironment();const panel=e.body.children.find(node=>node.id==="qoj-vp-resource-preparation");assert.ok(panel);
     assert.equal(panel.parentElement,e.form.parentElement);assert.equal(e.form.children.length,2);
     for(const observer of e.observers)observer();assert.equal(e.body.children.filter(node=>node.id===panel.id).length,1);
-    const [prepare,open]=panel.children;assert.equal(prepare.type,"button");assert.equal(open.type,"button");
+    const [prepare]=panel.children;assert.equal(prepare.type,"button");
     const event=()=>({preventDefault(){},stopPropagation(){}});
-    await prepare.listeners.click(event());await open.listeners.click(event());
-    assert.deepEqual(e.messages.map(message=>message.type),["vp.resources.prepareContest","vp.resources.openContest"]);
-    assert.equal(e.messages[1].sessionId,sid);assert.equal(e.submits,0);assert.equal(e.snapshot(),e.original);assert.equal(e.nativeButton.disabled,undefined);
+    await prepare.listeners.click(event());
+    assert.deepEqual(e.messages.map(message=>message.type),["vp.qoj.prepare"]);
+    let cancelled=0; e.form.listeners.submit({preventDefault(){cancelled++;},stopPropagation(){cancelled++;}});
+    await new Promise(setImmediate);
+    assert.equal(e.messages.at(-1).type,"vp.qoj.startIntent");assert.equal(cancelled,0);
+    assert.equal(e.submits,0);assert.equal(e.snapshot(),e.original);assert.equal(e.nativeButton.disabled,undefined);
+  });
+  await check("registration snapshots preserve account/rules/form while omitting credentials and executable markup",async()=>{
+    const e=contentEnvironment({navigation:true});
+    assert.deepEqual(e.messages.map(message=>message.type),["vp.qoj.registration"]);
+    const snapshot=e.messages[0].registrationPage;
+    assert.equal(snapshot.url,"https://qoj.ac/contest/4582/virtual/register");
+    assert.match(snapshot.html,/<a href="\/user\/profile\/LittleDrinks" class="nav-link">LittleDrinks<\/a>/);
+    assert.match(snapshot.html,/The contest is 300 minutes long\./);
+    assert.doesNotMatch(snapshot.html,/excluding Compiler Error/);
+    assert.match(snapshot.html,/<form id="form-register_vp" method="post" action="\/contest\/4582\/virtual\/register">/);
+    assert.match(snapshot.html,/<button id="button-submit-register_vp" type="submit" name="submit-register_vp"><\/button>/);
+    assert.match(snapshot.html,/<a href="#">Elsewhere<\/a>/);
+    assert.doesNotMatch(snapshot.html,/_token|SECRET|SENSITIVE|<script|<input|<textarea|onclick|data-token/);
+    const panel=e.body.children.find(node=>node.id==="qoj-vp-resource-preparation");
+    await panel.children[0].listeners.click({preventDefault(){},stopPropagation(){}});
+    e.form.listeners.submit({});await new Promise(setImmediate);
+    assert.deepEqual(e.messages.map(message=>message.type),["vp.qoj.registration","vp.qoj.prepare","vp.qoj.startIntent"]);
+    assert.ok(e.messages.every(message=>JSON.stringify(message.registrationPage)===JSON.stringify(snapshot)));
+    assert.equal(e.submits,0);assert.equal(e.snapshot(),e.original);
+  });
+  await check("registration rule text cannot reintroduce script or textarea contents removed from navigation",async()=>{
+    const e=contentEnvironment({navigation:true,nestedSensitive:true});
+    assert.doesNotMatch(e.messages[0].registrationPage.html,/SECRET-NESTED/);
+    assert.equal(e.snapshot(),e.original);assert.equal(e.submits,0);
+  });
+  await check("dashboard only checks a pending original Start and has no misplaced buttons",async()=>{
+    const e=contentEnvironment({url:"https://qoj.ac/contest/4582"});
+    assert.equal(e.body.children.length,1);assert.deepEqual(e.messages.map(x=>x.type),["vp.qoj.checkStart"]);
+    assert.equal(e.submits,0);
   });
   await check("unknown form and non-contest pages receive no panel",async()=>{
     for(const options of [{recognized:false},{url:"https://qoj.ac/contest/4582/problem/22913"},{url:"https://elsewhere.invalid/contest/4582"}]){

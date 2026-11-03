@@ -251,6 +251,7 @@
     $("contest-progress").setAttribute("aria-valuenow", percentage.toFixed(1));
     $("session-state").textContent = {prepared: "已准备", running: "进行中", finished: "已结束", archived: "已归档"}[status];
     $("start-session").hidden = status !== "prepared";
+    if ($("start-session-label")) $("start-session-label").textContent = session.qojVirtual?.mode === "qoj-native" ? "前往 QOJ 开始" : "Start now";
     $("finish-session").hidden = status !== "running";
     $("start-session").disabled = !state.connected || state.adminBusy;
     $("finish-session").disabled = !state.connected || state.adminBusy;
@@ -687,7 +688,8 @@
 
   async function listSessions(preferred) {
     const result = await call("list_sessions");
-    state.sessions = result.sessions || [];
+    state.sessions = (result.sessions || []).map(session => preserveNativeStart(session,
+      state.session?.sessionId === session.sessionId ? state.session : state.sessions.find(item => item.sessionId === session.sessionId)));
     rememberDisplayIndex(undefined, true);
     const candidate = preferred || state.session?.sessionId || await localGet(ACTIVE_KEY);
     const chosen = state.sessions.find(item => item.sessionId === candidate) || state.sessions.find(item => item.state !== "archived") || state.sessions[0];
@@ -699,6 +701,16 @@
     const request = call(method, args).finally(() => { if (requests.get(key) === request) requests.delete(key); });
     requests.set(key, request);
     return request;
+  }
+  function preserveNativeStart(incoming, known = state.session) {
+    // A confirmed native start is immutable. Reads/settings started before its
+    // notification can finish later with the old prepared session. Keep the
+    // newer session without changing generation or cancelling resource work.
+    if (incoming?.sessionId === known?.sessionId && String(incoming?.contestId) === String(known?.contestId) &&
+        incoming?.account?.toLowerCase() === known?.account?.toLowerCase() && known?.qojVirtual?.mode === "qoj-native" &&
+        Number.isSafeInteger(known.startAt) && known.startAt > 0 && known.qojVirtual.startAt === known.startAt &&
+        incoming.startAt == null && incoming.state === "prepared") return known;
+    return incoming;
   }
   function displayJson(key) {
     try { return JSON.parse(localStorage.getItem(key)); } catch (_) { return null; }
@@ -805,7 +817,7 @@
         const snapshot = await call("session_snapshot", {sessionId});
         if (generation !== state.generation) return;
         if (snapshot?.session?.sessionId !== sessionId) throw new Error("保存的比赛与当前选择不匹配。");
-        state.session = snapshot.session;
+        state.session = preserveNativeStart(snapshot.session);
         if (snapshot.contest) { state.contest = verifiedContest(snapshot.contest, state.session); state.contestCached = true; }
         applyHistory(snapshot.history);
         state.connected = true;
@@ -825,7 +837,7 @@
         refreshContest().catch(() => {});
         refresh(true).catch(() => {});
         resolveScoreboardSource();
-        return snapshot.session;
+        return state.session;
       } catch (error) {
         if (generation === state.generation) {
           state.contestError = message(error); renderContestStatus();
@@ -946,14 +958,19 @@
     finally { $("prepare-session").disabled = !state.setupContest; }
   }
   async function startSession() {
-    if (!isJuryRoute() || !state.session || sessionState() !== "prepared" || state.adminBusy || !confirm("开始计时？仅启动本地计时，不开启 QOJ 官方 VP。")) return;
+    if (!isJuryRoute() || !state.session || sessionState() !== "prepared" || state.adminBusy) return;
+    if (state.session.qojVirtual?.mode === "qoj-native") {
+      try { await call("qoj.virtual.open", {sessionId:state.session.sessionId}); } catch (error) { fail(error); }
+      return;
+    }
+    if (!confirm("开始计时？仅启动本地计时，不开启 QOJ 官方 VP。")) return;
     const sessionId = state.session.sessionId, generation = state.generation;
     state.adminBusy = true;
     $("start-session").disabled = true;
     try {
       const session = await call("start_session", {sessionId});
       if (!current(sessionId, generation)) return;
-      state.session = session;
+      state.session = preserveNativeStart(session);
       const index = state.sessions.findIndex(item => item.sessionId === state.session.sessionId);
       if (index >= 0) state.sessions[index] = state.session;
       renderSession(); renderNavigation(); renderSummary();
@@ -975,7 +992,7 @@
     try {
       const session = await call("update_session", {sessionId, title, durationMs});
       if (!current(sessionId, generation)) return;
-      state.session = session; state.sessions = state.sessions.map(item => item.sessionId === sessionId ? session : item);
+      state.session = preserveNativeStart(session); state.sessions = state.sessions.map(item => item.sessionId === sessionId ? state.session : item);
       renderSession(); renderNavigation(); showMessage($("notice"), "比赛设置已保存。", "success");
     } catch (error) { if (current(sessionId, generation)) showMessage($("jury-config-error"), message(error)); }
     finally {
@@ -993,7 +1010,7 @@
     try {
       const session = await call("finish_session", {sessionId});
       if (!current(sessionId, generation)) return;
-      state.session = session; state.sessions = state.sessions.map(item => item.sessionId === sessionId ? session : item);
+      state.session = preserveNativeStart(session); state.sessions = state.sessions.map(item => item.sessionId === sessionId ? state.session : item);
       renderSession(); renderNavigation(); renderSummary(); showMessage($("notice"), "比赛已结束。", "success");
     } catch (error) { if (current(sessionId, generation)) fail(error); }
     finally { state.adminBusy = false; $("finish-session").disabled = false; renderClock(); }
@@ -1599,6 +1616,20 @@
   }
 
   async function initialize() {
+    browser.runtime.onMessage.addListener((message, sender) => {
+      if (sender.id !== browser.runtime.id || message?.type !== "vp.qoj.started" || message.sessionId !== state.session?.sessionId || state.submitting) return undefined;
+      return (async () => {
+        const session = await call("inspect_session", {sessionId:message.sessionId});
+        if (state.session?.sessionId !== session.sessionId || session.qojVirtual?.mode !== "qoj-native" || !session.startAt) return {handled:false};
+        state.session = session;
+        state.sessions = state.sessions.map(item => item.sessionId === session.sessionId ? session : item);
+        modals.resources.hide(); location.hash = "#home";
+        renderSession(); renderNavigation(); renderSummary();
+        rememberDisplay();
+        refresh(false).catch(() => {});
+        return {handled:true};
+      })();
+    });
     for (const id of ["session", "submit", "rankland", "reconcile", "resources", "manual-samples", "delete-contest"]) modals[id] = new bootstrap.Modal($(id + "-modal"));
     window.addEventListener("hashchange", route); route();
     $("new-session").addEventListener("click", openSessionSetup);
@@ -1644,7 +1675,7 @@
       try {
         const updated = await call("update_session", {sessionId, ranklandUrl: $("rankland-url").value.trim()});
         if (!current(sessionId, generation)) return;
-        state.session = updated;
+        state.session = preserveNativeStart(updated);
         resetRanklandSnapshot(); resetScoreboardSource();
         const index = state.sessions.findIndex(item => item.sessionId === state.session.sessionId);
         if (index >= 0) state.sessions[index] = state.session;
@@ -1685,8 +1716,10 @@
       restoreDisplay(juryTarget() || preferred);
       const saved = await localGet(INTENTS_KEY); state.intents = Array.isArray(saved) ? saved : [];
       await listSessions(preferred);
-      if (preferred && state.session?.sessionId === preferred && entry.get("resources") === "1") {
+      if (preferred && state.session?.sessionId === preferred && entry.get("resources") === "1" &&
+          (entry.get("prepare") !== "1" || state.session.startAt == null)) {
         location.hash = "#jury/contest/" + preferred; route(); await openResources();
+        if (entry.get("prepare") === "1") prepareResources().catch(fail);
       }
     } catch (error) {
       state.lastError = {code: error.code || "HELPER_UNAVAILABLE", message: message(error)};

@@ -104,7 +104,7 @@ function harness() {
     if (message.type === "vp.rankland.ready") return {ready: true};
     throw Error("Unexpected tab message: " + message.type);
   }
-  vm.runInNewContext(source, {
+  const context = vm.createContext({
     browser, URL, Map, Set, Promise, Date, crypto: require("node:crypto").webcrypto,
     VpTransport: {pause: async () => {}, diagnostics: () => ({})},
     VpRanklandTransfer: {sync: async request => {
@@ -114,7 +114,10 @@ function harness() {
       return hooks.transfer ? hooks.transfer(request) : {synced: request.plan.items.length};
     }},
     setTimeout: (...args) => setTimeout(...args).unref(), clearTimeout
-  }, {filename: "extension/background.js"});
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../extension/qoj-lifecycle.js"), "utf8"), context,
+    {filename: "extension/qoj-lifecycle.js"});
+  vm.runInContext(source, context, {filename: "extension/background.js"});
   return {
     hooks, nativeCalls, messages, transfers, events, sessions, cache,
     task: (method, args = {}) => onMessage({type: "vp.task", method, args}, {id: extensionId, url: origin + "ui.html"}),

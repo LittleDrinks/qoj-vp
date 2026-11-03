@@ -2,7 +2,7 @@
 (() => {
   const HOST = "org.littledrinks.qoj_vp";
   const methods = new Set(["hello", "create_session", "start_session", "list_sessions", "inspect_session", "archive_session", "update_session",
-    "qoj_contest", "qoj_problem_form", "qoj_samples", "qoj_submit", "qoj_submissions", "qoj_reconcile", "rankland_queue", "rankland_ack", "rankland_ack_batch", "rankland_plan", "refresh_sessions", "prepare_rankland",
+    "qoj_contest", "qoj_bind_virtual", "qoj_confirm_virtual_start", "qoj_problem_form", "qoj_samples", "qoj_submit", "qoj_submissions", "qoj_reconcile", "rankland_queue", "rankland_ack", "rankland_ack_batch", "rankland_plan", "refresh_sessions", "prepare_rankland",
     "resource_manifest", "prepare_resource", "resource_chunk", "import_samples", "delete_session", "finish_session", "session_snapshot"]);
   function ranklandIdentity(raw) {
     const url = new URL(raw), q = url.searchParams;
@@ -127,6 +127,24 @@
     const tab = (await browser.tabs.query({url}))[0];
     return tab ? browser.tabs.update(tab.id, {active: true}) : browser.tabs.create({url});
   }
+  async function openBoundSession(session, {prepare, active}) {
+    const url = new URL(browser.runtime.getURL("ui.html"));
+    url.searchParams.set("session", session.sessionId);
+    if (prepare) { url.searchParams.set("resources", "1"); url.searchParams.set("prepare", "1"); }
+    url.hash = prepare ? "#jury/contest/" + session.sessionId : "#home";
+    const tab = (await browser.tabs.query({})).find(item => {
+      try { const found = new URL(item.url); return found.origin === url.origin && found.pathname === url.pathname && found.searchParams.get("session") === session.sessionId; }
+      catch (_) { return false; }
+    });
+    if (tab && !prepare) {
+      try {
+        const response = await browser.tabs.sendMessage(tab.id, {type:"vp.qoj.started", sessionId:session.sessionId});
+        if (response?.handled) return browser.tabs.update(tab.id, {active});
+      } catch (_) { /* A stale workbench can be restored from the durable session. */ }
+    }
+    return tab ? browser.tabs.update(tab.id, {url:url.href, active}) : browser.tabs.create({url:url.href, active});
+  }
+  const qojLifecycle = VpQojLifecycle.create({native:(...args) => native(...args), openSession:openBoundSession});
   const resourcePreparationJobs = new Map();
   function resourceRequestCid(message, sender) {
     const cid = String(message?.cid || ""), url = new URL(sender.url || "about:blank");
@@ -465,6 +483,13 @@
     return resolvingScoreboards.get(args.sessionId);
   }
   async function dispatch(method, args) {
+    if (method === "qoj.virtual.open") {
+      const session = await native("inspect_session", args);
+      if (session.qojVirtual?.mode !== "qoj-native") throw new Error("QOJ_VIRTUAL_NOT_BOUND");
+      const url = "https://qoj.ac/contest/" + session.contestId + "/virtual/register";
+      const existing = (await browser.tabs.query({url}))[0];
+      return existing ? browser.tabs.update(existing.id, {active:true}) : browser.tabs.create({url,active:true});
+    }
     if (method === "scoreboard.resolve") return scoreboardSource(args);
     if (method === "scoreboard.open") {
       const source = await scoreboardSource(args);
@@ -495,6 +520,10 @@
     return result;
   }
   browser.runtime.onMessage.addListener((message, sender) => {
+    if (["vp.qoj.registration", "vp.qoj.prepare", "vp.qoj.startIntent", "vp.qoj.checkStart"].includes(message?.type)) {
+      const action = {"vp.qoj.registration":"registration", "vp.qoj.prepare":"prepare", "vp.qoj.startIntent":"startIntent", "vp.qoj.checkStart":"check"}[message.type];
+      return qojLifecycle[action](message, sender).then(result => ({ok:true,result}), error => ({ok:false,error:{code:error.code || "QOJ_VIRTUAL_FAILED",message:error.message}}));
+    }
     if (["vp.resources.prepareContest", "vp.resources.openContest"].includes(message?.type)) {
       const action = message.type === "vp.resources.prepareContest" ? prepareResourceContest : openResourceContest;
       return action(message, sender).then(result => ({ok: true, result}), error => ({ok: false, error: {code: error.code || "RESOURCE_PREPARATION_FAILED", message: error.message}}));
@@ -521,9 +550,13 @@
   });
   browser.action.onClicked.addListener(() => openWorkbench().catch(() => {}));
   browser.runtime.onInstalled.addListener(() => openWorkbench().catch(() => {}));
+  const registrationRequests = {urls:["https://qoj.ac/contest/*/virtual/register*"]};
+  browser.webRequest?.onBeforeRequest?.addListener(details => { qojLifecycle.submitted(details).catch(() => {}); }, registrationRequests);
+  browser.webRequest?.onCompleted?.addListener(details => { qojLifecycle.completed(details).catch(() => {}); }, registrationRequests);
   browser.alarms.create("vp-refresh", {periodInMinutes: 1});
   browser.alarms.onAlarm.addListener(async alarm => {
     if (alarm.name !== "vp-refresh") return;
+    await qojLifecycle.resume().catch(() => {});
     let sessions;
     try { sessions = (await native("refresh_sessions")).sessions || []; } catch (_) { return; }
     for (const session of sessions) {

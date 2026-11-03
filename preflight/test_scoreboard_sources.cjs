@@ -2,6 +2,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
+const {webcrypto, createHash} = require("node:crypto");
 const source = fs.readFileSync(path.join(__dirname, "../extension/scoreboard-sources.js"), "utf8");
 const API = "https://rl.algoux.cn/api/v2/public/contests";
 const HOURS = 18000000;
@@ -12,7 +13,7 @@ const detail = (uk = "icpc2022xi_an", extra = {}) => ({...entry(uk), sorter: {al
   problems: [{alias: "A", link: "https://qoj.ac/problem/5113"}, {alias: "B", link: "https://qoj.ac/problem/5114"}], ...extra});
 const envelope = data => new Response(JSON.stringify({success: true, code: 0, data}));
 function setup({entries = [entry()], details = {}, handler = null, ...options} = {}) {
-  const requests = [], context = {URL, AbortController, setTimeout, clearTimeout, Date, Map, Set};
+  const requests = [], context = {URL, AbortController, setTimeout, clearTimeout, Date, Map, Set, crypto: webcrypto, TextDecoder};
   vm.createContext(context); vm.runInContext(source, context);
   const resolver = context.VpScoreboardSources.create({...options, fetchImpl: async (url, opts) => {
     requests.push({url, opts});
@@ -183,4 +184,78 @@ test("invalid input fails before any public network request", async () => {
     assert.equal(env.requests.length, 0);
   }
   await assert.rejects(setup().resolve(qoj, 0), {message: "INVALID_CONTEST"});
+});
+
+// The real sdutpc14 public contest has null problems/sorter. The original
+// RankLand client reads these from getPublicFile(...).url instead. These
+// fixtures retain that observed shape without carrying real participant rows.
+function archivedBoard({patchContest = {}, patchFile = {}, patchSrk = {}, corruptBody = false} = {}) {
+  const uk = "sdutpc14", fid = "70792767114055680", contestId = "70792767067918336";
+  const contest = {_id:contestId, uk, name:"山东理工大学第十四届ACM程序设计竞赛", title:{fallback:"山东理工大学第十四届ACM程序设计竞赛"},
+    startAt:"2022-05-29T13:10:00+08:00", duration:[14400,"s"], srkFileID:fid, problems:null, sorter:null, redirectUK:null, ...patchContest};
+  const srk = {type:"general", version:"0.3.9", contest:{title:contest.name, startAt:contest.startAt, duration:[4,"h"]},
+    problems:Array.from({length:10},(_,i)=>({alias:String.fromCharCode(65+i)})), sorter:{algorithm:"ICPC",config:{penalty:[20,"min"]}}, rows:[], ...patchSrk};
+  const body = JSON.stringify(srk), fileUrl = "https://cdn.algoux.cn/rankland/file/" + fid + "/sdutpc14.srk.json";
+  const file = {id:fid, contestId, category:"RankMain", name:"sdutpc14.srk.json", path:fid+"/sdutpc14.srk.json", url:fileUrl,
+    size:Buffer.byteLength(body), hashType:"sha256", hashValue:createHash("sha256").update(body).digest("hex"), ...patchFile};
+  const env = setup({handler:async url => {
+    if(url===API)return envelope({contests:[contest]});
+    if(url===API+"/"+uk)return envelope(contest);
+    if(url==="https://rl.algoux.cn/api/v2/public/files/"+fid)return envelope(file);
+    if(url===fileUrl)return new Response(corruptBody?body+" ":body,{headers:{"Content-Type":"application/json"}});
+    throw Error("Unexpected URL "+url);
+  }});
+  return {...env, contest, srk, file, url:"https://vp.xcpc.link/?contest="+uk};
+}
+
+test("archived SDUT metadata comes from the original public file and verified SRK bytes", async()=>{
+  const env=archivedBoard(), result=await env.describeReplay(env.url);
+  assert.equal(result.durationMs,14400000); assert.equal(result.problems.length,10);
+  assert.equal(result.problems[9].label,"J"); assert.equal(result.problems[9].index,9);
+  assert.equal(env.requests.length,3);
+  assert.deepEqual(env.requests.map(r=>r.url),[API+"/sdutpc14","https://rl.algoux.cn/api/v2/public/files/70792767114055680",env.file.url]);
+  for(const {opts} of env.requests){assert.equal(opts.credentials,"omit");assert.equal(opts.method,"GET");assert.equal(opts.redirect,"error");}
+  await env.describeReplay(env.url); assert.equal(env.requests.length,3);
+});
+
+test("archived aliases alone never invent a QOJ mapping",async()=>{
+  const env=archivedBoard(), result=await env.resolve({id:"123",name:env.contest.name,
+    problems:env.srk.problems.map((p,i)=>({id:String(i+1),label:p.alias}))},14400000);
+  assert.equal(result.source,"qoj");assert.equal(result.state,"unverified");
+  assert.equal(result.candidates[0].reason,"PROBLEM_LINKS_MISSING");
+});
+
+test("an archived board still needs exact QOJ links and order for automatic matching",async()=>{
+  for(const reversed of [false,true]){
+    const problems=[{alias:"A",link:"https://qoj.ac/problem/5113"},{alias:"B",link:"https://qoj.ac/problem/5114"}];
+    const env=archivedBoard({patchSrk:{problems:reversed?[...problems].reverse():problems}});
+    const result=await env.resolve({...qoj,name:env.contest.name},14400000);
+    assert.equal(result.source,reversed?"qoj":"rankland");
+  }
+});
+
+test("foreign files, external URLs, unsupported hash metadata and oversized archives are rejected before CDN fetch",async()=>{
+  for(const patchFile of [{id:"99"},{contestId:"99"},{category:"UserFile"},
+    {url:"https://evil.example/sdutpc14.srk.json"},{url:"https://cdn.algoux.cn/rankland/file/99/sdutpc14.srk.json"},
+    {url:"https://user@cdn.algoux.cn/rankland/file/70792767114055680/sdutpc14.srk.json"},
+    {url:"https://cdn.algoux.cn/rankland/file/70792767114055680/sdutpc14.srk.json?token=bad"},
+    {hashType:"md5"},{hashValue:"invalid"},{size:1024*1024*1024}]){
+    const env=archivedBoard({patchFile});await assert.rejects(env.describeReplay(env.url));
+    assert.ok(env.requests.every(r=>r.url.startsWith("https://rl.algoux.cn/api/")));
+  }
+});
+
+test("changed SRK bytes are rejected and are not cached as valid metadata",async()=>{
+  const env=archivedBoard({corruptBody:true});
+  for(let i=0;i<2;i++)await assert.rejects(env.describeReplay(env.url),error=>error.code==="SRK_INTEGRITY_MISMATCH");
+  assert.equal(env.requests.filter(r=>r.url===env.file.url).length,2);
+});
+
+test("SRK duration conflicts, unsupported schema and duplicate problem aliases fail closed",async()=>{
+  for(const patchSrk of [{contest:{duration:[5,"h"]}},{version:"999"},{type:"other"},
+    {problems:[{alias:"A"},{alias:"A"}]},{sorter:{algorithm:"IOI"}}]){
+    const env=archivedBoard({patchSrk});await assert.rejects(env.describeReplay(env.url));
+  }
+  const env=archivedBoard({patchContest:{problems:[{alias:"WRONG"}]}});
+  await assert.rejects(env.describeReplay(env.url));
 });

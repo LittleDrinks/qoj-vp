@@ -25,6 +25,7 @@ from .inline_samples import statement_language_paths, statement_page_path, state
 from .ledger import Ledger, receipt_metadata_matches, session_duration
 from .resources import ResourceCache, ResourceError, problem_id
 from .transport import BASE, BrowserSession, MAX_SOURCE_BYTES
+from .virtual import VirtualPageError, dashboard_state, registration_rules, registration_snapshot, verify_page
 
 MAX_ZIP_BYTES = 512 * 1024
 
@@ -158,7 +159,8 @@ class Application:
             if method == 'qoj_submissions' and args.get('refresh') is False:
                 session = self.ledger.session(args.get('sessionId'))
                 return self.cached_history(session)
-            if method not in {'qoj_contest', 'qoj_problem_form', 'qoj_samples', 'qoj_submit', 'qoj_submissions', 'qoj_reconcile', 'prepare_resource'}:
+            if method not in {'qoj_contest', 'qoj_problem_form', 'qoj_samples', 'qoj_submit', 'qoj_submissions', 'qoj_reconcile', 'prepare_resource',
+                              'qoj_bind_virtual', 'qoj_confirm_virtual_start'}:
                 raise ApplicationError('UNKNOWN_METHOD', 'Unknown application method')
             if not callable(exchange):
                 raise ApplicationError('HTTP_BRIDGE_REQUIRED', 'This operation requires a Firefox QOJ tab')
@@ -166,6 +168,10 @@ class Application:
             transport = BrowserSession(exchange, allow_post=method == 'qoj_submit', fixture_origin=self.fixture_origin)
             client = modules[0].QojClient(BASE, session=transport)
             try:
+                if method == 'qoj_bind_virtual':
+                    return self.bind_virtual(args, client)
+                if method == 'qoj_confirm_virtual_start':
+                    return self.confirm_virtual_start(args, client)
                 if method == 'qoj_contest':
                     account, _ = current_account(client)
                     contest = self.read_contest(client, modules[0].contest_id(str(args.get('contestId', ''))))
@@ -210,7 +216,7 @@ class Application:
                 return refreshed
             except modules[0].QojError as exc:
                 raise self.upstream_error(exc) from exc
-        except ResourceError as exc:
+        except (ResourceError, VirtualPageError) as exc:
             raise ApplicationError(exc.code, str(exc)) from exc
         except (ValueError, TypeError) as exc:
             raise ApplicationError('VALIDATION_ERROR', str(exc)) from exc
@@ -334,6 +340,137 @@ class Application:
         self.ledger.create_session(record)
         return self.view(record)
 
+    def virtual_context(self, cid, client, *, expected_account=None, native_duration_ms=None):
+        if not isinstance(cid, str) or not re.fullmatch(r'\d{1,20}', cid):
+            raise ValueError('Expected a numeric QOJ contest ID')
+        account, logged_in = current_account(client)
+        if not account:
+            code = 'ACCOUNT_UNKNOWN' if logged_in else 'LOGIN_REQUIRED'
+            raise ApplicationError(code, 'Log in to QOJ in Firefox with an identifiable account before continuing')
+        if expected_account and account.casefold() != expected_account.casefold():
+            raise ApplicationError('ACCOUNT_MISMATCH', 'The Firefox account differs from this VP session account')
+        contest = self.read_contest(client, cid)
+        response = client.session.last_response
+        verify_page(response, cid, account)
+        virtual = dashboard_state(response.text, cid, native_duration_ms=native_duration_ms)
+        return account, contest, virtual
+
+    @staticmethod
+    def virtual_binding_matches(session, cid, account):
+        bound = session.get('qojVirtual')
+        return (isinstance(bound, dict) and bound.get('mode') == 'qoj-native' and bound.get('origin') == BASE
+                and str(bound.get('contestId')) == cid and str(session.get('contestId')) == cid
+                and str(bound.get('account', '')).casefold() == account.casefold()
+                and str(session.get('account', '')).casefold() == account.casefold())
+
+    def virtual_result(self, session, contest, virtual):
+        return {'session': self.view(session),
+                'contest': {**contest, 'account': session['account'], 'problems': self.problem_list(contest),
+                            'source': 'fixture' if self.fixture_origin else 'real-qoj-browser'},
+                'virtual': virtual}
+
+    def bind_virtual(self, args, client):
+        cid = args.get('contestId')
+        account, contest, virtual = self.virtual_context(cid, client)
+        dashboard_html = client.session.last_response.text
+        rules = (registration_snapshot(args['registrationPage'], cid, account)
+                 if args.get('registrationPage') is not None else None)
+        bindings = [s for s in self.ledger.sessions() if self.virtual_binding_matches(s, cid, account)
+                    and s['state'] not in {'archived', 'finished'}]
+        durations = {s['qojVirtual'].get('durationMs') for s in bindings}
+        if len(durations) > 1:
+            raise ApplicationError('QOJ_VIRTUAL_DURATION_MISMATCH', 'Existing native QOJ bindings disagree about the contest duration')
+        duration = durations.pop() if bindings else rules['durationMs'] if rules else None
+        if rules and bindings and rules['durationMs'] != duration:
+            raise ApplicationError('QOJ_VIRTUAL_DURATION_MISMATCH', 'Captured rules differ from the existing native QOJ binding')
+        if duration is None:
+            registration = client.get(f'/contest/{cid}/virtual/register')
+            verify_page(registration, cid, account, registration=True)
+            rules = registration_rules(registration.text, cid)
+            duration = rules['durationMs']
+        # After Start, QOJ redirects /virtual/register to /contests. Either
+        # earlier binding or the browser's validated pre-POST page provides
+        # the original rules; the active dashboard supplies its own clock.
+        virtual = {**dashboard_state(dashboard_html, cid, native_duration_ms=duration),
+                   'durationMs': duration, 'registrationUrl': f'{BASE}/contest/{cid}/virtual/register'}
+        with self.ledger.transaction():
+            candidates = [s for s in self.ledger.sessions() if str(s['contestId']) == cid
+                          and str(s.get('account', '')).casefold() == account.casefold()
+                          and s['state'] not in {'archived', 'finished'}]
+            prepared = [s for s in candidates if s.get('startAt') is None and s['state'] == 'prepared']
+            prepared.sort(key=lambda s: not self.virtual_binding_matches(s, cid, account))
+            started = [s for s in candidates if self.virtual_binding_matches(s, cid, account)
+                       and s.get('startAt') is not None]
+            if virtual.get('startAt') is not None and any(s['startAt'] != virtual['startAt'] for s in started):
+                raise ApplicationError('QOJ_VIRTUAL_CLOCK_CONFLICT', 'The verified QOJ VP start differs from its existing session')
+            session = started[0] if started else prepared[0] if prepared else None
+            if session and session['durationMs'] != duration:
+                raise ApplicationError('QOJ_VIRTUAL_DURATION_MISMATCH',
+                    'The prepared contest duration differs from QOJ native VP rules; adjust it before binding')
+            if session is None:
+                title = re.sub(r'\s+-\s+(?:比赛主页\s+-\s+比赛|Dashboard\s+-\s+Contest)\s+-\s+QOJ\.ac\s*$',
+                               '', str(contest.get('name') or ''), flags=re.I).strip()
+                session = self.create_session({'contestId': cid, 'account': account, 'durationMs': duration,
+                                               'title': title or f'QOJ Contest {cid}'})
+                session.pop('elapsedMs', None)
+                session.pop('effectiveState', None)
+            old_binding = session.get('qojVirtual') or {}
+            # A registration response can arrive after another helper confirms
+            # the start. Keep that confirmed session and its replay target.
+            observed_state = (old_binding['state'] if session.get('startAt') is not None
+                              and virtual.get('startAt') is None else virtual['state'])
+            session['qojVirtual'] = {**old_binding, 'mode': 'qoj-native', 'origin': BASE, 'contestId': cid,
+                'account': account, 'registrationUrl': f'{BASE}/contest/{cid}/virtual/register',
+                'state': observed_state, 'durationMs': duration, 'boundAt': old_binding.get('boundAt', self.clock()),
+                'rulesSource': old_binding.get('rulesSource') or (rules or {}).get('source', 'qoj-registration-rules')}
+            self.ledger.save_session(session)
+            self.ledger.save_contest(account, contest)
+        return self.virtual_result(session, contest, virtual)
+
+    def confirm_virtual_start(self, args, client):
+        session = self.ledger.session(args.get('sessionId'))
+        cid, account = str(session['contestId']), session.get('account')
+        if not account or not self.virtual_binding_matches(session, cid, account):
+            raise ApplicationError('QOJ_VIRTUAL_NOT_BOUND', 'Prepare this contest from its QOJ VP confirmation page first')
+        duration = session['qojVirtual'].get('durationMs')
+        if session['durationMs'] != duration:
+            raise ApplicationError('QOJ_VIRTUAL_DURATION_MISMATCH', 'The local duration differs from the verified QOJ VP rules')
+        account, contest, virtual = self.virtual_context(cid, client, expected_account=account, native_duration_ms=duration)
+        # Only a verified provider clock may transition the local session.
+        # Unsupported active-page formats remain unknown and are retried by the browser.
+        start = virtual.get('startAt')
+        if start is None:
+            return self.virtual_result(session, contest, virtual)
+        start = timestamp_ms(start)
+        if virtual.get('timeSource') not in {'provider-absolute', 'provider-countdown'} or virtual['state'] not in {'running', 'finished'}:
+            raise ApplicationError('QOJ_VIRTUAL_TIME_UNVERIFIED', 'QOJ did not expose a verified native VP start time')
+        changed = False
+        with self.ledger.transaction():
+            session = self.ledger.session(args.get('sessionId'))
+            if not self.virtual_binding_matches(session, cid, account):
+                raise ApplicationError('QOJ_VIRTUAL_NOT_BOUND', 'This session binding changed during verification')
+            if session['durationMs'] != virtual.get('durationMs'):
+                raise ApplicationError('QOJ_VIRTUAL_DURATION_MISMATCH', 'The local duration differs from the native QOJ VP')
+            if session['state'] in {'archived', 'finished'}:
+                raise ApplicationError('QOJ_VIRTUAL_SESSION_CLOSED', 'A finished or archived local session cannot be started')
+            if session.get('startAt') is not None and session['startAt'] != start:
+                raise ApplicationError('QOJ_VIRTUAL_CLOCK_CONFLICT', 'The verified QOJ VP start differs from this session clock')
+            if session.get('startAt') is None:
+                session.update(startAt=start, state='running')
+                session['ranklandUrl'] = rankland_url(session.get('ranklandUrl'), session['sessionId'], start,
+                                                     allow_loopback=bool(self.fixture_origin))
+                session['ranklandPrepared'], session['ranklandPreparedAt'] = False, None
+                changed = True
+            session['qojVirtual'].update(state=virtual['state'], startAt=start, timeSource=virtual['timeSource'],
+                                         confirmedAt=self.clock(), source=virtual['source'])
+            if virtual.get('timeSource') == 'provider-countdown':
+                session['qojVirtual'].update(serverNow=virtual['serverNow'], remainingMs=virtual['remainingMs'])
+            self.ledger.save_session(session)
+            self.ledger.save_contest(account, contest)
+        if changed:
+            self.ledger.requeue_session(session['sessionId'])
+        return self.virtual_result(session, contest, virtual)
+
     def import_samples(self, args):
         session = self.ledger.session(args.get('sessionId'))
         pid = problem_id(args.get('problemId'))
@@ -361,6 +498,8 @@ class Application:
                 if record['state'] in {'archived', 'finished'} or self.view(record)['effectiveState'] == 'finished':
                     raise ValueError('A finished or archived session cannot be started')
                 if record['startAt'] is None:
+                    if record.get('qojVirtual', {}).get('mode') == 'qoj-native':
+                        raise ApplicationError('QOJ_VIRTUAL_START_REQUIRED', 'Start this VP on the QOJ confirmation page; its verified clock will synchronize automatically')
                     record['startAt'], record['state'] = self.clock(), 'running'
                     record['ranklandUrl'] = rankland_url(record.get('ranklandUrl'), sid, record['startAt'],
                                                          allow_loopback=bool(self.fixture_origin))

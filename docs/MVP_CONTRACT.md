@@ -1,6 +1,6 @@
 # MVP implementation contract
 
-2026-11-02, 0.3.4 delayed-result synchronization, administration and manual samples. QOJ only; no CF/Gym or custom scoreboard.
+2026-11-03, 0.3.5 native QOJ VP start integration and delayed-result synchronization. QOJ only; no CF/Gym or custom scoreboard.
 This file describes interfaces, not an all-green acceptance claim. Current
 verified/pending status is in ACTIVE_WORK.md; MVP_RESULT.md is the dated 0.1.0
 record, including the now-retired PDF export behavior.
@@ -22,6 +22,8 @@ Methods (camelCase JSON fields):
 
 - `hello {}` → `{version, capabilities}`.
 - `create_session {contestId,title?,account?,startAt?,durationMs?,ranklandUrl?}` → session below. A missing startAt means prepared; `start_session {sessionId}` persists the local start anchor. This does not claim to register a QOJ native virtual contest.
+- `qoj_bind_virtual {contestId,registrationPage?}` → `{session,contest,virtual}`. Read-only binding to the current QOJ account and verified registration rules; reuse the same prepared/native session. The optional `{url,html}` is a minimal token-free registration DOM captured before the original POST and validated by the background sender guard. The helper independently checks the live account, contest, form and rule identity.
+- `qoj_confirm_virtual_start {sessionId}` → `{session,contest,virtual}`. Read the real dashboard and atomically adopt the QOJ start. The observed server countdown and footer timestamp belong to one response; the duration comes from the same contest's registration rules. No local click or response-arrival clock supplies startAt. Unknown clocks stay unconfirmed; conflicting clocks cannot reset an existing session.
 - `list_sessions {}` → `{sessions:[session]}`; `inspect_session {sessionId}` → session; `archive_session {sessionId}` → session.
 - `update_session {sessionId,title?,durationMs?,ranklandUrl?}` → session. Title and duration are editable only while prepared; duration is an integer from 1 ms through 14 days. RankLand target settings retain their existing behavior in other states.
 - `finish_session {sessionId}` → session with `state:'finished'` and `finishedAt`. Ends only the local participation window and freezes elapsed time; it does not contact either original site. Prepared/future-start sessions are rejected; repeated finish does not change the recorded end.
@@ -37,6 +39,18 @@ Methods (camelCase JSON fields):
 - `refresh_sessions {}` → `{sessions}` with `refreshRequired` and `syncRequired`. Started, unarchived sessions remain eligible after the deadline while outcomes, complete post-deadline history or projection acknowledgements are outstanding.
 
 Session: `{sessionId,contestId,title,account,startAt,durationMs,state,effectiveState,elapsedMs,ranklandUrl,createdAt,finishedAt?}`. Keep exact durable URL, including stable unique run, not a browser tab ID. Time is derived from a timestamp, never a permanently running Python timer.
+
+Native-bound sessions also carry `qojVirtual` with mode, origin, contest, account,
+verified duration and optional confirmed start/timeSource/serverNow/remainingMs.
+`start_session` rejects a prepared native binding; the UI opens QOJ's original
+registration page instead. Content code never cancels or programmatically
+submits its Start form. A main-frame POST observer covers native JavaScript
+form submissions too. Durable start intents retry for up to 24 hours while a
+matching QOJ tab exists; closing Firefox suspends retries. A later page visit
+without an intent does not start or import an old VP. Minimal pre-POST rules
+are kept locally for this handshake and removed with the completed intent.
+Late prepared snapshots cannot replace a confirmed start or reload the running
+resource preparation page. No native task is permitted to POST registration.
 
 The local submission/outbox interval ends at the earlier of `startAt+durationMs`
 and explicit `finishedAt`; ending a practice does not shorten its configured

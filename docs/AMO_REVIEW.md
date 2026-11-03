@@ -57,6 +57,15 @@ to the selected RankLand replay through its original controls. No developer
 telemetry service is used. Native messaging is included in the declaration,
 even though its destination is on the user's own machine.
 
+On the original QOJ VP confirmation page, a preparation button binds the contest
+and prepares local resources. A minimal registration snapshot contains the
+account navigation, displayed rules and form identity; it excludes CSRF inputs,
+scripts and token query parameters. The extension observes the user's original
+Start POST without changing or replaying it. The helper only reads QOJ to
+confirm the server clock. RankLand contests whose public metadata omits problem
+details use the official public file endpoint and `cdn.algoux.cn` SRK JSON;
+the response is data, never executable code.
+
 Install the helper using [README.md](../README.md#安装). Do not move the source
 directory after registering it, since the native launcher references that path.
 The add-on ID stays `qoj-vp@littledrinks.local`; updates use the same registration

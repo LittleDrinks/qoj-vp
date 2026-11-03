@@ -18,7 +18,9 @@ function setup({fixture=false,ranklandUrl=null}={}){
    default:throw Error('Unexpected native '+method);
   }},browser:{runtime:{id:'test',getURL:n=>'moz-extension://test/'+n,onMessage:listener,onInstalled:listener},action:{onClicked:listener},alarms:{create(){},onAlarm:listener},
    tabs:{create:async o=>{tabs.push(o);return {id:5,...o};}},storage:{local:{get:async k=>({[k]:cache[k]}),set:async o=>Object.assign(cache,o)}}}};
- vm.createContext(context);vm.runInContext(fs.readFileSync('extension/background.js','utf8').replace(/\}\)\(\);\s*$/,'native=globalThis.__native;globalThis.dispatch=dispatch;})();'),context);
+ vm.createContext(context);
+ vm.runInContext(fs.readFileSync('extension/qoj-lifecycle.js','utf8'),context);
+ vm.runInContext(fs.readFileSync('extension/background.js','utf8').replace(/\}\)\(\);\s*$/,'native=globalThis.__native;globalThis.dispatch=dispatch;})();'),context);
  env.run=(method,args={})=>context.dispatch(method,{sessionId:session.sessionId,...args});return env;
 }
 test('unmatched Ucup opens the observed original QOJ board and persists discovery',async()=>{

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "QOJ VP Workbench",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "DOMjudge team pages that submit code to QOJ and sync results to RankLand, using a local Python helper to store account, contest and submission history.",
   "browser_specific_settings": {
     "gecko": {
@@ -13,8 +13,8 @@
     }
   },
   "permissions": ["nativeMessaging", "storage", "tabs", "scripting", "webRequest", "alarms"],
-  "host_permissions": ["https://qoj.ac/*", "https://vp.xcpc.link/*", "https://rl.algoux.cn/*", "http://127.0.0.1/*", "http://localhost/*"],
-  "background": {"scripts": ["transport.js", "scoreboard-sources.js", "rankland-projection.js", "rankland-transfer.js", "background.js"], "persistent": false},
+  "host_permissions": ["https://qoj.ac/*", "https://vp.xcpc.link/*", "https://rl.algoux.cn/*", "https://cdn.algoux.cn/*", "http://127.0.0.1/*", "http://localhost/*"],
+  "background": {"scripts": ["transport.js", "scoreboard-sources.js", "rankland-projection.js", "rankland-transfer.js", "qoj-lifecycle.js", "background.js"], "persistent": false},
   "content_scripts": [
     {"matches": ["https://qoj.ac/*", "http://127.0.0.1/*", "http://localhost/*"], "js": ["qoj-content.js"], "run_at": "document_start"},
     {"matches": ["https://qoj.ac/contest/*"], "js": ["qoj-prepare-content.js"], "run_at": "document_idle"},

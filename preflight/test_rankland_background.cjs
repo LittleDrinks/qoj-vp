@@ -22,6 +22,7 @@ function environment(cache = {}) {
       scripting: {executeScript: async () => [{result: null}]},
       storage: {local: {get: async key => ({[key]: cache[key]}), set: async values => Object.assign(cache, values)}}}};
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../extension/qoj-lifecycle.js"), "utf8"), context);
   vm.runInContext(source.replace(/\}\)\(\);\s*$/, "native = globalThis.__native; globalThis.dispatch = dispatch; })();"), context);
   return {session, setup, requests, nativeCalls, cache, read: () => context.dispatch("rankland.snapshot", {sessionId})};
 }

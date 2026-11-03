@@ -19,7 +19,7 @@ function environment() {
     listSessions:async()=>{}, route:()=>{}, rememberDisplayIndex:()=>{},
   };
   vm.createContext(context);
-  for(const [start,end] of [["  function epoch(","  function submitAvailability("],["  function renderClock(","  function renderSession("],["  async function saveJuryConfig(","  // File-size/time formatting"]])
+  for(const [start,end] of [["  function preserveNativeStart(","  function displayJson("],["  function epoch(","  function submitAvailability("],["  function renderClock(","  function renderSession("],["  async function saveJuryConfig(","  // File-size/time formatting"]])
     vm.runInContext(source.slice(source.indexOf(start),source.indexOf(end)),context);
   $("manual-samples-mode").value="text"; $("manual-sample-input").value="2 3\n"; $("manual-sample-output").value="5\n"; $("manual-samples-replace-group").hidden=true;
   return {context,state,$,calls,notices,hidden,removed,setHandler:value=>handler=value};

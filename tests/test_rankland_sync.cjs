@@ -27,6 +27,7 @@ function harness() {
       scripting:{executeScript:async()=>[{result:null}]},
       storage:{local:{get:async k=>({[k]:cache[k]}),set:async v=>Object.assign(cache,v)}}}};
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync('extension/qoj-lifecycle.js','utf8'),context);
   vm.runInContext(fs.readFileSync('extension/background.js','utf8').replace(/\}\)\(\);\s*$/,
     'native=globalThis.__native;globalThis.dispatch=dispatch;})();'),context);
   env.sync=()=>context.dispatch('rankland.sync',{sessionId:session.sessionId});

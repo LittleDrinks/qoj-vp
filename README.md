@@ -4,8 +4,9 @@ Firefox 扩展，提供复用 DOMjudge 9.0.1 的提交页和 Problemset，直接
 准备样例/附件、提交和同步判定；榜单自动匹配原版 RankLand，未匹配时使用 QOJ 原榜。目标为 VMware 内 Firefox，
 CF/Gym 暂不接入。
 
-当前版本为 0.3.4：选手页一键同步到原版 RankLand，晚到判定按 QOJ 原提交时间计分；
-同题乱序、重判、重复同步及赛后补判均有回归覆盖，见 [同步修复记录](docs/RANKLAND_SYNC_0.3.4.md)。
+当前版本为 0.3.5：在 QOJ 的 VP 确认页准备比赛文件，点击原站 **Start!** 后工作台自动开始，
+按 QOJ 的服务器时间恢复计时。操作和验证见 [原生 VP 联动](docs/QOJ_NATIVE_VP_0.3.5.md)。
+选手页一键同步原版 RankLand、延迟判定及赛后补判见 [同步修复记录](docs/RANKLAND_SYNC_0.3.4.md)。
 Firefox CD 已配置 AMO unlisted 签名并发布到 GitHub Release，详见 [发布与安装](docs/CI.md)。
 0.3.2 已修复刷新空白与加载动效，使用浏览器显示缓存先恢复页面，助手核验后启用提交。
 验证记录见 [0.3.2 启动修复](docs/STARTUP_0.3.2.md)；上一轮见 [0.3.1 修复记录](docs/FOLLOWUP_0.3.1.md)。
@@ -21,7 +22,7 @@ VM 四套回归通过。该版本的回归与部署记录见
 QOJ 原题面。该版本的 VM Firefox 视觉回归通过；当时真实工作台显示原榜单的 470 / 1 / 77。
 西安 A 的真实 samples 下载、关闭榜单后的缓存和重开恢复均已验证；功能提交
 `d5817bb` 的 GitHub CI 已通过 69 项 Python、62 项 Node 测试。
-私有仓库：[LittleDrinks/qoj-vp](https://github.com/LittleDrinks/qoj-vp)。
+仓库：[LittleDrinks/qoj-vp](https://github.com/LittleDrinks/qoj-vp)。
 该版本证据与限制见 [0.2.0 修复记录](docs/FOLLOWUP_RESULT.md)，当前工作状态见
 [ACTIVE_WORK](docs/ACTIVE_WORK.md)；[0.1.0 验收记录](docs/MVP_RESULT.md)仅作历史记录。
 
@@ -54,17 +55,24 @@ QOJ 登录与安全验证在同一个 Firefox 的原站页面完成。助手按�
 
 ## 使用
 
+在 QOJ 比赛点击 VP，进入 `/contest/<cid>/virtual/register` 确认页。
+**准备比赛文件并打开工作台** 会自动绑定当前账号和比赛，调用已安装的按需助手准备样例/附件。
+准备不会启动计时。回到该确认页点击原站 **Start!**，QOJ 确认成功后工作台自动进入 Home 并开始计时。
+也可以直接点击原站 Start，插件会利用该确认页保存的规则创建对应比赛；资源可之后在 Jury 准备。
+页面请求延迟或临时失败时保留开始意图，恢复后采用 QOJ 的原始起点，不从重试时刻重新开始。
+
 导航栏 **Jury → Contests → Add new contest** 用于读取 QOJ 比赛与当前账号、保存练习。
 点击管理列表中的比赛可修改准备阶段的名称、时长和 RankLand 链接，以及管理题目资源。
 **Team** 返回选手界面；奖杯菜单只切换已有比赛。管理与选手页面共用本地扩展，
 这是操作界面的分离，不是多用户权限系统。
 
-管理员的 **Start now** 仅开始本地计时，不创建 QOJ 官方 VP。**Finish now** 截止本次
+从 Jury 手工新建的比赛仍可用 **Start now** 仅开始本地计时；已绑定原生 VP 的比赛显示
+**前往 QOJ 开始**，避免同时启动两个时钟。**Finish now** 截止本次
 本地练习；结束、归档或未开始的比赛可确认删除。删除只移除本地比赛记录与其同步队列，
 不删除 QOJ / RankLand 原站记录，也保留同账号同比赛共享的题目资源。
 仍有未确认源码提交时会拒绝删除，先从选手 Home 核对原站提交。
 
-在比赛管理的“题目资源与样例”中准备文件，或使用 QOJ 原生 Start 表单旁的“准备题目文件”。
+在比赛管理的“题目资源与样例”中准备文件，或使用 QOJ VP 确认页的准备入口。
 准备不会触发原站 Start。Problemset 只为已确认缓存显示 samples、附件两个独立入口；
 未知状态可在管理员资源弹窗中重试，不用一次 404 判断不存在。
 下载仅读取本地缓存并校验分块与整包 SHA，不再跳转猜测附件地址。
