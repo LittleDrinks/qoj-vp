@@ -58,34 +58,9 @@ The three packaged Font Awesome WOFF2 files are copied from the actual official 
 
 The derived UI files carry `GPL-2.0-or-later` notices. The per-package licenses remain separate. The root project must retain these files when building an XPI/source distribution.
 
-## User flow and backend interface
+## Verification
 
-The UI calls the message contract in `MVP_CONTRACT.md`. Additional methods include `update_session {sessionId,ranklandUrl?,title?,durationMs?}`, `finish_session`, `delete_session`, `import_samples`, and `qoj_reconcile {sessionId,operationId,submissionId}`. Title/duration changes apply only before starting; QOJ contest/account remain fixed. Deletion requires explicit confirmation, rejects a running contest or unresolved delivery, and removes only local session records and queue entries. The reconciliation method requires the user to identify the actual original-site submission and never sends code.
-
-1. Open Jury → Add new contest: read QOJ contest ID/link using the normal browser login; show the detected account and problem count; save a title, duration, optional RankLand URL and optional prior start time.
-2. In Jury, configure the selected contest, prepare resources or manually import samples; start persists the start anchor. The UI explicitly distinguishes this local practice clock from QOJ's native virtual-contest registration.
-3. Submit: select the source file; infer exact problem/available language; allow manual overrides; the original DOMjudge-style browser `confirm` shows the chosen file/account/contest/problem/language before sending. Cancel does not send a native submit task.
-4. Confirmed receipts display the provider ID and poll detailed verdicts. The UI updates only the history and progress row, preserving any open file input and selected language.
-5. Uncertain delivery retains a stable operation ID and source digest in extension storage, with no source-code copy. A matching unresolved intent cannot be re-sent by the UI. The backend ledger remains the authority and independently prevents duplicate POSTs.
-6. RankLand opens the durable exact original-site URL stored with the session. Sync failure does not re-submit source code. Problemset offers Submit, statement (the original QOJ problem link), and each prepared problem's independent samples and attachment ZIPs. Jury accepts a ZIP, paired input/answer files, or one pasted pair; replacement requires confirmation, preserves attachments, and survives later automatic preparation. Local finish freezes the clock; finished contests can be removed from Jury.
-
-For submit errors, `LOGIN_REQUIRED`, `ACCOUNT_UNKNOWN`, `ACCOUNT_MISMATCH`, and `SESSION_NOT_RUNNING` are definitive pre-send failures: `Application.submit` raises them before creating the durable send intent and calling `QojClient.submit`. The local UI metadata is marked rejected, allowing a fresh explicit attempt after fixing login/account/session state. Generic `QOJ_ERROR`, `INTERNAL_ERROR`, and transport disconnection remain uncertain. An HTTP 503 outcome also stays unknown and requires explicit reconciliation.
-
-## VM acceptance still required
-
-Local checks cover JavaScript syntax, valid unique DOM IDs, matching script references, local asset presence, absence of inline scripts, and copied-asset integrity. These checks do not prove a working browser/native/QOJ integration.
-
-Use the actual VM Firefox to validate:
-
-- Initial empty state and persistent-session selector; prepare and start at a two-hour anchor, then close/reopen the workbench and Firefox.
-- Select `A.cpp` through `#submit_problem_code`, observe inferred problem/language, manually override both, then cancel without a POST.
-- Submit one controlled fixture source through the actual confirm action; verify receipt ID, pending-to-final transition, and that a polling update preserves an independently open selected file.
-- Force an uncertain receipt; refresh/reopen, select the same source, verify that no second POST is emitted. Use the explicit reconciliation dialog for a real matching provider receipt.
-- Problemset per-problem Submit preselection, own samples archive and an ordinary QOJ statement link.
-- Actual Bootstrap contest dropdown click, Escape, ArrowDown and Enter, with selection and archived entries preserved. Jury creation stays outside the trophy menu and Team Home.
-- `preflight/guest_admin_flow.py`: actual Jury creation/edit, all manual sample input modes, explicit replacement, Team downloads preserving attachment bytes, local start/finish/delete, and reload without resurrecting the deleted session. The harness uses isolated fixture sessions and a GET-only loopback judge.
-- Open stored RankLand, close the tab, reopen it and verify the same original-site VP run/progress. Validate sync through original controls, without writing localStorage directly.
-
-For an actual DOMjudge visual/interaction reference, run or obtain a real team session at the fixed upstream version and capture Home, Problemset, and Submit at the same Firefox viewport. Compare those pages with the workbench; a static adaptation rendered by this extension is not an independent real-DOMjudge reference. The reference source alone does not certify pixel equivalence.
-
-`window.qojVpUi.getState()` returns current session, summarized contest, submission facts and last error for acceptance observation. `refresh()` and `selectSession()` use the same ordinary UI requests. No exposed helper directly submits source, accesses CSRF or writes RankLand storage.
+Use the Hydro Firefox fixtures in [CI.md](CI.md) to compare the fixed upstream
+reference with the extension at the same viewport. Source reuse alone does not
+establish pixel equivalence. Architecture and state ownership are described in
+[ARCHITECTURE.md](ARCHITECTURE.md).

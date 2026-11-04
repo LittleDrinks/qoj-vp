@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def main():
     entries = ['extension', 'qojvp', 'vendor/qoj-submitter', 'scripts', 'pyproject.toml', 'LICENSE',
-               'docs/MVP_CONTRACT.md', 'docs/UI_UPSTREAM.md', 'preflight/vendor_py',
+               'docs/ARCHITECTURE.md', 'docs/UI_UPSTREAM.md', 'preflight/vendor_py',
                'preflight/tools/geckodriver', 'preflight/fixtures', 'preflight/rankland-fixtures',
                'preflight/fixture_server.py', 'preflight/mvp_fixture_server.py',
                'preflight/guest_preflight.py', 'preflight/guest_mvp.py', 'preflight/mvp_ui_probe.py',

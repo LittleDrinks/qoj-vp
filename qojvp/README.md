@@ -29,7 +29,8 @@ Environment:
   nonzero port is required; credentials, other hosts, paths and fragments are
   rejected. Normal installations accept only `https://vp.xcpc.link/`.
 
-Methods and common fields follow `docs/MVP_CONTRACT.md`. Additional methods:
+State ownership is described in [the architecture](../docs/ARCHITECTURE.md).
+The executable message interface is `Application.dispatch`. Additional methods:
 
 - `update_session {sessionId, title?, durationMs?, ranklandUrl?}` changes only those fields.
   Title and duration can only change while the local session is prepared. Title
@@ -184,7 +185,7 @@ probes per refresh and fair rotation. Prepared sessions do not probe; explicit
 reconciliation prioritizes its SID but does not automatically link intents.
 The real old native submission 1511772 was verified this way; unverified times
 still cannot put a record into the current session/RankLand queue. See
-[the evidence and boundaries](../docs/research/2026-11-01/native-vp-submit-time.md).
+[time ownership](../docs/ARCHITECTURE.md#时间与一致性).
 
 Since 0.3.0, `import_samples {sessionId,problemId,zipBase64?,files?,confirmedReplace?}`
 accepts exactly one of a ZIP or `files:[{name,base64}]`. It uses no HTTP bridge.
