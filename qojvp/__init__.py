@@ -1,6 +1,6 @@
 """QOJ VP application shared by the Firefox native helper and local tests."""
 
-__version__ = "0.3.5"
+__version__ = "0.4.0"
 
 from .application import Application, ApplicationError
 

@@ -53,13 +53,13 @@ def main():
         cases = [
             ('visual-parity', ['tests/browser/guest_visual_parity.py', '--reference-snapshot',
                                'tests/browser/visual-reference/rendered', '--width', '1440', '--height', '880']),
+            ('rankland-export', ['tests/browser/guest_rankland_sync.py']),
+            ('administration', ['tests/browser/guest_admin_flow.py']),
+            ('resources', ['tests/browser/guest_resource_cache.py']),
             ('home-refresh', ['tests/browser/guest_home_parity.py', '--reference-snapshot',
                               'tests/browser/visual-reference/rendered']),
-            ('resources', ['tests/browser/guest_resource_cache.py']),
-            ('administration', ['tests/browser/guest_admin_flow.py']),
-            ('receipts', ['tests/browser/guest_transport_diagnostics.py']),
             ('local-board', ['tests/browser/guest_local_board.py']),
-            ('rankland-export', ['tests/browser/guest_rankland_sync.py']),
+            ('receipts', ['tests/browser/guest_transport_diagnostics.py']),
         ]
         if args.rankland_online:
             cases.append(('rankland-online', ['tests/browser/guest_rankland_readiness.py', '--mode', 'verify']))
