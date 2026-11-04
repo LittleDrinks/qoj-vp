@@ -78,7 +78,10 @@ jobs:
           echo "HYDRO_ISO=$RUNNER_TEMP/hydro-source/hydro.iso" >> "$GITHUB_ENV"
       - name: Build installed Hydro image
         if: inputs.mode == 'build' && inputs.disk_run_id == ''
-        run: sudo --preserve-env=HYDRO_ISO,HYDRO_ISO_SHA256,RUNNER_TEMP bash ci/hydro/build-image.sh
+        run: |
+          sudo --preserve-env=HYDRO_ISO,HYDRO_ISO_SHA256,RUNNER_TEMP bash ci/hydro/build-image.sh
+          # Later packaging and publication steps run as the runner user.
+          sudo chown -R "$(id -u):$(id -g)" ci/hydro/output
       - name: Cache installed system for packaging retries
         if: inputs.mode == 'build' && inputs.disk_run_id == ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
