@@ -193,13 +193,24 @@ def main():
         def manual_record():
             from selenium.webdriver.common.by import By
             from selenium.webdriver.support.ui import Select
+            from selenium.common.exceptions import ElementClickInterceptedException, StaleElementReferenceException
             h.rankland_handle(session)
             Select(h.driver.find_element(By.CSS_SELECTOR,'select[aria-label="题目"]')).select_by_value('0')
             Select(h.driver.find_element(By.CSS_SELECTOR,'select[aria-label="结果"]')).select_by_value('CE')
             for label,value in [('提交时间（时）','0'),('提交时间（分）','10')]:
                 control=h.driver.find_element(By.CSS_SELECTOR,'input[aria-label="'+label+'"]')
                 control.clear();control.send_keys(value)
-            h.driver.find_element(By.XPATH,'//button[normalize-space(.)="记录提交"]').click()
+            def click_record():
+                button=h.driver.find_element(By.XPATH,'//button[normalize-space(.)="记录提交"]')
+                h.driver.execute_script("arguments[0].scrollIntoView({block:'center'});",button)
+                try:
+                    button.click()
+                    return True
+                except (ElementClickInterceptedException, StaleElementReferenceException):
+                    # Native WebDriver click must reach the real control after
+                    # the sticky toolbar/layout settles, never a JS bypass.
+                    return False
+            h.wait(click_record,'unobscured original manual-submit control')
             record={'problemIndex':0,'timeMs':600000,'result':'CE'}
             h.wait(lambda: record in h.archive(session)['value']['manual'],'original manual record')
             sync(session)

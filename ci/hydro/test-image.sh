@@ -23,9 +23,10 @@ if test -n "${HYDRO_GUEST_DIR:-}"; then
   guest_mount=(-v "$HYDRO_GUEST_DIR:/opt/hydro:ro")
 fi
 docker run -d --name "$container" --device /dev/kvm \
+  --entrypoint /bin/bash -v "$project/ci/hydro/entrypoint.sh:/ci-entrypoint.sh:ro" \
   -p 127.0.0.1:2222:2222 \
   "${guest_mount[@]}" \
-  -v "$run/config:/config:ro" -v "$output:/output" "$image"
+  -v "$run/config:/config:ro" -v "$output:/output" "$image" /ci-entrypoint.sh
 ssh_args=(-p 2222 -i "$run/id" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
   -o UserKnownHostsFile="$run/known_hosts" -o ConnectTimeout=5 -o ServerAliveInterval=15)
 ssh_guest() { ssh "${ssh_args[@]}" hydroci@127.0.0.1 "$@"; }

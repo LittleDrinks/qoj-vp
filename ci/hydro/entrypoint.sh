@@ -4,7 +4,7 @@ test -c /dev/kvm
 test -s /config/authorized_keys
 mkdir -p /run/hydro /output
 qemu-img create -f qcow2 -F qcow2 -b /opt/hydro/system.qcow2 /run/hydro/session.qcow2
-exec qemu-system-x86_64 -machine q35,accel=kvm -cpu host -smp 2 -m 4096 \
+exec qemu-system-x86_64 -machine q35,accel=kvm -cpu host -smp "$(nproc)" -m 4096 \
   -display none -monitor none -serial file:/output/serial.log \
   -kernel /opt/hydro/vmlinuz -initrd /opt/hydro/initrd \
   -append 'root=/dev/vda rw rootwait console=ttyS0 systemd.unit=multi-user.target' \

@@ -106,9 +106,17 @@ def main():
             return b['own']
         h.step('rejudge_replaces_verdict',rejudge)
         def board_does_not_fetch_judge():
+            # Isolate this RPC from the workbench's independent five-second
+            # judger poll. A static extension document retains runtime access
+            # without running UI timers; leave the production scripts intact.
+            h.focus_ui()
+            h.driver.get(h.ui_url.split('ui.html')[0]+'manifest.json')
+            h.driver.execute_async_script("const done=arguments[arguments.length-1];browser.alarms.clear('vp-refresh').then(done);")
+            # Join any provider read already started before navigation.
+            h.call('judger.submissions',{'sessionId':sid,'refresh':True})
             before=len(judge.requests)
             for _ in range(3): h.call('board.snapshot',{'sessionId':sid})
-            require(len(judge.requests)==before,'Board read fetched the judge')
+            require(len(judge.requests)==before,'Board read fetched the judge: '+str(judge.requests[before:]))
             return {'judgeRequests':0,'tabs':len(h.driver.window_handles)}
         h.step('board_judger_decoupling',board_does_not_fetch_judge)
     except Exception as error:
