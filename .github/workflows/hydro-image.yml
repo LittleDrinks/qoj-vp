@@ -7,6 +7,10 @@ on:
         options: [probe, build]
         default: probe
         description: Probe hosted virtualization or rebuild the reusable installed system
+      iso_url:
+        type: string
+        required: false
+        description: Optional one-time HTTPS transport for the pinned clean ISO
 permissions:
   contents: read
 concurrency:
@@ -39,11 +43,11 @@ jobs:
           os.close(vm);os.close(fd)
           print('KVM_CREATE_VM passed')
           PY
-      - name: Probe upstream download access
-        if: inputs.mode == 'probe'
-        run: |
-          curl -L -sS --max-time 10 -o /dev/null -w 'Full GET HTTP %{http_code} bytes %{size_download}\n' https://contest.hydro.org.cn/2026/ubuntu-24.04.5-icpc2026-amd64.iso || true
-          curl -IL -sS --max-time 10 https://contest.hydro.org.cn/2026/ubuntu-24.04.5-icpc2026-amd64.iso || true
+      - name: Probe ISO transport
+        if: inputs.mode == 'probe' && inputs.iso_url != ''
+        env:
+          ISO_URL: ${{ inputs.iso_url }}
+        run: curl --fail --location --max-time 90 --range 0-10485759 -o /dev/null -w 'HTTP %{http_code}, bytes/sec %{speed_download}\n' "$ISO_URL"
       - name: Prepare hosted disk space
         if: inputs.mode == 'build'
         run: bash ci/hydro/free-runner-space.sh
@@ -51,11 +55,18 @@ jobs:
         if: inputs.mode == 'build'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISO_URL: ${{ inputs.iso_url }}
         run: |
           mkdir -p "$RUNNER_TEMP/hydro-source"
-          gh release download hydro-ci-bootstrap-2026 --pattern 'hydro.iso.part-*' --pattern 'iso.json' --dir "$RUNNER_TEMP/hydro-source"
-          digest=$(python3 ci/hydro/import-iso.py "$RUNNER_TEMP/hydro-source")
-          test "$digest" = 150812711cef3a58e1da89d40748bdf7692a3ea8cc76c5e94a9f122d1a995931
+          digest=150812711cef3a58e1da89d40748bdf7692a3ea8cc76c5e94a9f122d1a995931
+          if [ -n "$ISO_URL" ]; then
+            curl --fail --location --retry 3 --retry-all-errors --continue-at - --max-time 1800 "$ISO_URL" -o "$RUNNER_TEMP/hydro-source/hydro.iso"
+          else
+            gh release download hydro-ci-bootstrap-2026 --pattern 'hydro.iso.part-*' --pattern 'iso.json' --dir "$RUNNER_TEMP/hydro-source"
+            actual=$(python3 ci/hydro/import-iso.py "$RUNNER_TEMP/hydro-source")
+            test "$actual" = "$digest"
+          fi
+          printf '%s  %s\n' "$digest" "$RUNNER_TEMP/hydro-source/hydro.iso" | sha256sum --check
           echo "HYDRO_ISO_SHA256=$digest" >> "$GITHUB_ENV"
           echo "HYDRO_ISO=$RUNNER_TEMP/hydro-source/hydro.iso" >> "$GITHUB_ENV"
       - name: Build installed Hydro image
