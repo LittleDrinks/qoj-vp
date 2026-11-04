@@ -43,15 +43,24 @@ def package_source(repository=ROOT, output_directory=None):
     gitlink = git(repository, 'ls-tree', commit, '--', SUBMODULE).decode().strip().split()
     if len(gitlink) != 4 or gitlink[:2] != ['160000', 'commit'] or gitlink[3] != SUBMODULE:
         raise ValueError('The QOJ CLI must be a pinned submodule')
-    submodule_commit = gitlink[2]
+    submodules = {}
     files = committed_files(repository, commit)
-    files.extend(committed_files(repository / SUBMODULE, submodule_commit, SUBMODULE + '/'))
+    # Include every pinned gitlink, not only the original Python CLI.
+    for entry in git(repository, 'ls-tree', '-r', '-z', commit).split(b'\0'):
+        if not entry:
+            continue
+        metadata, name = entry.split(b'\t', 1)
+        mode, kind, revision = metadata.decode().split()
+        if mode == '160000' and kind == 'commit':
+            path = name.decode()
+            submodules[path] = revision
+            files.extend(committed_files(repository / path, revision, path + '/'))
     files.append(('SOURCE_COMMIT', (commit + '\n').encode(), 0o644))
     files.sort()
     if len({name for name, _, _ in files}) != len(files):
         raise ValueError('Duplicate source archive paths')
     manifest = {'schema': 'qoj-vp-source-v1', 'commit': commit,
-                'submodules': {SUBMODULE: submodule_commit},
+                'submodules': submodules,
                 'files': [{'path': name, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
                           for name, data, _ in files]}
     files.append(('SOURCE_MANIFEST.json', (json.dumps(manifest, indent=2) + '\n').encode(), 0o644))

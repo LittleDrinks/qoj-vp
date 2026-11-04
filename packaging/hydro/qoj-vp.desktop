@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=QOJ Workbench
+Comment=Configure QOJ Workbench in Firefox
+Exec=qoj-vp
+Icon=qoj-vp
+Terminal=false
+Categories=Development;Education;
+StartupNotify=false

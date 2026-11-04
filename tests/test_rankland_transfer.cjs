@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
 const projectionSource = fs.readFileSync(path.join(__dirname, "../extension/rankland-projection.js"), "utf8");
+const protocolSource = fs.readFileSync(path.join(__dirname, "../extension/rankland-protocol.js"), "utf8");
 const transferSource = fs.readFileSync(path.join(__dirname, "../extension/rankland-transfer.js"), "utf8");
 const sessionId = "11111111-2222-4333-8444-555555555555";
 const url = `https://vp.xcpc.link/?contest=fixture&run=${sessionId}&rule=ICPC&from=0`;
@@ -19,8 +20,9 @@ const code = expected => error => error.code === expected;
 // guard, DOM checks, localStorage read/write, and compare-and-set. Vue rendering
 // is intentionally represented by a minimal DOM, not claimed as a browser test.
 function environment(extra = {}) {
-  const session = {sessionId, ranklandUrl: url};
-  const state = {tab: {id: 7, url}, otherTabs: [], bundle: "/assets/index-ad07c00e.js",
+  const replayUrl = extra.url || url;
+  const session = {sessionId, ranklandUrl: replayUrl};
+  const state = {tab: {id: 7, url:replayUrl}, otherTabs: [], bundle: "/assets/index-ad07c00e.js",
     labels: ["A", "B", "C", "D"], ownRow: true, gateHasBoard: false, navigations: [],
     writes: [], executions: [], extension: {}, sourceCalls: [], queryCount: 0, ...extra};
   const pageStorage = new Map();
@@ -31,7 +33,7 @@ function environment(extra = {}) {
       setItem: (key, value) => { state.writes.push({key, value}); pageStorage.set(key, String(value)); },
     },
     document: {
-      get scripts() { return [{src: new URL(state.bundle, url).href}]; },
+      get scripts() { return [{src: new URL(state.bundle, replayUrl).href}]; },
       querySelector(selector) {
         assert.equal(selector, '[data-id="vp-ranklist-content"]');
         if (!new URL(state.tab.url).searchParams.has("contest") && !state.gateHasBoard) return null;
@@ -39,7 +41,7 @@ function environment(extra = {}) {
           if (selector === ".srk-main > table thead .srk-problem-header") return state.labels.map(label =>
             ({querySelector: () => ({textContent: label})}));
           assert.equal(selector, ".srk-user-name-text");
-          return state.ownRow ? [{textContent: JSON.parse(pageStorage.get(api.archiveKey(url))).ownName,
+          return state.ownRow ? [{textContent: ((extra.modern || Array.isArray(JSON.parse(pageStorage.get(api.archiveKey(replayUrl)) ?? "null"))) ? new URL(state.tab.url).searchParams.get("team") : JSON.parse(pageStorage.get(api.archiveKey(replayUrl)) ?? "null")?.ownName),
             closest: () => ({getClientRects: () => [{}]})}] : [];
         }};
       },
@@ -70,7 +72,8 @@ function environment(extra = {}) {
         set: async values => { await state.onExtensionSet?.(values, state); Object.assign(state.extension, clone(values)); },
         remove: async key => { delete state.extension[key]; },
       }},
-      scripting: {executeScript: async ({target, func, args}) => {
+      scripting: {executeScript: async ({target, func, args, files}) => {
+        if (files) { vm.runInContext(protocolSource,pageContext); return [{result:null}]; }
         assert.equal(target.tabId, state.tab.id);
         const arg = args[0];
         state.executions.push(clone(arg));
@@ -85,11 +88,13 @@ function environment(extra = {}) {
       }},
     },
   });
+  vm.runInContext(protocolSource, pageContext);
+  vm.runInContext(protocolSource, context);
   vm.runInContext(projectionSource, context);
   vm.runInContext(transferSource, context);
   api = context.VpRanklandTransfer;
-  const targetKey = api.archiveKey(url);
-  pageStorage.set(targetKey, JSON.stringify(freshArchive(extra.archive)));
+  const targetKey = api.archiveKey(replayUrl);
+  if (!extra.empty) pageStorage.set(targetKey, JSON.stringify(extra.modern ? (extra.manual || []) : freshArchive(extra.archive)));
   const sync = items => api.sync({session, tabId: state.tab.id, plan: {items, allItems: items}});
   return {state, api, session, pageStorage, targetKey, sync,
     read: () => JSON.parse(pageStorage.get(targetKey)),
@@ -215,7 +220,7 @@ test("another replay writer or navigation away refuses delivery", async () => {
   assert.equal(env.state.writes.length, 0);
   const navigated = environment();
   navigated.state.tab.url = "https://vp.xcpc.link/?contest=other";
-  await assert.rejects(navigated.sync([submission(101, 4800123)]), code("RANKLAND_MULTIPLE_WRITERS"));
+  await assert.rejects(navigated.sync([submission(101, 4800123)]), code("RANKLAND_SESSION_MISMATCH"));
   assert.equal(navigated.state.navigations.length, 0);
 });
 
@@ -243,27 +248,75 @@ test("the gate must have fully left the live replay before any write", async () 
   assert.equal(env.state.tab.url, url);
 });
 
-test("unsupported archive format and upstream bundle changes fail before navigation", async () => {
-  for (const extra of [{archive: {version: 3}}, {bundle: "/assets/index-new-upstream.js"}]) {
-    const env = environment(extra);
-    await assert.rejects(env.sync([submission(101, 4800123)]), code(extra.archive ? "RANKLAND_SCHEMA_CHANGED" : "RANKLAND_VERSION_CHANGED"));
-    assert.equal(env.state.writes.length, 0);
-    assert.equal(env.state.navigations.length, 0);
-  }
+test("unsupported archive format fails before navigation", async () => {
+  const env = environment({archive: {version: 3}});
+  await assert.rejects(env.sync([submission(101, 4800123)]), code("RANKLAND_SCHEMA_CHANGED"));
+  assert.equal(env.state.writes.length, 0);
+  assert.equal(env.state.navigations.length, 0);
 });
 
-test("resuming a staged import still validates the current upstream bundle", async () => {
+test("resuming a staged import does not require a particular build fingerprint", async () => {
   const env = environment({bundle: "/assets/index-new-upstream.js"});
   env.setUrl(env.api.gateUrl(env.session));
-  await assert.rejects(env.sync([submission(101, 4800123)]), code("RANKLAND_VERSION_CHANGED"));
+  assert.equal((await env.sync([submission(101, 4800123)])).synced, 1);
+});
+
+test("an incompatible storage change during staging still prevents mutation", async () => {
+  const env = environment();
+  env.state.onNavigate = async target => {
+    if (target === env.api.gateUrl(env.session)) env.replace({version:3,manual:[]});
+  };
+  await assert.rejects(env.sync([submission(101, 4800123)]), code("RANKLAND_SCHEMA_CHANGED"));
   assert.equal(env.state.writes.length, 0);
 });
 
-test("an upstream deploy during staging is checked again before storage mutation", async () => {
-  const env = environment();
-  env.state.onNavigate = async target => {
-    if (target === env.api.gateUrl(env.session)) env.state.bundle = "/assets/index-new-upstream.js";
-  };
-  await assert.rejects(env.sync([submission(101, 4800123)]), code("RANKLAND_VERSION_CHANGED"));
-  assert.equal(env.state.writes.length, 0);
+// A deployment fingerprint is not a storage protocol version.
+test("a cosmetic upstream bundle rebuild does not block the verified storage contract", async () => {
+  const env = environment({bundle: "/assets/index-cosmetic-rebuild.js"});
+  const result = await env.sync([submission(101, 4800123)]);
+  assert.equal(result.synced, 1);
+  assert.deepEqual(env.read().manual, [row(0, 4800123, "AC")]);
+});
+
+const modernUrl = "https://vp.xcpc.link/?contest=fixture&at=2026-11-04T00%3A00%3A00.000Z&from=0&play=1&speed=1&team=TestTeam";
+test("current manual-array storage imports delayed exact timestamps and survives a new deployment", async () => {
+  const env=environment({url:modernUrl,modern:true,bundle:"/assets/index-whatever.js"});
+  const items=[submission(101,4800123)];
+  await env.sync(items);
+  assert.deepEqual(env.read(),[row(0,4800123,"AC")]);
+  assert.equal((await env.sync(items)).synced,0);
+  assert.equal(env.state.writes.length,1);
+  assert.equal(env.state.tab.url,modernUrl);
+});
+test("first current import can create an absent submissions array", async () => {
+  const env=environment({url:modernUrl,modern:true,empty:true});
+  await env.sync([submission(101,4800123)]);
+  assert.deepEqual(env.read(),[row(0,4800123,"AC")]);
+});
+test("current rejudge and withdrawal preserve unowned attempts and replay settings", async () => {
+  const actual=modernUrl.replace('from=0&play=1&speed=1','from=40&play=0&speed=5')+'&anchor=2026-11-04T01%3A00%3A00Z';
+  const env=environment({url:actual,modern:true,manual:[row(3,20000,"WA")]});
+  env.session.ranklandUrl=modernUrl;
+  await env.sync([submission(101,4800123)]);
+  await env.sync([submission(101,4800123,"TIMELIMIT",2)]);
+  assert.deepEqual(env.read(),[row(3,20000,"WA"),row(0,4800123,"TLE")]);
+  assert.equal(env.state.tab.url,actual);
+  await env.sync([]);
+  assert.deepEqual(env.read(),[row(3,20000,"WA")]);
+});
+test("current array write reply loss is recovered without duplicating records", async () => {
+  const env=environment({url:modernUrl,modern:true,loseWriteReplyOnce:true});
+  const items=[submission(101,4800123)];
+  await assert.rejects(env.sync(items),/Simulated extension disconnect/);
+  await env.sync(items);
+  assert.deepEqual(env.read(),[row(0,4800123,"AC")]);
+  assert.equal(env.state.writes.length,1);
+});
+test("unknown current records and another clock's writer cannot be overwritten", async () => {
+  const env=environment({url:modernUrl,modern:true,manual:[{...row(0,123,"AC"),newMeaning:true}]});
+  await assert.rejects(env.sync([submission(101,4800123)]),code("RANKLAND_SCHEMA_CHANGED"));
+  assert.equal(env.state.writes.length,0);
+  const multiple=environment({url:modernUrl,modern:true,otherTabs:[{id:9,url:modernUrl.replace('play=1','play=0')}]});
+  await assert.rejects(multiple.sync([submission(101,4800123)]),code("RANKLAND_MULTIPLE_WRITERS"));
+  assert.equal(multiple.state.writes.length,0);
 });

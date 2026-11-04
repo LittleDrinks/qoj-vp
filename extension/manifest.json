@@ -8,18 +8,89 @@
       "id": "qoj-vp@littledrinks.local",
       "strict_min_version": "140.0",
       "data_collection_permissions": {
-        "required": ["authenticationInfo", "websiteContent", "websiteActivity"]
+        "required": [
+          "authenticationInfo",
+          "websiteContent",
+          "websiteActivity"
+        ]
       }
     }
   },
-  "permissions": ["nativeMessaging", "storage", "tabs", "scripting", "webRequest", "alarms"],
-  "host_permissions": ["https://qoj.ac/*", "https://vp.xcpc.link/*", "https://rl.algoux.cn/*", "https://cdn.algoux.cn/*", "http://127.0.0.1/*", "http://localhost/*"],
-  "background": {"scripts": ["transport.js", "scoreboard-sources.js", "rankland-projection.js", "rankland-transfer.js", "qoj-lifecycle.js", "background.js"], "persistent": false},
-  "content_scripts": [
-    {"matches": ["https://qoj.ac/*", "http://127.0.0.1/*", "http://localhost/*"], "js": ["qoj-content.js"], "run_at": "document_start"},
-    {"matches": ["https://qoj.ac/contest/*"], "js": ["qoj-prepare-content.js"], "run_at": "document_idle"},
-    {"matches": ["https://vp.xcpc.link/*"], "js": ["rankland-content.js"], "run_at": "document_idle"}
+  "permissions": [
+    "nativeMessaging",
+    "storage",
+    "tabs",
+    "scripting",
+    "webRequest",
+    "alarms"
   ],
-  "action": {"default_title": "Open QOJ VP Workbench"},
-  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'"}
+  "host_permissions": [
+    "https://qoj.ac/*",
+    "https://vp.xcpc.link/*",
+    "https://rl.algoux.cn/*",
+    "https://cdn.algoux.cn/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "scripts": [
+      "transport.js",
+      "scoreboard-sources.js",
+      "rankland-protocol.js",
+      "rankland-projection.js",
+      "rankland-transfer.js",
+      "qoj-lifecycle.js",
+      "board/generated/engine.js",
+      "board/cache.js",
+      "board/service.js",
+      "background.js"
+    ],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://qoj.ac/*",
+        "http://127.0.0.1/*",
+        "http://localhost/*"
+      ],
+      "js": [
+        "qoj-content.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://qoj.ac/contest/*"
+      ],
+      "js": [
+        "qoj-prepare-content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://vp.xcpc.link/*"
+      ],
+      "js": [
+        "rankland-protocol.js",
+        "rankland-content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Open QOJ VP Workbench",
+    "default_icon": {
+      "16": "icons/domjudge-16.png",
+      "32": "icons/domjudge-32.png"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'"
+  },
+  "icons": {
+    "16": "icons/domjudge-16.png",
+    "32": "icons/domjudge-32.png"
+  }
 }

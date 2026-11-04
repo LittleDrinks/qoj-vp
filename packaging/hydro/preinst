@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+. /etc/os-release
+if [ "$ID" != ubuntu ] || [ "$VERSION_ID" != 24.04 ] || [ "$(dpkg --print-architecture)" != amd64 ]; then
+  echo 'QOJ Workbench 的此安装包仅面向 Hydro Contest OS 2026（Ubuntu 24.04 / amd64）。' >&2
+  exit 1
+fi

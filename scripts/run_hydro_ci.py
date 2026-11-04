@@ -22,7 +22,7 @@ def main():
                         help='Also run the network-dependent original RankLand regression')
     args = parser.parse_args()
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    sys.path.insert(0, str(ROOT / 'preflight/vendor_py'))
+    sys.path.insert(0, str(ROOT / 'tests/browser/vendor_py'))
     report = {'schema': 'qoj-vp-hydro-ci-v1', 'status': 'running', 'startedAt': time.time(),
               'judge': 'local-fixtures', 'realQojSubmission': False, 'realRanklandTested': False,
               'ranklandOnlineRequested': args.rankland_online,
@@ -38,7 +38,7 @@ def main():
             raise RuntimeError('Run browser tests as the dedicated unprivileged CI user')
         if not Path('/usr/bin/firefox-esr').is_file():
             raise RuntimeError('The guest harnesses require /usr/bin/firefox-esr')
-        driver = ROOT / 'preflight/tools/geckodriver'
+        driver = ROOT / 'tests/browser/tools/geckodriver'
         if not driver.is_file() or not os.access(driver, os.X_OK):
             raise RuntimeError('Install the pinned geckodriver before running browser tests')
         for module in ('selenium', 'requests', 'bs4', 'pycurl'):
@@ -48,17 +48,18 @@ def main():
         report['firefox'] = subprocess.check_output(['/usr/bin/firefox-esr', '--version'], text=True).strip()
         report['geckodriver'] = subprocess.check_output([str(driver), '--version'], text=True).splitlines()[0]
         cases = [
-            ('visual-parity', ['preflight/guest_visual_parity.py', '--reference-snapshot',
-                               'preflight/visual-reference/rendered', '--width', '1440', '--height', '880']),
-            ('home-refresh', ['preflight/guest_home_parity.py', '--reference-snapshot',
-                              'preflight/visual-reference/rendered']),
-            ('resources', ['preflight/guest_resource_cache.py']),
-            ('administration', ['preflight/guest_admin_flow.py']),
-            ('receipts', ['preflight/guest_transport_diagnostics.py']),
-            ('rankland-sync', ['preflight/guest_rankland_sync.py']),
+            ('visual-parity', ['tests/browser/guest_visual_parity.py', '--reference-snapshot',
+                               'tests/browser/visual-reference/rendered', '--width', '1440', '--height', '880']),
+            ('home-refresh', ['tests/browser/guest_home_parity.py', '--reference-snapshot',
+                              'tests/browser/visual-reference/rendered']),
+            ('resources', ['tests/browser/guest_resource_cache.py']),
+            ('administration', ['tests/browser/guest_admin_flow.py']),
+            ('receipts', ['tests/browser/guest_transport_diagnostics.py']),
+            ('local-board', ['tests/browser/guest_local_board.py']),
+            ('rankland-export', ['tests/browser/guest_rankland_sync.py']),
         ]
         if args.rankland_online:
-            cases.append(('rankland-online', ['preflight/guest_rankland_readiness.py', '--mode', 'verify']))
+            cases.append(('rankland-online', ['tests/browser/guest_rankland_readiness.py', '--mode', 'verify']))
         for name, arguments in cases:
             started = time.time()
             with (OUTPUT / (name + '.txt')).open('w') as log:

@@ -4,19 +4,37 @@
   const methods = new Set(["hello", "create_session", "start_session", "list_sessions", "inspect_session", "archive_session", "update_session",
     "qoj_contest", "qoj_bind_virtual", "qoj_confirm_virtual_start", "qoj_problem_form", "qoj_samples", "qoj_submit", "qoj_submissions", "qoj_reconcile", "rankland_queue", "rankland_ack", "rankland_ack_batch", "rankland_plan", "refresh_sessions", "prepare_rankland",
     "resource_manifest", "prepare_resource", "resource_chunk", "import_samples", "delete_session", "finish_session", "session_snapshot"]);
-  function ranklandIdentity(raw) {
-    const url = new URL(raw), q = url.searchParams;
-    return JSON.stringify([url.origin, q.get("contest"), q.get("run"), q.get("rule") || "auto",
-      Number(q.get("count") ?? 50), Number(q.get("ratio") ?? 20), q.get("at") || "null", Number(q.get("from") || 0)]);
+  const ranklandIdentity = raw => VpRanklandProtocol.identity(raw);
+  async function rememberRanklandUrl(raw) {
+    const identity = ranklandIdentity(raw);
+    await browser.storage.local.set({["rankland-url-v1:" + identity]: {url:raw,identity,observedAt:Date.now()}});
   }
+  async function restoredRanklandUrl(raw) {
+    const identity = ranklandIdentity(raw), key = "rankland-url-v1:" + identity;
+    const saved = (await browser.storage.local.get(key))[key];
+    try { if (saved?.identity === identity && ranklandIdentity(saved.url) === identity) return saved.url; }
+    catch (_) { /* An invalid or old cache cannot change this session's target. */ }
+    return raw;
+  }
+  // SPA replaceState updates (join team, pause, speed) must survive closing the
+  // tab immediately, without waiting for the next score poll or content timer.
+  browser.tabs?.onUpdated?.addListener((_tabId, change) => {
+    if (!change.url) return;
+    try {
+      const url = new URL(change.url);
+      if (url.origin === "https://vp.xcpc.link" && url.searchParams.has("at")) {
+        rememberRanklandUrl(url.href).catch(() => {});
+      }
+    } catch (_) { /* No valid replay identity to save. */ }
+  });
   const openingRankland = new Map();
   const ranklandGuardEvents = [];
-  async function matchingRanklandTabs(expectedUrl) {
+  async function matchingRanklandTabs(expectedUrl, sessionId) {
     const identity = ranklandIdentity(expectedUrl);
     const gate = new URL("/", expectedUrl);
-    gate.searchParams.set("qoj-vp-transfer", new URL(expectedUrl).searchParams.get("run"));
+    gate.searchParams.set("qoj-vp-transfer", sessionId || new URL(expectedUrl).searchParams.get("run"));
     return (await browser.tabs.query({})).filter(item => {
-      try { return ranklandIdentity(item.url) === identity || item.url === gate.href; } catch (_) { return false; }
+      try { return item.url === gate.href || ranklandIdentity(item.url) === identity; } catch (_) { return false; }
     });
   }
   const readingRanklandScores = new Map();
@@ -25,7 +43,6 @@
       const nonnegative = value => Number.isSafeInteger(value) && value >= 0;
       const rank = value => value === null || (Number.isSafeInteger(value) && value > 0);
       return snapshot?.version === 1 && snapshot.sessionId === session.sessionId &&
-        new URL(session.ranklandUrl).searchParams.get("run") === session.sessionId &&
         snapshot.identity === ranklandIdentity(session.ranklandUrl) && ranklandIdentity(snapshot.url) === snapshot.identity &&
         typeof snapshot.ownName === "string" && snapshot.ownName.length > 0 && snapshot.ownName.length <= 200 &&
         typeof snapshot.targetKey === "string" && snapshot.targetKey.length > 0 && snapshot.targetKey.length <= 4096 &&
@@ -39,20 +56,21 @@
   async function readRanklandScore(session) {
     const url = session.ranklandUrl || null;
     if (!url) return {state: "not_configured", snapshot: null, url};
+    if (session.startAt === null || session.state === "prepared") return {state: "not_started", snapshot:null, url};
     const key = "rankland-score-v1:" + session.sessionId + ":" + ranklandIdentity(url);
     const saved = (await browser.storage.local.get(key))[key];
     const cached = validRanklandScore(saved, session) ? saved : null;
     const fallback = (reason, state = "unavailable") => ({state: cached ? "cached" : state, snapshot: cached, reason, url});
-    const tabs = await matchingRanklandTabs(url);
+    const tabs = await matchingRanklandTabs(url, session.sessionId);
     if (!tabs.length) return fallback("TAB_CLOSED");
     if (tabs.length !== 1) return fallback("MULTIPLE_TABS", "attention");
     let deadline;
     try {
       const query = async () => {
-        const message = {type: "vp.rankland.snapshot", sessionId: session.sessionId, expectedUrl: url};
+        const message = {type: "vp.rankland.snapshot", sessionId: session.sessionId, expectedUrl: url, durationMs:session.durationMs};
         try { return await browser.tabs.sendMessage(tabs[0].id, message); }
         catch (_) {
-          const frames = await browser.scripting.executeScript({target: {tabId: tabs[0].id}, files: ["rankland-content.js"]});
+          const frames = await browser.scripting.executeScript({target: {tabId: tabs[0].id}, files: ["rankland-protocol.js", "rankland-content.js"]});
           if (frames.some(frame => frame.error)) throw new Error("BRIDGE_UNAVAILABLE");
           return browser.tabs.sendMessage(tabs[0].id, message);
         }
@@ -65,6 +83,7 @@
       const {version, sessionId, identity, targetKey, ownName, rank, ranks, score, penaltyMinutes, elapsedMs, running, observedAt} = result.snapshot;
       const snapshot = {version, sessionId, url, identity, targetKey, ownName, rank, ranks, score, penaltyMinutes, elapsedMs, running, observedAt};
       await browser.storage.local.set({[key]: snapshot});
+      await rememberRanklandUrl(result.snapshot.url);
       return {state: "live", snapshot, url};
     } catch (_) { return fallback("BRIDGE_UNAVAILABLE"); }
     finally { clearTimeout(deadline); }
@@ -257,10 +276,10 @@
     const identity = ranklandIdentity(target.href);
     if (!openingRankland.has(identity)) {
       const opening = (async () => {
-        const matches = await matchingRanklandTabs(session.ranklandUrl);
+        const matches = await matchingRanklandTabs(session.ranklandUrl, session.sessionId);
         if (matches.length > 1) throw new Error("同一场 VP 打开了多个榜单页，请保留一个后再继续，以免原站存档互相覆盖。");
         if (matches[0]) return matches[0];
-        const created = await browser.tabs.create({url: session.ranklandUrl, active: false});
+        const created = await browser.tabs.create({url: await restoredRanklandUrl(session.ranklandUrl), active: false});
         // Keep the coalescing promise until Tab.url has the intended identity.
         // tabs.create can resolve while a new tab still reports about:blank.
         for (let n = 0; n < 100; n++) {
@@ -286,7 +305,7 @@
     if (auto) session = await native("prepare_rankland", {sessionId});
     const incomplete = refreshed?.coverage?.complete === false || session.lastHistoryRefreshComplete === false;
     let tab;
-    const matches = await matchingRanklandTabs(session.ranklandUrl);
+    const matches = await matchingRanklandTabs(session.ranklandUrl, session.sessionId);
     if (matches.length > 1) return {state: "attention", synced: 0, message: "同一场 VP 打开了多个榜单页。请保留一个，避免原站的多个页面互相覆盖进度。"};
     if (auto) tab = await ranklandTab(session, false);
     else {
@@ -298,16 +317,16 @@
     if (recovering) ready = {ready:true};
     for (let n = 0; !recovering && n < 80; n++) {
       try {
-        ready = await browser.tabs.sendMessage(tab.id, {type: "vp.rankland.ready", sessionId, expectedUrl: session.ranklandUrl});
+        ready = await browser.tabs.sendMessage(tab.id, {type: "vp.rankland.ready", sessionId, expectedUrl: session.ranklandUrl, durationMs:session.durationMs});
         if (ready?.reason === 'TEAM_REQUIRED' && !teamPrepared) {
           teamPrepared = true;
           ready = await browser.tabs.sendMessage(tab.id, {type: "vp.rankland.prepare", sessionId,
-            expectedUrl: session.ranklandUrl, teamName: session.account});
+            expectedUrl: session.ranklandUrl, teamName: session.account, durationMs:session.durationMs});
         }
         if (ready?.ready || (ready?.reason && !['CONTEST_LOADING', 'STORAGE_NOT_READY', 'TEAM_REQUIRED'].includes(ready.reason))) break;
       } catch (_) { /* Navigating. */ }
       if (n === 15) {
-        const frames = await browser.scripting.executeScript({target: {tabId: tab.id}, files: ["rankland-content.js"]});
+        const frames = await browser.scripting.executeScript({target: {tabId: tab.id}, files: ["rankland-protocol.js", "rankland-content.js"]});
         if (frames.some(frame => frame.error)) throw new Error("RANKLAND_BRIDGE_LOAD_FAILED");
       }
       await VpTransport.pause(150);
@@ -332,6 +351,10 @@
       };
       return {state: "page_not_ready", synced: 0, reason: ready?.reason || 'BRIDGE_NOT_READY',
         message: reasons[ready?.reason] || "RankLand 页面尚未就绪，已确认的判定仍保留。"};
+    }
+    if (!recovering) {
+      const current = await browser.tabs.get(tab.id);
+      if (ranklandIdentity(current.url) === ranklandIdentity(session.ranklandUrl)) await rememberRanklandUrl(current.url);
     }
     const plan = await native("rankland_plan", {sessionId});
     try {
@@ -482,7 +505,13 @@
     }
     return resolvingScoreboards.get(args.sessionId);
   }
+  const board = VpBoard.create({readSnapshot:sessionId=>native("session_snapshot",{sessionId}),
+    sources:VpScoreboardSources,cache:VpBoardCache,engine:VpBoardEngine});
   async function dispatch(method, args) {
+    if (method.startsWith("judger.")) {
+      const action=method.slice(7);method=action==="prepare_resource"?action:"qoj_"+action;
+    }
+    if (method === "board.snapshot") return board.snapshot(args.sessionId, {refresh:args.refresh === true});
     if (method === "qoj.virtual.open") {
       const session = await native("inspect_session", args);
       if (session.qojVirtual?.mode !== "qoj-native") throw new Error("QOJ_VIRTUAL_NOT_BOUND");
@@ -492,11 +521,10 @@
     }
     if (method === "scoreboard.resolve") return scoreboardSource(args);
     if (method === "scoreboard.open") {
-      const source = await scoreboardSource(args);
-      if (source.source === "rankland") return {...await dispatch("rankland.open", args), source: "rankland"};
-      if (source.reason === "FIXTURE") return {source: "qoj", url: source.url, opened: false, fixture: true};
-      const tab = await browser.tabs.create({url: source.url, active: true});
-      return {source: "qoj", tabId: tab.id, url: source.url};
+      const url = new URL(browser.runtime.getURL("ui.html"));
+      url.searchParams.set("session", args.sessionId); url.hash="scoreboard";
+      const tab=await browser.tabs.create({url:url.href,active:true});
+      return {source:"local",tabId:tab.id,url:url.href};
     }
     if (method === "rankland.snapshot") return ranklandScore(args.sessionId);
     if (method === "rankland.open") {
@@ -516,7 +544,7 @@
     if (["create_session", "start_session", "finish_session", "archive_session", "update_session"].includes(method)) {
       await browser.storage.local.set({sessions: (await native("list_sessions")).sessions});
     }
-    if (method === "qoj_submissions" || method === "qoj_submit") exclusiveSync(args.sessionId).catch(() => {});
+    // Judger reads/writes never depend on an external board tab.
     return result;
   }
   browser.runtime.onMessage.addListener((message, sender) => {
@@ -534,7 +562,7 @@
           ranklandGuardEvents.push({code: "SENDER_IDENTITY_MISMATCH", tabId: sender.tab.id, at: Date.now()});
           return Promise.resolve({allowed: false, code: "SENDER_IDENTITY_MISMATCH"});
         }
-        return matchingRanklandTabs(message.expectedUrl).then(matches => {
+        return matchingRanklandTabs(message.expectedUrl, message.sessionId).then(matches => {
           const allowed = matches.length === 1 && matches[0].id === sender.tab.id;
           const result = {allowed, code: allowed ? "UNIQUE_WRITER" : "WRITER_COUNT_MISMATCH", tabCount: matches.length};
           ranklandGuardEvents.push({...result, tabId: sender.tab.id, matchingTabIds: matches.map(tab => tab.id), at: Date.now()});
@@ -558,11 +586,11 @@
     if (alarm.name !== "vp-refresh") return;
     await qojLifecycle.resume().catch(() => {});
     let sessions;
-    try { sessions = (await native("refresh_sessions")).sessions || []; } catch (_) { return; }
+    try { sessions = (await native("settlement_sessions")).sessions || []; } catch (_) { return; }
     for (const session of sessions) {
       try {
         if (session.refreshRequired) await providerRead("qoj_submissions", {sessionId:session.sessionId, refresh:true});
-        if (session.ranklandUrl) await exclusiveSync(session.sessionId);
+        // Local Board reads this ledger independently. External export is explicit.
       }
       catch (_) { /* The UI and durable queue expose failures on the next interaction. */ }
     }

@@ -22,6 +22,7 @@
     "ACCOUNT_UNKNOWN", "ACCOUNT_MISMATCH", "SESSION_NOT_RUNNING",
   ]);
   const state = {
+    board: null, boardRequest: null,
     connected: false, sessions: [], session: null, contest: null, submissions: [],
     forms: new Map(), generation: 0, refreshPromise: null, refreshSession: null, refreshGeneration: null, refreshMode: null,
     sessionRequest: null, contestRequests: new Map(), historyRequests: new Map(),
@@ -291,7 +292,7 @@
     const configured = Boolean(state.session?.ranklandUrl);
     const started = epoch(state.session?.startAt);
     const disabled = !configured || !state.connected || state.submitting || started === null || started > Date.now() || Boolean(state.ranklandSyncRequest);
-    $("sync-rankland").hidden = !configured;
+    $("sync-rankland").hidden = true;
     $("sync-rankland").disabled = disabled;
     $("sync-scoreboard").disabled = disabled;
     const status = state.ranklandSyncStatus && state.ranklandSyncStatus.sessionId === state.session?.sessionId &&
@@ -332,6 +333,7 @@
       (snapshot.penaltyMinutes === null || metric(snapshot.penaltyMinutes)) && metric(snapshot.observedAt));
   }
   function resetRanklandSnapshot() {
+    state.board=null; state.boardRequest=null;
     state.ranklandRequestSequence++;
     state.ranklandRequest = null;
     state.ranklandSnapshot = null;
@@ -362,74 +364,55 @@
     }
     return true;
   }
-  function refreshRanklandSnapshot(force = false) {
-    const sessionId = state.session?.sessionId, generation = state.generation;
-    const expectedUrl = state.session?.ranklandUrl;
-    if (!sessionId || !ranklandViewIdentity(expectedUrl)) {
-      resetRanklandSnapshot(); renderSummary();
-      return Promise.resolve(null);
-    }
-    const key = JSON.stringify([sessionId, generation, expectedUrl]);
-    if (!force && state.ranklandRequest?.key === key) return state.ranklandRequest.promise;
-    const request = {key, sequence: ++state.ranklandRequestSequence, promise: null};
-    state.ranklandRequest = request;
-    const applicable = () => current(sessionId, generation) && state.session.ranklandUrl === expectedUrl &&
-      state.ranklandRequestSequence === request.sequence;
-    request.promise = (async () => {
+  function boardInput() {
+    return {session:state.session,contest:state.contest,history:{submissions:state.submissions}};
+  }
+  function currentBoard() {
+    if (!state.session || !state.contest?.problems?.length) return null;
+    const input=boardInput();
+    if (state.board?.inputKey===VpBoardEngine.inputKey(input)) return state.board;
+    try {
+      const elapsed=input.session.startAt==null ? 0 : Math.max(0,Date.now()-input.session.startAt);
+      return VpBoardEngine.project(input,null,elapsed);
+    } catch (_) { return null; }
+  }
+  function renderBoard() {
+    const result=currentBoard(), target=$("board-table");
+    if (!result) { VpBoardView.clear?.(target); $("board-status").textContent="题表尚未准备完成。"; return; }
+    $("board-status").textContent=(result.scope==="historical" ? "历史对手与本队 · 本地回放" : "本队成绩 · 尚无可回放的历史榜单")+
+      (result.provisional ? " · 部分判定待确认" : "")+
+      (result.warning ? " · 历史榜单暂不可用（"+result.warning+"）" : "");
+    if (location.hash==="#scoreboard") VpBoardView.render(target,result);
+  }
+  function refreshBoard(refreshSource = false) {
+    const sessionId=state.session?.sessionId,generation=state.generation;
+    if (!sessionId || !state.contest?.problems?.length) return Promise.resolve(null);
+    if (state.boardRequest?.sessionId===sessionId) return state.boardRequest.promise;
+    const request={sessionId,promise:null};
+    request.promise=(async()=>{
       try {
-        const result = await call("rankland.snapshot", {sessionId});
-        if (!applicable()) return null;
-        if (result?.url) adoptRanklandUrl(result.url);
-        const snapshot = validRanklandSnapshot(result?.snapshot) ? result.snapshot : null;
-        state.ranklandSnapshot = snapshot;
-        state.ranklandSnapshotState = snapshot ? result.state === "live" ? "live" : "cached" :
-          result?.state === "not_configured" ? "not_configured" : "unavailable";
-        state.ranklandSnapshotMessage = String(result?.message || "");
-        if (result?.syncStatus) applyRanklandSyncStatus(result.syncStatus);
-        renderSummary();
-        return result;
-      } catch (_) {
-        if (!applicable()) return null;
-        if (!validRanklandSnapshot(state.ranklandSnapshot)) state.ranklandSnapshot = null;
-        state.ranklandSnapshotState = state.ranklandSnapshot ? "cached" : "unavailable";
-        state.ranklandSnapshotMessage = "暂时无法读取榜单。";
-        renderSummary();
-        return null;
-      } finally {
-        if (state.ranklandRequest === request) state.ranklandRequest = null;
-      }
+        const result=await call("board.snapshot",{sessionId,refresh:refreshSource});
+        if (!current(sessionId,generation) || result.sessionId!==sessionId || result.inputKey!==VpBoardEngine.inputKey(boardInput())) return null;
+        state.board=result; renderSummary(); renderBoard(); return result;
+      } catch (_) { if(current(sessionId,generation)) renderBoard(); return null; }
+      finally {if(state.boardRequest===request)state.boardRequest=null;}
     })();
-    return request.promise;
+    state.boardRequest=request;return request.promise;
   }
   function renderSummary() {
     const target = $("teamscoresummary");
     target.replaceChildren();
     if (!state.session || !state.contest) return;
     const account = state.session.account || state.contest.account || "—";
-    const snapshot = validRanklandSnapshot(state.ranklandSnapshot) ? state.ranklandSnapshot : null;
-    const stale = snapshot && state.ranklandSnapshotState !== "live";
-    const observed = snapshot ? (stale ? "上次同步 " : "更新于 ") + formatDate(snapshot.observedAt) : "";
-    const rankNote = snapshot ? "RankLand · " + observed + (snapshot.rank === null ? " · 当前未排名" : "") :
-      state.ranklandSnapshotMessage || "尚未读取 RankLand 排名。";
-    const penaltyNote = snapshot ? "RankLand · " + observed + (snapshot.penaltyMinutes === null ? " · 未提供罚时" : "") : "尚未读取 RankLand 罚时。";
-    const finalVerdicts = new Set(["CORRECT", "WRONG-ANSWER", "TIMELIMIT", "RUN-ERROR", "COMPILER-ERROR", "NO-OUTPUT", "OUTPUT-LIMIT", "MEMORY-LIMIT", "PRESENTATION-ERROR"]);
-    const finished = epoch(state.session.finishedAt), started = epoch(state.session.startAt);
-    const duration = finished !== null && started !== null ? Math.min(state.session.durationMs, Math.max(0, finished - started)) : state.session.durationMs;
-    const progress = state.contest.problems.map(problem => {
-      const attempts = state.submissions.filter(item => String(item.problemId) === String(problem.id) && item.state === "confirmed" &&
-        item.inSession !== false && typeof item.elapsedMs === "number" && Number.isFinite(item.elapsedMs) && item.elapsedMs >= 0 && item.elapsedMs < duration)
-        .sort((a, b) => a.elapsedMs - b.elapsedMs || Number(a.id || 0) - Number(b.id || 0));
-      const acceptedIndex = attempts.findIndex(item => !item.pending && item.verdict === "CORRECT");
-      const accepted = acceptedIndex < 0 ? null : attempts[acceptedIndex];
-      const beforeAccepted = accepted ? attempts.slice(0, acceptedIndex + 1) : attempts;
-      // Original pass-fail scoreboard structure: compile errors do not count
-      // as judged tries; unresolved verdicts remain separate pending tries.
-      const judged = beforeAccepted.filter(item => !item.pending && finalVerdicts.has(item.verdict) && item.verdict !== "COMPILER-ERROR");
-      const pending = beforeAccepted.filter(item => item.pending || !finalVerdicts.has(item.verdict)).length;
-      return {problem, accepted, judged: judged.length, pending};
+    const snapshot=currentBoard();
+    const stale=false, observed="本地算榜";
+    const rankNote=snapshot?.scope==="historical"?"与历史对手在同一比赛时刻比较。":"未配置可回放的历史对手数据。";
+    const penaltyNote="按原始提交时间计算；评测延迟不增加罚时。";
+    const progress=state.contest.problems.map(problem=>{
+      const item=snapshot?.own.progress.find(p=>p.problemId===String(problem.id));
+      return {problem,accepted:item?.acceptedMs!=null?{elapsedMs:item.acceptedMs}:null,judged:item?.judged||0,pending:item?.pending||0};
     });
-    const solved = snapshot ? snapshot.score : progress.filter(item => item.accepted).length;
-    const rankValue = snapshot?.rank ?? "—", penaltyValue = snapshot?.penaltyMinutes ?? "—";
+    const solved=snapshot?.own.score??0,rankValue=snapshot?.own.rank??"—",penaltyValue=snapshot?.own.penaltyMinutes??"—";
     const teamCell = () => {
       const cell = node("td", "scoretn cl_FFFFFF"); cell.title = account;
       const link = node("a");
@@ -460,7 +443,7 @@
     const row = node("tr", "sortorderswitch");
     const rank = node("td", "scorepl rank", rankValue); rank.title = rankNote;
     const total = node("td", "scorett", penaltyValue); total.title = penaltyNote;
-    const count = node("td", "scorenc", solved); count.title = snapshot ? "RankLand · " + observed : "本次练习已确认解题数。";
+    const count = node("td", "scorenc", solved); count.title = snapshot ? observed : "本次练习已确认解题数。";
     row.append(node("td", "no-border"), rank, node("td", "scoreaf cl_FFFFFF"), teamCell(), count, total);
     for (const {problem, accepted, judged, pending} of progress) {
       const title = heading("", "problem " + problem.name);
@@ -665,15 +648,18 @@
     $("jury-contests-table").hidden = !state.sessions.length;
   }
   function route() {
-    const problems = isProblemsRoute(), jury = isJuryRoute(), target = juryTarget();
+    const problems = isProblemsRoute(), jury = isJuryRoute(), target = juryTarget(), board=location.hash==="#scoreboard";
     $("team-navigation").hidden = jury; $("team-submit-controls").hidden = jury; $("jury-entry").hidden = jury;
     $("jury-navigation").hidden = !jury; $("jury-view").hidden = !jury;
     $("navbar-brand").href = jury ? "#jury" : "#home";
     $("empty-state").hidden = jury || Boolean(state.session) || !state.connected;
     $("contest-view").hidden = jury || !state.session;
-    $("home-view").hidden = problems || jury; $("problems-view").hidden = !problems || jury;
+    $("home-view").hidden = problems || jury || board;
+    $("board-view").hidden=!board || jury;
+    $("nav-scoreboard").classList.toggle("active",board);
+    if(board) {renderBoard();refreshBoard();} $("problems-view").hidden = !problems || jury;
     $("jury-list-view").hidden = Boolean(target); $("jury-detail-view").hidden = !target || state.session?.sessionId !== target;
-    $("nav-home").classList.toggle("active", !problems && !jury);
+    $("nav-home").classList.toggle("active", !problems && !jury && !board);
     $("nav-problems").classList.toggle("active", problems && !jury);
     $(problems ? "nav-problems" : "nav-home").setAttribute("aria-current", "page");
     $(problems ? "nav-home" : "nav-problems").removeAttribute("aria-current");
@@ -716,7 +702,7 @@
     try { return JSON.parse(localStorage.getItem(key)); } catch (_) { return null; }
   }
   function displaySession(session) {
-    return Object.fromEntries(["sessionId", "contestId", "account", "title", "state", "startAt", "durationMs", "finishedAt", "ranklandUrl"]
+    return Object.fromEntries(["sessionId", "contestId", "account", "title", "state", "startAt", "durationMs", "finishedAt", "ranklandUrl", "board", "judger"]
       .filter(key => session[key] !== undefined).map(key => [key, session[key]]));
   }
   function rememberDisplayIndex(selected, prune = false) {
@@ -791,7 +777,7 @@
       if (submission.operationId && $("notice").dataset.unresolvedOperationId === submission.operationId &&
           ["confirmed", "rejected"].includes(submission.state)) hideMessage($("notice"));
     }
-    renderSubmissions(); renderHistoryCoverage(result.coverage || {}, state.submissions);
+    renderSubmissions(); renderHistoryCoverage(result.coverage || {}, state.submissions); renderBoard();
   }
   async function selectSession(sessionId) {
     if (state.submitting) return;
@@ -832,7 +818,7 @@
         rememberDisplayIndex(sessionId);
         persistIntents().catch(() => {});
         loadResourceManifest(sessionId, generation);
-        refreshRanklandSnapshot();
+        refreshBoard();
         if (state.sessionRequest === request) state.sessionRequest = null;
         refreshContest().catch(() => {});
         refresh(true).catch(() => {});
@@ -886,6 +872,7 @@
       const result = await sharedRead(state.historyRequests, sessionId + ":" + refreshProvider, "qoj_submissions", {sessionId, refresh: refreshProvider});
       if (!current(sessionId, generation)) return;
       applyHistory(result);
+      refreshBoard();
       rememberDisplay();
       $("refresh-status").textContent = refreshProvider ? "更新于 " + new Date().toLocaleTimeString() : "已读取保存的判定";
       $("refresh-status").title = "";
@@ -1539,11 +1526,11 @@
         let url;
         if (result.source === "rankland") {
           url = result.session?.ranklandUrl || result.url;
-          if (!ranklandViewIdentity(url) || new URL(url).searchParams.get("run") !== sessionId) throw new Error("榜单链接与本次比赛不匹配");
+          if (!ranklandViewIdentity(url)) throw new Error("榜单链接与本次比赛不匹配");
           const changed = state.session.ranklandUrl !== url;
           state.session = {...state.session, ranklandUrl: url};
           state.sessions = state.sessions.map(item => item.sessionId === sessionId ? {...item, ranklandUrl: url} : item);
-          if (changed) { resetRanklandSnapshot(); refreshRanklandSnapshot(true); }
+          if (changed) { resetRanklandSnapshot(); refreshBoard(); }
         } else {
           // An existing explicit RankLand selection always wins over a late
           // unmatched result, including after the Jury form was edited.
@@ -1565,19 +1552,14 @@
   }
   function openRanklandSettings() {
     if (!state.session || !isJuryRoute()) return;
+    const config=VpBoardEngine.configuration(state.session);
+    $("board-rule").value=config.rule;$("board-count").value=config.revealCount;$("board-ratio").value=config.revealRatio;
     $("rankland-url").value = state.session.ranklandUrl || ""; hideMessage($("rankland-error")); modals.rankland.show();
   }
   async function openScoreboard() {
     if (!state.session) return;
-    const sessionId = state.session.sessionId, generation = state.generation;
-    try {
-      const result = await call("scoreboard.open", {sessionId});
-      if (!current(sessionId, generation)) return;
-      if (result?.source === "rankland" && result.url) adoptRanklandUrl(result.url);
-      $("rankland-status").textContent = result?.message || (result?.source === "qoj" ? "已打开 QOJ 榜单。" : "榜单已打开。");
-      await resolveScoreboardSource(true);
-      if (current(sessionId, generation) && state.session.ranklandUrl) await refreshRanklandSnapshot(true);
-    } catch (error) { if (current(sessionId, generation)) showMessage($("notice"), "榜单打开失败：" + message(error)); }
+    location.hash="#scoreboard"; route();
+    await refreshBoard();
   }
   async function syncScoreboard() {
     if (!state.session?.ranklandUrl || !state.connected || state.submitting || state.ranklandSyncRequest) return;
@@ -1595,7 +1577,8 @@
       applyRanklandSyncStatus(result, true);
       // The background sync already refreshed QOJ. Read the resulting local
       // facts without issuing a second network refresh or resetting the view.
-      await Promise.all([refresh(false), refreshRanklandSnapshot(true)]);
+      await refresh(false);
+      refreshBoard();
     } catch (error) {
       if (current(sessionId, generation)) state.ranklandSyncStatus = {sessionId,
         identity: ranklandViewIdentity(state.session.ranklandUrl), observedAt: Date.now(), text: message(error)};
@@ -1651,7 +1634,7 @@
     $("refresh-contest").addEventListener("click", () => refreshContest().catch(() => {}));
     $("refresh-submissions").addEventListener("click", () => {
       refresh(true).catch(() => {});
-      refreshRanklandSnapshot(true);
+      refreshBoard();
     });
     $("open-submit").addEventListener("click", event => {
       event.preventDefault();
@@ -1673,14 +1656,15 @@
       event.preventDefault(); const control = event.submitter; control.disabled = true;
       const sessionId = state.session.sessionId, generation = state.generation;
       try {
-        const updated = await call("update_session", {sessionId, ranklandUrl: $("rankland-url").value.trim()});
+        const updated = await call("update_session", {sessionId, ranklandUrl: $("rankland-url").value.trim(),
+          board:{rule:$("board-rule").value,revealCount:Number($("board-count").value),revealRatio:Number($("board-ratio").value)}});
         if (!current(sessionId, generation)) return;
         state.session = preserveNativeStart(updated);
         resetRanklandSnapshot(); resetScoreboardSource();
         const index = state.sessions.findIndex(item => item.sessionId === state.session.sessionId);
         if (index >= 0) state.sessions[index] = state.session;
         renderSession(); renderSummary(); modals.rankland.hide();
-        refreshRanklandSnapshot(true); resolveScoreboardSource(true);
+        refreshBoard(true); resolveScoreboardSource(true);
       } catch (error) { if (current(sessionId, generation)) showMessage($("rankland-error"), message(error)); }
       finally { control.disabled = false; }
     });
@@ -1703,10 +1687,10 @@
       if (!document.hidden && state.session && !state.submitting && (sessionState() === "running" || state.submissions.some(item => item.pending))) refresh(true).catch(() => {});
     }, 5000);
     setInterval(() => {
-      if (!document.hidden && state.connected && state.session && !state.submitting) refreshRanklandSnapshot();
+      if (!document.hidden && state.connected && state.session && !state.submitting) refreshBoard();
     }, 10000);
     document.addEventListener("visibilitychange", () => {
-      if (!document.hidden && state.connected && state.session) refreshRanklandSnapshot(true);
+      if (!document.hidden && state.connected && state.session) refreshBoard();
     });
     try {
       const entry = new URLSearchParams(location.search), requestedSession = entry.get("session");
@@ -1732,7 +1716,7 @@
   // No method bypasses the submit form's confirmation or sends source code.
   window.qojVpUi = Object.freeze({
     version: 1, refresh: async () => {
-      const results = await Promise.all([refresh(true), refreshRanklandSnapshot(true)]);
+      const results = await Promise.all([refresh(true), refreshBoard(true)]);
       return results[0];
     }, selectSession,
     getState: () => ({connected: state.connected, session: state.session ? {...state.session} : null,

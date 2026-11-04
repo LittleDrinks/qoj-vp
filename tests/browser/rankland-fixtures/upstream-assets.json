@@ -1,0 +1,25 @@
+{
+  "source": "https://vp.xcpc.link/",
+  "assets": [
+    {
+      "name": "index-ad07c00e.js",
+      "bytes": 1068201,
+      "sha256": "9121b4ca71c23a3edf48c5b3e858f7e5d62117a011837dc4ec3bc6c6b9b2916e"
+    },
+    {
+      "name": "index-99fb3111.css",
+      "bytes": 112907,
+      "sha256": "99fb3111152b98960b80db65065e2fe938244f04b6efd0670ab98308085681a8"
+    },
+    {
+      "name": "rank-time-data.worker-f3bcf541.js",
+      "bytes": 64074,
+      "sha256": "b14caba83334ab60ba7e276e6c8fabb025db505852046dd12e04b0259a0c401e"
+    },
+    {
+      "name": "index-0d94beba.js",
+      "bytes": 1070896,
+      "sha256": "47e9ac746c0d36a2aa2d472c5df529c302914c23d8a043f1889a28ea00939065"
+    }
+  ]
+}

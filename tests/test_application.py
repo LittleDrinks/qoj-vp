@@ -274,7 +274,7 @@ class ApplicationIntegrationTests(unittest.TestCase):
         self.assertEqual(restored['ranklandUrl'], started['ranklandUrl'])
         self.assertEqual(self.app.dispatch('start_session', {'sessionId': prepared['sessionId']})['startAt'], AT)
 
-    def test_first_late_rankland_open_freezes_offset_across_reopen_and_settings_save(self):
+    def test_first_late_rankland_open_preserves_start_across_reopen_and_settings_save(self):
         from urllib.parse import parse_qs, urlsplit
         sid = self.session['sessionId']
         # The board has not been opened while the local VP has run for two hours.
@@ -283,7 +283,7 @@ class ApplicationIntegrationTests(unittest.TestCase):
         self.assertEqual(parse_qs(urlsplit(before['ranklandUrl']).query)['from'], ['0'])
         prepared = self.app.dispatch('prepare_rankland', {'sessionId': sid})
         offset = float(parse_qs(urlsplit(prepared['ranklandUrl']).query)['from'][0])
-        self.assertAlmostEqual(offset * 60000, 7200123, places=3)
+        self.assertEqual(offset, 0)
         self.assertTrue(prepared['ranklandPrepared'])
         self.app.clock = lambda: self.session['startAt'] + 10800000
         again = self.app.dispatch('prepare_rankland', {'sessionId': sid})
@@ -305,7 +305,9 @@ class ApplicationIntegrationTests(unittest.TestCase):
             'ranklandUrl': 'https://vp.xcpc.link/?contest=different-contest&rule=ICPC'})
         self.assertFalse(changed['ranklandPrepared'])
         reanchored = self.app.dispatch('prepare_rankland', {'sessionId': sid})
-        self.assertEqual(parse_qs(urlsplit(reanchored['ranklandUrl']).query)['from'], ['240'])
+        self.assertEqual(parse_qs(urlsplit(reanchored['ranklandUrl']).query)['from'], ['0'])
+        self.assertEqual(parse_qs(urlsplit(reanchored['ranklandUrl']).query)['at'],
+                         parse_qs(urlsplit(prepared['ranklandUrl']).query)['at'])
 
     def test_unstarted_session_cannot_freeze_a_rankland_clock(self):
         session = self.app.dispatch('create_session', {'contestId': '3387',

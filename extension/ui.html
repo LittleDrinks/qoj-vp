@@ -10,6 +10,9 @@
   <link rel="stylesheet" href="assets/domjudge/style_domjudge.css">
   <link rel="stylesheet" href="ui.css">
   <script src="assets/bootstrap/bootstrap.bundle.min.js" defer></script>
+  <link rel="stylesheet" href="board/generated/view.css">
+  <script src="board/generated/engine.js" defer></script>
+  <script src="board/generated/view.js" defer></script>
   <script src="ui.js" defer></script>
 </head>
 <body>
@@ -81,6 +84,11 @@
           </div>
         </div>
       </section>
+      <section id="board-view" hidden>
+        <h1 class="mt-4">Scoreboard</h1>
+        <p id="board-status" class="small text-muted" role="status"></p>
+        <div id="board-table" class="table-responsive"></div>
+      </section>
       <section id="problems-view" hidden>
         <h1 id="problemset-title" class="mt-4 text-center">Contest problems</h1>
         <div class="d-flex justify-content-center align-items-center gap-2 mb-3"><span id="problemset-status" class="small text-muted" role="status" hidden></span><button id="refresh-contest" class="btn btn-outline-secondary btn-sm" type="button" hidden>重新读取题表</button></div>
@@ -123,7 +131,7 @@
             <button id="finish-session" class="btn btn-primary btn-sm" type="button" hidden><i class="fas fa-stop" aria-hidden="true"></i> Finish now</button>
             <button id="rankland-settings" class="btn btn-secondary btn-sm" type="button">榜单设置</button>
             <button id="open-resources" class="btn btn-secondary btn-sm" type="button">题目资源与样例</button>
-            <button id="sync-scoreboard" class="btn btn-secondary btn-sm" type="button"><i class="fas fa-sync-alt" aria-hidden="true"></i> 同步榜单</button>
+            <button id="sync-scoreboard" class="btn btn-secondary btn-sm" type="button"><i class="fas fa-sync-alt" aria-hidden="true"></i> 导出到外部 RankLand</button>
             <button id="archive-session" class="btn btn-secondary btn-sm" type="button">归档</button>
             <button id="delete-session" class="btn btn-danger btn-sm" type="button"><i class="fas fa-trash-alt" aria-hidden="true"></i> Delete</button>
           </div>
@@ -186,7 +194,10 @@
   <div id="rankland-modal" class="modal fade" tabindex="-1" aria-labelledby="rankland-title" aria-hidden="true">
     <div class="modal-dialog"><div class="modal-content">
       <div class="modal-header"><h2 id="rankland-title" class="modal-title fs-5">榜单设置</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
-      <form id="rankland-form"><div class="modal-body"><div id="rankland-error" class="alert alert-danger d-none" role="alert"></div><label for="rankland-url" class="form-label">RankLand 比赛链接</label><input id="rankland-url" class="form-control" type="url" required autocomplete="off" placeholder="https://vp.xcpc.link/?contest=…"><p class="form-text">保存后可从 Scoreboard 恢复进度。</p></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">保存</button></div></form>
+      <form id="rankland-form"><div class="modal-body"><div id="rankland-error" class="alert alert-danger d-none" role="alert"></div><label for="rankland-url" class="form-label">RankLand 比赛链接</label><input id="rankland-url" class="form-control" type="url" autocomplete="off" placeholder="https://vp.xcpc.link/?contest=…"><p class="form-text">历史对手数据将在本地回放；留空只显示本队成绩。</p>
+<label for="board-rule" class="form-label">赛制</label>
+<select id="board-rule" class="form-select"><option value="auto">采用历史榜单赛制</option><option value="ICPC">ICPC</option><option value="CCPC26">CCPC26</option></select>
+<div class="row mt-2"><div class="col"><label for="board-count" class="form-label">CCPC26 揭题队数</label><input id="board-count" class="form-control" type="number" min="0" value="50" required></div><div class="col"><label for="board-ratio" class="form-label">揭题比例 %</label><input id="board-ratio" class="form-control" type="number" min="0" max="100" value="20" required></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">保存</button></div></form>
     </div></div>
   </div>
 

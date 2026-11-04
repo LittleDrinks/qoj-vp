@@ -1,0 +1,20 @@
+#!/usr/bin/python3 -I
+"""System-package Native Messaging entry; one operation then exit."""
+import json
+import os
+from pathlib import Path
+import sys
+
+root = Path(__file__).resolve().parent
+sys.path[:0] = [str(root), str(root / 'vendor/qoj-submitter')]
+os.environ.pop('QOJ_VP_FIXTURE_ORIGIN', None)
+os.environ['QOJ_VP_QOJ_PATH'] = str(root / 'vendor/qoj-submitter')
+settings = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'qoj-vp/runtime.json'
+if settings.exists():
+    config = json.loads(settings.read_text())
+    state = config.get('stateDir')
+    if not isinstance(state, str) or not Path(state).is_absolute():
+        raise SystemExit('Invalid QOJ Workbench data directory')
+    os.environ['QOJ_VP_STATE_DIR'] = state
+from qojvp.native_host import serve_once
+raise SystemExit(serve_once(sys.stdin.buffer, sys.stdout.buffer))

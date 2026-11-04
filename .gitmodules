@@ -1,3 +1,9 @@
 [submodule "vendor/qoj-submitter"]
 	path = vendor/qoj-submitter
 	url = https://github.com/LittleDrinks/qoj-submitter.git
+[submodule "vendor/standard-ranklist-utils"]
+	path = vendor/standard-ranklist-utils
+	url = https://github.com/algoux/standard-ranklist-utils.git
+[submodule "vendor/standard-ranklist-renderer-component"]
+	path = vendor/standard-ranklist-renderer-component
+	url = https://github.com/algoux/standard-ranklist-renderer-component.git

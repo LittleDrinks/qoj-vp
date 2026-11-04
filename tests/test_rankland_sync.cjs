@@ -16,7 +16,7 @@ function harness() {
       case 'rankland_plan':return {...env.plan,sessionId:session.sessionId};
       case 'rankland_queue':return {items:[]};
       case 'rankland_ack':case 'rankland_ack_batch':return {accepted:true};
-      case 'refresh_sessions':return {sessions:[{...session,refreshRequired:true,syncRequired:true}]};
+      case 'settlement_sessions':return {sessions:[{...session,refreshRequired:true,syncRequired:true}]};
       default:throw Error('unexpected native '+method);
     }},
     browser:{runtime:{id:'test',getURL:p=>'moz-extension://test/'+p,onMessage:listen,onInstalled:listen},
@@ -27,6 +27,10 @@ function harness() {
       scripting:{executeScript:async()=>[{result:null}]},
       storage:{local:{get:async k=>({[k]:cache[k]}),set:async v=>Object.assign(cache,v)}}}};
   vm.createContext(context);
+ for (const file of ['board/generated/engine.js','board/cache.js','board/service.js'])
+  vm.runInContext(fs.readFileSync('extension/'+file,'utf8'),context);
+ if (!context.VpScoreboardSources) context.VpScoreboardSources={};
+  vm.runInContext(fs.readFileSync('extension/rankland-protocol.js','utf8'),context);
   vm.runInContext(fs.readFileSync('extension/qoj-lifecycle.js','utf8'),context);
   vm.runInContext(fs.readFileSync('extension/background.js','utf8').replace(/\}\)\(\);\s*$/,
     'native=globalThis.__native;globalThis.dispatch=dispatch;})();'),context);
@@ -42,9 +46,9 @@ test('one click refreshes QOJ before preparing the complete RankLand projection'
 });
 test('post-end alarms poll unsettled sessions from the ledger, not only running browser cache',async()=>{
   const h=harness(); await h.events.alarm({name:'vp-refresh'});
-  assert.ok(h.calls.some(c=>c[0]==='refresh_sessions'));
+  assert.ok(h.calls.some(c=>c[0]==='settlement_sessions'));
   assert.ok(h.calls.some(c=>c[0]==='qoj_submissions'));
-  assert.ok(h.calls.some(c=>c[0]==='transfer'));
+  assert.ok(!h.calls.some(c=>c[0]==='transfer'),'automatic Judger polling never exports to external pages');
 });
 test('QOJ outage never publishes a freshly successful synchronization result',async()=>{
   const h=harness();h.failRefresh=true;
@@ -64,12 +68,12 @@ for(const pages of [0,1]) {
     assert.equal(h.cache['rankland-sync-status:'+h.session.sessionId].needsRefresh,true);
   });
 }
-test('the first explicit sync upgrades an in-flight automatic pass and enables closed-tab recovery exactly once',async()=>{
+test('cached history is independent; explicit exports coalesce and reopen a closed tab once',async()=>{
   const h=harness();h.tabOpen=false;
   h.plan={items:[],allItems:[],pendingCount:0,waiting:[],planToken:'a'.repeat(64)};
   let release;h.inspectWait=new Promise(resolve=>{release=resolve;});
   await h.readCached();
-  assert.equal(h.calls.filter(c=>c[0]==='inspect_session').length,1,'cached history dispatch starts the real automatic synchronization path');
+  assert.equal(h.calls.filter(c=>c[0]==='inspect_session').length,0,'cached history never starts an external synchronization');
   const clicks=[h.sync(),h.sync(),h.sync()];
   release({...h.session});
   const results=await Promise.all(clicks);

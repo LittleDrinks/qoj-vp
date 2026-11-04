@@ -11,8 +11,11 @@ import shutil
 import tarfile
 import tomllib
 import zipfile
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.package_hydro import package_hydro
 SIGNATURE_FILES = {
     'META-INF/manifest.mf', 'META-INF/mozilla.sf', 'META-INF/mozilla.rsa',
     'META-INF/cose.manifest', 'META-INF/cose.sig',
@@ -79,6 +82,25 @@ def verify_xpi(path, extension, *, signed):
     # Signing provenance is web-ext -> AMO over HTTPS; Firefox verifies the signature.
 
 
+def release_notes(version, signed):
+    base = f'https://github.com/LittleDrinks/qoj-vp/releases/download/v{version}'
+    status = ('已签名，可在 Firefox 安装并保留。' if signed else
+              '**未签名开发包，仅用于 Firefox 临时调试，重启后失效。**')
+    if not signed:
+        return status + '\n\n开发包用于 `about:debugging` 临时加载。\n'
+    return f'''{status}
+
+**[下载]({base}/qoj-vp_{version}_amd64.deb)** · Hydro Contest OS 2026
+
+```sh
+sudo apt install ./qoj-vp_{version}_amd64.deb
+```
+
+安装后从应用菜单打开 **QOJ Workbench**，在 Firefox 确认添加扩展。升级安装新版即可，比赛记录保留。
+'''
+
+
+
 def prepare_release(root, artifacts, output, commit, *, tag=None, signed_xpi=None):
     manifest = release_identity(root, tag)
     version = manifest['version']
@@ -109,65 +131,12 @@ def prepare_release(root, artifacts, output, commit, *, tag=None, signed_xpi=Non
                 'extensionId': manifest['browser_specific_settings']['gecko']['id'],
                 'mozillaSigned': bool(signed_xpi), 'xpi': xpi_name}
     (output / 'release.json').write_text(json.dumps(metadata, indent=2) + '\n')
-    status = ('这是 Mozilla unlisted 签名版，可在 Firefox 正常安装，重启后保留。'
-              if signed_xpi else
-              '**这是未签名开发包，不能在正式版 Firefox 中长期安装。**\n'
-              '请先配置 AMO 签名凭据，再运行 signed 发布；不要发布此草稿冒充签名版。')
-    notes = f'''QOJ VP Workbench {version}
-
-{status}
-
-提交：`{commit}`。Firefox 140+，Linux Python 3.10+。
-
-安装或升级：
-
-1. 下载 `{xpi_name}` 和 `qoj-vp-mvp-source.tar.gz`。
-2. 在运行 Firefox 的 Linux 中将源码包解压到长期保留的目录，按 `INSTALL.md` 安装/更新按需助手。
-3. 签名版：Firefox `about:addons` → 齿轮 → 从文件安装附加组件，选择 XPI。
-   未签名版只用于 `about:debugging` 临时加载解压后的 `extension/manifest.json`。
-
-助手需与扩展一起更新；只下载 XPI 不会安装 Python 助手。
-保持扩展 ID 和助手数据目录不变，直接覆盖升级，无需卸载扩展或删除比赛。
-私有 GitHub 仓库需先登录才能下载；当前使用手动下载安装更新。
-详细安装步骤见 `INSTALL.md`，文件校验见 `SHA256SUMS`。
-'''
+    bundle = package_hydro(root, output, xpi=signed_xpi, development=not bool(signed_xpi), source_archive=source)
+    bundle_name = bundle.name
+    notes = release_notes(version, bool(signed_xpi))
     (output / 'RELEASE_NOTES.md').write_text(notes)
-    install = '''# Linux / Hydro Contest OS 安装
-
-下载源码包和对应 XPI；在 Firefox 所在 Linux 操作，使用同一普通用户。
-源码包已包含固定的 QOJ CLI，无需单独下载 submodule。
-
-首次安装如缺少依赖：
-
-```sh
-sudo apt-get install python3-venv python3-dev libcurl4-openssl-dev libssl-dev
-```
-
-将本版本源码解压到一个长期保留的目录（例如 ~/.local/share/qoj-vp-app/版本号）：
-
-```sh
-tar -xzf qoj-vp-mvp-source.tar.gz
-cd qoj-vp
-python3 -m venv .venv
-.venv/bin/pip install .
-.venv/bin/python scripts/install_native.py
-```
-
-助手按需启动退出，不需要后台常驻。安装注册会指向此目录，安装后不要移动它。
-数据在 ~/.local/share/qoj-vp；升级可解压到新版本目录，重复上面安装命令。
-若原安装使用自定义 --state-dir，升级时继续指定同一路径。
-Hydro 使用系统 Firefox；Snap/Flatpak 的 Native Messaging 沙箱未在本项目验证。
-
-签名 XPI：在 Firefox about:addons → 齿轮 → 从文件安装附加组件。
-临时开发版：about:debugging#/runtime/this-firefox → 临时载入附加组件，选择 extension/manifest.json。
-现有临时版可先重启 Firefox 再安装签名版，不需要删除任何账本文件。
-新版签名 XPI 沿用同一个扩展 ID，可直接覆盖安装；不先卸载，避免清空扩展存储。
-
-在下载目录可运行 sha256sum --check SHA256SUMS 校验所有产物。
-'''
-    (output / 'INSTALL.md').write_text(install)
     checksums = '\n'.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}'
-                          for p in sorted(output.iterdir()) if p.is_file()) + '\n'
+                          for p in (output / xpi_name, output / bundle_name)) + '\n'
     (output / 'SHA256SUMS').write_text(checksums)
     return metadata
 

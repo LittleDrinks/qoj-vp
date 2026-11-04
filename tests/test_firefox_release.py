@@ -8,6 +8,8 @@ import tarfile
 import tempfile
 import unittest
 import zipfile
+import shutil
+import subprocess
 
 from scripts.prepare_firefox_release import prepare_release, release_identity, verify_xpi
 
@@ -26,6 +28,12 @@ class FirefoxReleaseTests(unittest.TestCase):
         (self.root / 'qojvp').mkdir()
         (self.root / 'qojvp/__init__.py').write_text('__version__ = "1.2.3"\n')
         (self.root / 'pyproject.toml').write_text('[project]\nversion = "1.2.3"\n')
+        shutil.copytree(ROOT / 'packaging', self.root / 'packaging')
+        shutil.copyfile(ROOT / 'LICENSE', self.root / 'LICENSE')
+        (self.root / 'vendor/qoj-submitter/qoj_submitter').mkdir(parents=True)
+        (self.root / 'vendor/qoj-submitter/qoj_submitter/client.py').write_text('# fixture')
+        (self.ext / 'icons').mkdir()
+        (self.ext / 'icons/domjudge-32.png').write_bytes(b'fixture-icon')
         self.manifest = {'version': '1.2.3', 'browser_specific_settings': {'gecko': {'id': 'fixture@example'}}}
         (self.ext / 'manifest.json').write_text(json.dumps(self.manifest))
         (self.ext / 'ui.js').write_text('/* fixture */')
@@ -39,8 +47,9 @@ class FirefoxReleaseTests(unittest.TestCase):
 
     def write_xpi(self, path, *, signatures=False, override=None):
         with zipfile.ZipFile(path, 'w') as archive:
-            for file in self.ext.iterdir():
-                archive.writestr(file.name, (override or {}).get(file.name, file.read_bytes()))
+            for file in self.ext.rglob("*"):
+                if not file.is_file(): continue
+                archive.writestr(str(file.relative_to(self.ext)), (override or {}).get(file.name, file.read_bytes()))
             if signatures:
                 # Structural test fixture only, deliberately not a valid signed XPI.
                 for name in ('mozilla.rsa', 'mozilla.sf', 'manifest.mf'):
@@ -57,13 +66,16 @@ class FirefoxReleaseTests(unittest.TestCase):
     def prepare(self, **kwargs):
         return prepare_release(self.root, self.artifacts, self.output, COMMIT, **kwargs)
 
-    def test_development_release_is_explicitly_unsigned_and_all_files_are_hashed(self):
+    def test_development_release_is_explicitly_unsigned_and_downloads_are_hashed(self):
         result = self.prepare()
         self.assertFalse(result['mozillaSigned'])
         self.assertTrue(result['xpi'].endswith('-unsigned.xpi'))
         self.assertIn('未签名开发包', (self.output / 'RELEASE_NOTES.md').read_text())
         lines = (self.output / 'SHA256SUMS').read_text().splitlines()
-        self.assertEqual(len(lines), len(list(self.output.iterdir())) - 1)
+        self.assertEqual({line.split('  ')[1] for line in lines},
+                         {result['xpi'], 'qoj-vp_1.2.3~dev_amd64.deb'})
+        self.assertFalse((self.output / 'INSTALL.md').exists())
+        self.assertNotIn('INSTALL.md', (self.output / 'RELEASE_NOTES.md').read_text())
         for line in lines:
             digest, name = line.split('  ')
             self.assertEqual(hashlib.sha256((self.output / name).read_bytes()).hexdigest(), digest)
@@ -94,6 +106,11 @@ class FirefoxReleaseTests(unittest.TestCase):
         self.assertTrue(result['mozillaSigned'])
         self.assertEqual((self.output / result['xpi']).read_bytes(), signed.read_bytes())
         self.assertFalse((self.output / self.unsigned.name).exists())
+        extracted=self.root/'deb-content'
+        subprocess.run(['dpkg-deb','-x',str(self.output/'qoj-vp_1.2.3_amd64.deb'),str(extracted)],check=True)
+        self.assertEqual((extracted/'usr/lib/qoj-vp/firefox.xpi').read_bytes(), signed.read_bytes())
+        self.assertEqual((extracted/'usr/share/doc/qoj-vp/source.tar.gz').read_bytes(),
+                         (self.artifacts/'qoj-vp-mvp-source.tar.gz').read_bytes())
 
     def test_signed_manifest_can_be_reformatted_without_changing_the_download(self):
         signed = self.artifacts / 'from-amo.xpi'

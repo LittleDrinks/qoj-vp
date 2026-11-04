@@ -449,6 +449,24 @@ class Ledger:
                 session['lastHistoryCompleteAt'] = max(started_at, session.get('lastHistoryCompleteAt', 0))
             self.save_session(session)
 
+    def settlement_sessions(self, now):
+        """Judge polling eligibility without an external board/export dependency."""
+        result = []
+        for session in self.sessions():
+            start = session.get('startAt')
+            if session['state'] not in {'running', 'finished'} or start is None or start > now:
+                continue
+            end = start + session_duration(session)
+            pending = sum(1 for row in self.submissions(session['sessionId'])
+                          if row.get('inSession') and row.get('state') != 'rejected'
+                          and (not row.get('id') or row.get('timeSource') != 'provider-absolute'
+                               or row.get('pending') is True or row.get('verdict') not in FINAL_VERDICTS))
+            if (now < end or pending or session.get('lastHistoryCompleteAt', 0) < end
+                    or session.get('lastHistoryRefreshComplete') is False
+                    or session.get('lastHistoryRefreshAt', 0) > session.get('lastHistoryCompleteAt', 0)):
+                result.append({**session, 'refreshRequired': True, 'pendingCount': pending})
+        return result
+
     def refresh_sessions(self, now):
         """Poll started sessions through settlement, independently of tabs."""
         result = []

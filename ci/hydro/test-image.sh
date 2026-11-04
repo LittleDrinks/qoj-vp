@@ -62,9 +62,9 @@ fi
 ssh_guest 'mkdir -p project'
 tar --exclude=.git --exclude=node_modules --exclude=.venv --exclude=artifacts \
   --exclude=dist --exclude=results --exclude=.scratch --exclude=ci/hydro/output \
-  --exclude=preflight/vendor_py --exclude=__pycache__ -czf - . | ssh_guest 'tar -xzf - -C project'
+  --exclude=preflight --exclude=tests/browser/vendor_py --exclude=__pycache__ -czf - . | ssh_guest 'tar -xzf - -C project'
 set +e
-ssh_guest 'cd project && mkdir -p preflight/tools && ln -s /opt/hydro-ci/vendor_py preflight/vendor_py && ln -sf /opt/hydro-ci/geckodriver preflight/tools/geckodriver && /usr/bin/python3 scripts/run_hydro_ci.py' 2>&1 | tee "$output/regression.log"
+ssh_guest 'cd project && mkdir -p tests/browser/tools && ln -s /opt/hydro-ci/vendor_py tests/browser/vendor_py && ln -sf /opt/hydro-ci/geckodriver tests/browser/tools/geckodriver && /usr/bin/python3 scripts/run_hydro_ci.py' 2>&1 | tee "$output/regression.log"
 status=${PIPESTATUS[0]}
 ssh_guest 'cd project && tar --exclude="*.sqlite*" -czf - results' > "$output/guest-results.tar.gz"
 set -e

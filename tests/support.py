@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import requests
 
-FIXTURES = Path(__file__).resolve().parents[1] / 'preflight/fixtures'
+FIXTURES = Path(__file__).resolve().parents[1] / 'tests/browser/fixtures'
 
 
 def account_menu(account, *, body=''):

@@ -4,21 +4,30 @@
   globalThis.__qojVpRankland = true;
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   const visible = element => element && element.getClientRects().length && !element.disabled;
-  function identity(raw) {
-    const url = new URL(raw), q = url.searchParams;
-    return JSON.stringify([url.origin, q.get("contest"), q.get("run"), q.get("rule") || "auto",
-      Number(q.get("count") ?? 50), Number(q.get("ratio") ?? 20), q.get("at") || "null", Number(q.get("from") || 0)]);
-  }
+  const identity = raw => VpRanklandProtocol.identity(raw);
+  let durationMs = Number.MAX_SAFE_INTEGER, storageError = null;
   function saved() {
-    const query = new URL(location.href).searchParams;
-    const run = query.get("run");
-    if (!run) return null;
-    const key = `RanklandVP2:${query.get("contest")}:${run}:${query.get("rule") || "auto"}:${Number(query.get("count") ?? 50)}:${Number(query.get("ratio") ?? 20)}:${query.get("at") || "null"}:${Number(query.get("from") || 0)}`;
+    storageError = null;
     try {
-      const value = JSON.parse(localStorage.getItem(key));
-      if (value?.version !== 2 || !Array.isArray(value.manual)) return null;
-      return {key, run, value};
-    } catch (_) { return null; }
+      const board = document.querySelector('[data-id="vp-ranklist-content"]');
+      const result = VpRanklandProtocol.read(localStorage, location.href, {durationMs, allowEmpty:!!board});
+      return {...result, run:new URL(location.href).searchParams.get("run")};
+    } catch (error) { storageError = error; return null; }
+  }
+  function matchesSession(expectedUrl, sessionId) {
+    if (!sessionId || !expectedUrl || identity(location.href) !== identity(expectedUrl)) return false;
+    // Old v2 archives really did use run/from as their namespace. Modern
+    // pages canonicalize run away and put playback controls outside identity.
+    const state = saved();
+    return state?.kind !== "v2" || (state.run === sessionId &&
+      VpRanklandProtocol.legacyKey(location.href) === VpRanklandProtocol.legacyKey(expectedUrl));
+  }
+  function rememberUrl() {
+    const state = saved();
+    if (!state || !document.querySelector('[data-id="vp-ranklist-content"]')) return;
+    const replayIdentity = identity(location.href);
+    return browser.storage.local.set({["rankland-url-v1:" + replayIdentity]:
+      {url:location.href, identity:replayIdentity, observedAt:Date.now()}}).catch(() => {});
   }
   const same = (a, b) => a?.problemIndex === b?.problemIndex && a?.timeMs === b?.timeMs && a?.result === b?.result;
   const verdicts = {CORRECT: "AC", "WRONG-ANSWER": "WA", TIMELIMIT: "TLE", "RUN-ERROR": "RTE", "COMPILER-ERROR": "CE", "OUTPUT-LIMIT": "OLE", "NO-OUTPUT": "NOUT"};
@@ -46,15 +55,14 @@
     try {
       currentUrl = new URL(location.href);
       if (currentUrl.origin !== "https://vp.xcpc.link" || currentUrl.pathname !== "/" ||
-          !sessionId || currentUrl.searchParams.get("run") !== sessionId ||
-          !expectedUrl || identity(location.href) !== identity(expectedUrl)) {
+          !matchesSession(expectedUrl, sessionId)) {
         return {ready: false, reason: "SESSION_MISMATCH"};
       }
     } catch (_) { return {ready: false, reason: "SESSION_MISMATCH"}; }
     const board = document.querySelector('[data-id="vp-ranklist-content"]');
     if (!board) return {ready: false, reason: "CONTEST_LOADING"};
     const archive = saved();
-    if (!archive) return {ready: false, reason: "STORAGE_NOT_READY"};
+    if (!archive) return {ready: false, reason: storageError ? "STORAGE_FORMAT_CHANGED" : "STORAGE_NOT_READY"};
     const ownName = archive.value.ownName;
     if (typeof ownName !== "string" || !ownName.trim()) return {ready: false, reason: "TEAM_REQUIRED"};
     if (ownName.length > 80 || /[\x00-\x1f\x7f]/.test(ownName) ||
@@ -99,8 +107,7 @@
   }
   function readiness(expectedUrl, sessionId) {
     try {
-      if (!expectedUrl || identity(location.href) !== identity(expectedUrl) ||
-          (sessionId && new URL(location.href).searchParams.get('run') !== sessionId)) {
+      if (!matchesSession(expectedUrl, sessionId)) {
         return {ready: false, reason: 'SESSION_MISMATCH'};
       }
     } catch (_) { return {ready: false, reason: 'SESSION_MISMATCH'}; }
@@ -111,7 +118,7 @@
         error.textContent.trim() === '起始时间必须小于比赛时长。' ? 'START_OFFSET_OUT_OF_RANGE' : 'SOURCE_LOAD_ERROR'};
     }
     const state = saved();
-    if (!state) return {ready: false, reason: 'STORAGE_NOT_READY'};
+    if (!state) return {ready: false, reason: storageError ? 'STORAGE_FORMAT_CHANGED' : 'STORAGE_NOT_READY'};
     if (typeof state.value.ownName !== 'string') return {ready: false, reason: 'STORAGE_FORMAT_CHANGED'};
     if (!state.value.ownName.trim()) return {ready: false, reason: 'TEAM_REQUIRED', run: state.run};
     if (board.querySelectorAll('select[aria-label="题目"]').length !== 1 ||
@@ -134,7 +141,7 @@
     if (status.reason !== 'TEAM_REQUIRED') return status;
     const before = saved();
     const manualBefore = JSON.stringify(before.value.manual);
-    const guard = () => browser.runtime.sendMessage({type: 'vp.rankland.guard', expectedUrl});
+    const guard = () => browser.runtime.sendMessage({type: 'vp.rankland.guard', expectedUrl, sessionId});
     if (!(await guard())?.allowed) return {ready: false, reason: 'TEAM_GUARD_BLOCKED'};
     // Do not take over a team dialog the user already has open.
     if ([...document.querySelectorAll('input[aria-label="队伍名称"]')].some(visible)) {
@@ -176,12 +183,12 @@
       current = saved();
       status = readiness(expectedUrl, sessionId);
       if (status.ready && current?.key === before.key && current.value.ownName === teamName &&
-          JSON.stringify(current.value.manual) === manualBefore) return {...status, joined: true};
+          JSON.stringify(current.value.manual) === manualBefore) { await rememberUrl(); return {...status, joined: true}; }
     }
     return {ready: false, reason: 'TEAM_SETUP_NOT_CONFIRMED'};
   }
   async function deliver(sessionId, item, previous, expectedUrl, receiptKey) {
-    if (new URL(location.href).searchParams.get('run') !== sessionId || identity(location.href) !== identity(expectedUrl)) throw new Error("RANKLAND_SESSION_MISMATCH");
+    if (!matchesSession(expectedUrl, sessionId)) throw new Error("RANKLAND_SESSION_MISMATCH");
     await intro();
     const before = saved();
     if (!before) throw new Error("RankLand 存档尚未就绪。");
@@ -222,10 +229,10 @@
     const receipt = {targetKey: before.key, record: target, problemIndex: target.problemIndex,
       timeMs: target.timeMs, result: target.result, originalElapsedMs: elapsed, precision: 'minute',
       revision: item.revision, index: before.value.manual.length, phase: 'sending', observedAt: Date.now()};
-    const guard = await browser.runtime.sendMessage({type: 'vp.rankland.guard', expectedUrl});
+    const guard = await browser.runtime.sendMessage({type: 'vp.rankland.guard', expectedUrl, sessionId});
     if (!guard?.allowed) return {state: 'failed', reason: guard?.code || 'GUARD_UNAVAILABLE', message: '榜单写入检查未通过，请从工作台重新打开并只保留一个榜单页。'};
     await browser.storage.local.set({[key]: receipt});
-    const lastGuard = await browser.runtime.sendMessage({type: 'vp.rankland.guard', expectedUrl});
+    const lastGuard = await browser.runtime.sendMessage({type: 'vp.rankland.guard', expectedUrl, sessionId});
     if (!lastGuard?.allowed) {
       await browser.storage.local.remove(key);
       return {state: 'failed', reason: lastGuard?.code || 'GUARD_UNAVAILABLE', message: '榜单页面已改变，已停止同步；请重新打开并只保留一个页面。'};
@@ -246,6 +253,7 @@
   let busy = false, preparing = null;
   browser.runtime.onMessage.addListener((message, sender) => {
     if (sender.id !== browser.runtime.id) return undefined;
+    if (Number.isFinite(message?.durationMs) && message.durationMs > 0) durationMs = message.durationMs;
     if (message?.type === 'vp.rankland.snapshot') return Promise.resolve(scoreSnapshot(message.sessionId, message.expectedUrl));
     if (message?.type === 'vp.rankland.ready') return Promise.resolve(readiness(message.expectedUrl, message.sessionId));
     if (message?.type === 'vp.rankland.prepare') {
@@ -263,6 +271,7 @@
   // extension backup without writing its localStorage or private Vue state.
   setInterval(() => {
     const state = saved();
+    rememberUrl();
     if (state) browser.storage.local.set({[`rankland-backup:${state.key}`]: {...state, url: location.href, observedAt: Date.now()}}).catch(() => {});
   }, 5000);
 })();

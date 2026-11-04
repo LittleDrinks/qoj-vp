@@ -173,7 +173,7 @@ globalThis.VpScoreboardSources = (() => {
             }
             let value;
             try { value = JSON.parse(text); } catch (_) { throw failure("INVALID_JSON"); }
-            if (archive) return archiveMetadata(value);
+            if (archive) { archiveMetadata(value); return value; }
             if (value?.success !== true || value?.code !== 0 || !value.data || typeof value.data !== "object" || Array.isArray(value.data)) throw failure("MALFORMED_RESPONSE");
             return value.data;
           })(), new Promise((_, reject) => {
@@ -196,7 +196,7 @@ globalThis.VpScoreboardSources = (() => {
       if (detail.problems != null && detail.sorter != null) return detail;
       if (!id(detail._id) || !id(detail.srkFileID)) throw failure("MALFORMED_DETAIL");
       const file = archiveFile(detail, await request(api.replace(/\/contests$/, "/files/") + detail.srkFileID));
-      const metadata = await request(file.url, file);
+      const metadata = archiveMetadata(await request(file.url, file));
       if (duration(metadata.duration) !== duration(detail.duration) ||
           (detail.sorter != null && detail.sorter.algorithm !== metadata.sorter.algorithm) ||
           (detail.problems != null && (!Array.isArray(detail.problems) || detail.problems.length !== metadata.problems.length ||
@@ -242,8 +242,18 @@ globalThis.VpScoreboardSources = (() => {
       if (problems.some(problem => !problem.label) || new Set(problems.map(problem => problem.label)).size !== problems.length) throw failure("MALFORMED_DETAIL");
       return {contestKey: uk, durationMs, problems};
     }
-    return {resolve, describeReplay};
+    async function loadArchive(raw) {
+      const url = new URL(raw), uk = url.searchParams.get("contest");
+      const loopback = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
+      if ((!loopback && url.origin !== "https://vp.xcpc.link") || url.pathname !== "/" || !key(uk)) throw failure("INVALID_REPLAY");
+      const api = loopback ? url.origin + "/api/v2/public/contests" : API;
+      const detail = await request(api + "/" + encodeURIComponent(uk));
+      if (detail.uk !== uk || detail.redirectUK) throw failure("MALFORMED_DETAIL");
+      const file = archiveFile(detail, await request(api.replace(/\/contests$/, "/files/") + detail.srkFileID));
+      return {archive:await request(file.url, file), hash:file.hash, contestKey:uk, fetchedAt:clock()};
+    }
+    return {resolve, describeReplay, loadArchive};
   }
   const defaults = create();
-  return {create, resolve: defaults.resolve, describeReplay: defaults.describeReplay};
+  return {create, resolve: defaults.resolve, describeReplay: defaults.describeReplay, loadArchive: defaults.loadArchive};
 })();

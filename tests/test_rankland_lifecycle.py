@@ -12,7 +12,7 @@ START = 1800000000000
 
 
 class RanklandCompletedFirstOpenTests(unittest.TestCase):
-    def test_first_open_at_or_after_end_uses_last_legal_second_without_changing_clock(self):
+    def test_first_open_at_or_after_end_uses_original_start_without_an_extra_offset(self):
         (ROOT / '.scratch').mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=ROOT / '.scratch', prefix='rankland-completed-') as state:
             with Application(state, clock=lambda: START) as app:
@@ -24,7 +24,7 @@ class RanklandCompletedFirstOpenTests(unittest.TestCase):
                         app.clock = lambda: START + 18000000 + lateness
                         board = app.dispatch('prepare_rankland', {'sessionId': session['sessionId']})
                         minutes = float(parse_qs(urlsplit(board['ranklandUrl']).query)['from'][0])
-                        self.assertAlmostEqual(minutes * 60000, 18000000 - 1000, places=2)
+                        self.assertEqual(minutes, 0)
                         self.assertEqual((board['effectiveState'], board['elapsedMs'], board['startAt']),
                                          ('finished', 18000000, START))
                         app.clock = lambda: START + 36000000
@@ -44,7 +44,7 @@ class RanklandCompletedFirstOpenTests(unittest.TestCase):
             with Application(state, clock=lambda: START + 10000) as app:
                 self.assertEqual(app.dispatch('prepare_rankland', {'sessionId': session['sessionId']})['ranklandUrl'], board['ranklandUrl'])
 
-    def test_previously_frozen_url_is_never_migrated_even_if_old_offset_is_at_end(self):
+    def test_old_end_offset_is_removed_without_losing_legacy_storage_identity(self):
         (ROOT / '.scratch').mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=ROOT / '.scratch', prefix='rankland-preserve-') as state:
             with Application(state, clock=lambda: START + 18000001) as app:
@@ -52,11 +52,14 @@ class RanklandCompletedFirstOpenTests(unittest.TestCase):
                     'startAt': START, 'durationMs': 18000000, 'ranklandUrl': 'https://vp.xcpc.link/?contest=synthetic-lifecycle'})
                 previous = app.ledger.session(session['sessionId'])
                 previous['ranklandUrl'] = previous['ranklandUrl'].replace('from=0', 'from=300')
+                previous['ranklandUrl'] += '&run=' + session['sessionId']
                 previous.update(ranklandPrepared=True, ranklandPreparedAt=START + 18000000)
                 app.ledger.save_session(previous)
                 board = app.dispatch('prepare_rankland', {'sessionId': session['sessionId']})
-                self.assertEqual(board['ranklandUrl'], previous['ranklandUrl'])
-                self.assertEqual(board['ranklandPreparedAt'], previous['ranklandPreparedAt'])
+                self.assertEqual(board['ranklandLegacyUrl'], previous['ranklandUrl'])
+                self.assertEqual(parse_qs(urlsplit(board['ranklandUrl']).query)['from'], ['0'])
+                self.assertNotIn('run', parse_qs(urlsplit(board['ranklandUrl']).query))
+                self.assertEqual(board['startAt'], START)
 
 
 if __name__ == '__main__':

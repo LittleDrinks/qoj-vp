@@ -5,56 +5,56 @@
   "files": [
     {
       "path": "assets/domjudge/style_domjudge.css",
-      "reference": "preflight/domjudge-reference/upstream/webapp/public/style_domjudge.css",
+      "reference": "https://github.com/DOMjudge/domjudge/blob/90bbb727906efb438ac2ec7512c09f17824cfc41/webapp/public/style_domjudge.css",
       "bytes": 13316,
       "sha256": "93672f48177b91344d9a83baaa94b9eaefdd0b3f47c58422b43ac42e6d1ae988",
       "modified": false
     },
     {
       "path": "assets/licenses/DOMjudge-COPYING",
-      "reference": "preflight/domjudge-reference/upstream/COPYING",
+      "reference": "https://github.com/DOMjudge/domjudge/blob/90bbb727906efb438ac2ec7512c09f17824cfc41/COPYING",
       "bytes": 18001,
       "sha256": "e5fc7c9bd6d497732375d09fd2301bb1baca604188eedbe5c9d4c5d31781826f",
       "modified": false
     },
     {
       "path": "assets/bootstrap/bootstrap.min.css",
-      "reference": "preflight/domjudge-reference/third-party/twbs/bootstrap/dist/css/bootstrap.min.css",
+      "reference": "https://github.com/twbs/bootstrap/blob/v5.3.7/dist/css/bootstrap.min.css",
       "bytes": 232018,
       "sha256": "cd1826581e4f2b80af4f1e05897b316c7698441063cffaefbbdeec382ee4cd72",
       "modified": false
     },
     {
       "path": "assets/bootstrap/bootstrap.bundle.min.js",
-      "reference": "preflight/domjudge-reference/third-party/twbs/bootstrap/dist/js/bootstrap.bundle.min.js",
+      "reference": "https://github.com/twbs/bootstrap/blob/v5.3.7/dist/js/bootstrap.bundle.min.js",
       "bytes": 80821,
       "sha256": "35f4547d9364111aca4850347356bc5660a994f0d8b694d88f995098a7b547fa",
       "modified": false
     },
     {
       "path": "assets/licenses/Bootstrap-LICENSE",
-      "reference": "preflight/domjudge-reference/third-party/twbs/bootstrap/LICENSE",
+      "reference": "https://github.com/twbs/bootstrap/blob/v5.3.7/LICENSE",
       "bytes": 1093,
       "sha256": "4620c84ad5ce8602ff65640ed6b7c8b78ebb9e036584f0ebc1ccc88206a4bb51",
       "modified": false
     },
     {
       "path": "assets/fontawesome/css/all.min.css",
-      "reference": "preflight/domjudge-reference/third-party/fortawesome/font-awesome/css/all.min.css",
+      "reference": "https://github.com/FortAwesome/Font-Awesome/blob/6.5.2/css/all.min.css",
       "bytes": 103009,
       "sha256": "5ceaaba22d75b58e04150311f596306562a3e595e27ed4b1dfa451b82dda9e50",
       "modified": false
     },
     {
       "path": "assets/licenses/FontAwesome-LICENSE.txt",
-      "reference": "preflight/domjudge-reference/third-party/fortawesome/font-awesome/LICENSE.txt",
+      "reference": "https://github.com/FortAwesome/Font-Awesome/blob/6.5.2/LICENSE.txt",
       "bytes": 7427,
       "sha256": "9b914eae88817d63b576eab5aafde7068c7a1abae125d7cdfb034f1da43a9afc",
       "modified": false
     },
     {
       "path": "assets/fontawesome/webfonts/fa-solid-900.woff2",
-      "reference": "preflight/visual-reference/rendered/assets/fontawesome/webfonts/fa-solid-900.woff2",
+      "reference": "tests/browser/visual-reference/rendered/assets/fontawesome/webfonts/fa-solid-900.woff2",
       "bytes": 156400,
       "sha256": "ae17c16afbea216707b2203ea1cf9bdb45b9bfe47d0f4ae3258ddbc6294dd02f",
       "modified": false,
@@ -64,7 +64,7 @@
     },
     {
       "path": "assets/fontawesome/webfonts/fa-regular-400.woff2",
-      "reference": "preflight/visual-reference/rendered/assets/fontawesome/webfonts/fa-regular-400.woff2",
+      "reference": "tests/browser/visual-reference/rendered/assets/fontawesome/webfonts/fa-regular-400.woff2",
       "bytes": 25392,
       "sha256": "c27da6f833431da5aa295c44540bfac0fd8270ba6a3c4346427006d8a7b34b76",
       "modified": false,
@@ -74,7 +74,7 @@
     },
     {
       "path": "assets/fontawesome/webfonts/fa-brands-400.woff2",
-      "reference": "preflight/visual-reference/rendered/assets/fontawesome/webfonts/fa-brands-400.woff2",
+      "reference": "tests/browser/visual-reference/rendered/assets/fontawesome/webfonts/fa-brands-400.woff2",
       "bytes": 117852,
       "sha256": "232c6f6a7678304f9efaa26f30b1610debc2ba9f4cd636b5e6751c8d73761b92",
       "modified": false,

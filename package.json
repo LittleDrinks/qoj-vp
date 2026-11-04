@@ -2,9 +2,20 @@
   "name": "qoj-vp-release-tools",
   "private": true,
   "scripts": {
-    "lint:firefox": "web-ext lint --source-dir extension --self-hosted --no-config-discovery"
+    "lint:firefox": "web-ext lint --source-dir extension --self-hosted --no-config-discovery",
+    "build:board": "node scripts/build_board.mjs"
   },
   "devDependencies": {
+    "bcp-47-match": "2.0.3",
+    "bignumber.js": "9.3.1",
+    "classnames": "2.5.1",
+    "color": "4.2.3",
+    "esbuild": "0.25.12",
+    "less": "4.4.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "semver": "7.7.3",
+    "textcolor": "1.0.2",
     "web-ext": "10.8.0"
   },
   "engines": {
