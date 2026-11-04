@@ -21,8 +21,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--rankland-online', action='store_true',
                         help='Also run the network-dependent original RankLand regression')
-    parser.add_argument('--workers', type=int, choices=range(1, 5), default=2,
-                        help='Concurrent isolated Firefox suites (default: 2)')
+    parser.add_argument('--workers', type=int, choices=range(1, 5), default=3,
+                        help='Concurrent isolated Firefox suites (default: 3)')
     args = parser.parse_args()
     OUTPUT.mkdir(parents=True, exist_ok=True)
     sys.path.insert(0, str(ROOT / 'tests/browser/vendor_py'))
@@ -59,6 +59,7 @@ def main():
             ('home-refresh', ['tests/browser/guest_home_parity.py', '--reference-snapshot',
                               'tests/browser/visual-reference/rendered']),
             ('local-board', ['tests/browser/guest_local_board.py']),
+            ('submission-flow', ['tests/browser/guest_submission_flow.py']),
             ('receipts', ['tests/browser/guest_transport_diagnostics.py']),
         ]
         if args.rankland_online:

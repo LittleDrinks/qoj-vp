@@ -192,18 +192,20 @@ def main():
 
         def manual_record():
             from selenium.webdriver.common.by import By
-            from selenium.webdriver.common.keys import Keys
             from selenium.webdriver.support.ui import Select
             from selenium.common.exceptions import ElementClickInterceptedException, StaleElementReferenceException
             h.rankland_handle(session)
             Select(h.driver.find_element(By.CSS_SELECTOR,'select[aria-label="题目"]')).select_by_value('0')
             Select(h.driver.find_element(By.CSS_SELECTOR,'select[aria-label="结果"]')).select_by_value('CE')
+            # The upstream form switches from live clock to manual time on the
+            # first input event; that switch can repaint the field. Wait for
+            # manual mode before replacing either time component.
+            hour=h.driver.find_element(By.CSS_SELECTOR,'input[aria-label="提交时间（时）"]')
+            hour.clear()
+            h.wait(lambda:h.driver.find_element(By.XPATH,'//button[normalize-space(.)="当前时间"]').is_enabled(),'manual time editing mode')
             for label,value in [('提交时间（时）','0'),('提交时间（分）','10')]:
                 control=h.driver.find_element(By.CSS_SELECTOR,'input[aria-label="'+label+'"]')
-                # React may restore the current replay hour after clear() emits
-                # an empty value. Replace the selection in one keyboard edit;
-                # otherwise entering 0 into restored 2 produces 20 hours.
-                control.send_keys(Keys.CONTROL,'a',Keys.NULL,value)
+                control.clear();control.send_keys(value)
                 require(control.get_attribute('value')==value,'Manual submission input did not retain '+label)
             def click_record():
                 button=h.driver.find_element(By.XPATH,'//button[normalize-space(.)="记录提交"]')
