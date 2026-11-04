@@ -4,7 +4,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [probe, build]
+        options: [probe, build, runtime]
         default: probe
         description: Probe hosted virtualization or rebuild the reusable installed system
       iso_url:
@@ -104,26 +104,37 @@ jobs:
         working-directory: ci/hydro/output
         run: sha256sum --check SHA256SUMS
       - name: Sign in to GHCR
-        if: inputs.mode == 'build'
+        if: inputs.mode != 'probe'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           echo "HYDRO_RUNTIME_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-hydro:2026-r1" >> "$GITHUB_ENV"
+          if [ '${{ inputs.mode }}' = runtime ]; then
+            echo "HYDRO_RUNTIME_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-hydro:runtime-r1" >> "$GITHUB_ENV"
+          fi
       - name: Build runtime container
-        if: inputs.mode == 'build'
-        run: docker build -t "$HYDRO_RUNTIME_IMAGE" ci/hydro
+        if: inputs.mode != 'probe'
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          if [ "$MODE" = runtime ]; then
+            docker build --target runtime -t "$HYDRO_RUNTIME_IMAGE" ci/hydro
+          else
+            docker build -t "$HYDRO_RUNTIME_IMAGE" ci/hydro
+          fi
       - name: Verify guest boot, reboot and Firefox
         if: inputs.mode == 'build'
         run: bash ci/hydro/test-image.sh "$HYDRO_RUNTIME_IMAGE" smoke
       - name: Publish reusable system
-        if: inputs.mode == 'build'
+        if: inputs.mode != 'probe'
         run: |
           docker push "$HYDRO_RUNTIME_IMAGE"
+          mkdir -p ci/hydro/output
           docker image inspect "$HYDRO_RUNTIME_IMAGE" --format '{{json .RepoDigests}}' > ci/hydro/output/registry.json
           cat ci/hydro/output/registry.json >> "$GITHUB_STEP_SUMMARY"
       - name: Retain image build evidence
-        if: always() && inputs.mode == 'build'
+        if: always() && inputs.mode != 'probe'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: hydro-image-evidence

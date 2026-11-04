@@ -12,7 +12,10 @@ if (( $(available_bytes) >= required_bytes )); then
   echo "Enough disk space (${required_gib} GiB required); skipping cleanup."
   exit 0
 fi
-sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup /opt/ghc /usr/local/share/powershell /opt/hostedtoolcache/CodeQL
 sudo docker image prune -af
+for directory in /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/local/.ghcup /opt/ghc /usr/local/share/powershell /usr/local/lib/android; do
+  if (( $(available_bytes) >= required_bytes )); then break; fi
+  sudo rm -rf "$directory"
+done
 df -h /
 (( $(available_bytes) >= required_bytes ))

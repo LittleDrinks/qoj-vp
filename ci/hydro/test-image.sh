@@ -18,8 +18,13 @@ cleanup() {
   rm -rf "$run"
 }
 trap cleanup EXIT
+guest_mount=()
+if test -n "${HYDRO_GUEST_DIR:-}"; then
+  guest_mount=(-v "$HYDRO_GUEST_DIR:/opt/hydro:ro")
+fi
 docker run -d --name "$container" --device /dev/kvm \
   -p 127.0.0.1:2222:2222 \
+  "${guest_mount[@]}" \
   -v "$run/config:/config:ro" -v "$output:/output" "$image"
 ssh_args=(-p 2222 -i "$run/id" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
   -o UserKnownHostsFile="$run/known_hosts" -o ConnectTimeout=5 -o ServerAliveInterval=15)
