@@ -24,7 +24,14 @@ jobs:
           image=$(python3 -c 'import json; print(json.load(open("ci/hydro/image.json"))["image"])')
           [[ "$image" =~ ^ghcr.io/littledrinks/qoj-vp-hydro@sha256:[a-f0-9]{64}$ ]]
           echo "reference=$image" >> "$GITHUB_OUTPUT"
+      - name: Restore verified runtime cache
+        id: runtime-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/hydro-cache
+          key: hydro-runtime-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ci/hydro/image.json') }}
       - name: Pull preinstalled Hydro
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE: ${{ steps.image.outputs.reference }}
@@ -32,10 +39,27 @@ jobs:
           printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           docker pull "$IMAGE"
           docker logout ghcr.io
+          docker tag "$IMAGE" hydro-ci:cached
+      - name: Load cached Hydro
+        if: steps.runtime-cache.outputs.cache-hit == 'true'
+        run: docker load --input "$RUNNER_TEMP/hydro-cache/runtime.tar"
+      - name: Verify runtime identity
+        run: |
+          expected=$(python3 -c 'import json; print(json.load(open("ci/hydro/image.json"))["imageId"])')
+          test "$(docker image inspect hydro-ci:cached --format '{{.Id}}')" = "$expected"
+      - name: Prepare reusable runtime cache
+        if: steps.runtime-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p "$RUNNER_TEMP/hydro-cache"
+          docker save --output "$RUNNER_TEMP/hydro-cache/runtime.tar" hydro-ci:cached
+      - name: Save verified runtime cache
+        if: steps.runtime-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/hydro-cache
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
       - name: Run installed system and browser regressions
-        env:
-          IMAGE: ${{ steps.image.outputs.reference }}
-        run: bash ci/hydro/test-image.sh "$IMAGE" full
+        run: bash ci/hydro/test-image.sh hydro-ci:cached full
       - name: Upload browser and guest evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

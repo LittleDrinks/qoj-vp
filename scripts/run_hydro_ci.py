@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import importlib.util
 import json
 import os
@@ -20,6 +21,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--rankland-online', action='store_true',
                         help='Also run the network-dependent original RankLand regression')
+    parser.add_argument('--workers', type=int, choices=range(1, 5), default=2,
+                        help='Concurrent isolated Firefox suites (default: 2)')
     args = parser.parse_args()
     OUTPUT.mkdir(parents=True, exist_ok=True)
     sys.path.insert(0, str(ROOT / 'tests/browser/vendor_py'))
@@ -60,17 +63,27 @@ def main():
         ]
         if args.rankland_online:
             cases.append(('rankland-online', ['tests/browser/guest_rankland_readiness.py', '--mode', 'verify']))
-        for name, arguments in cases:
+        def run_case(case):
+            name, arguments = case
             started = time.time()
             with (OUTPUT / (name + '.txt')).open('w') as log:
                 result = subprocess.run([sys.executable, *arguments], cwd=ROOT, stdout=log,
                                         stderr=subprocess.STDOUT, check=False)
-            if name == 'rankland-online':
-                report['realRanklandTested'] = True
-            report['checks'].append({'name': name, 'status': 'passed' if result.returncode == 0 else 'failed',
-                                     'exitCode': result.returncode, 'seconds': round(time.time() - started, 2)})
-            print(name + ': ' + report['checks'][-1]['status'], flush=True)
-            save()
+            return {'name': name, 'status': 'passed' if result.returncode == 0 else 'failed',
+                    'exitCode': result.returncode, 'seconds': round(time.time() - started, 2)}
+
+        # Separate processes, profiles, fixture ports and native-host identities.
+        # Only the coordinator writes the combined report.
+        report['workers'] = args.workers
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            futures = [pool.submit(run_case, case) for case in cases]
+            for future in as_completed(futures):
+                check = future.result()
+                if check['name'] == 'rankland-online':
+                    report['realRanklandTested'] = True
+                report['checks'].append(check)
+                print(check['name'] + ': ' + check['status'], flush=True)
+                save()
         report['status'] = 'passed' if all(check['status'] == 'passed' for check in report['checks']) else 'failed'
     except Exception as error:
         report.update(status='failed', errorType=type(error).__name__, error=str(error))
