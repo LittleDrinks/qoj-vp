@@ -66,7 +66,9 @@ find "$work/root/var/log" -type f -exec truncate -s 0 {} +
 sync
 cleanup
 mounts=()
-e2fsck -f -y "$work/system.raw"
+udevadm settle
+sync
+bash ci/hydro/check-filesystem.sh "$work/system.raw"
 qemu-img convert -p -c -f raw -O qcow2 "$work/system.raw" "$output/system.qcow2"
 qemu-img check "$output/system.qcow2"
 test "$(stat -c %s "$output/system.qcow2")" -lt 9500000000
