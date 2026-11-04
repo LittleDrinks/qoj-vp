@@ -1,0 +1,67 @@
+name: Hydro base image
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [probe, build]
+        default: probe
+        description: Probe hosted virtualization or rebuild the reusable installed system
+permissions:
+  contents: read
+concurrency:
+  group: hydro-base-image
+  cancel-in-progress: false
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check hosted virtualization
+        run: |
+          set -euo pipefail
+          lscpu | head -25
+          df -h /
+          test -c /dev/kvm
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
+          sudo python3 - <<'PY'
+          import os,fcntl
+          fd=os.open('/dev/kvm',os.O_RDWR)
+          assert fcntl.ioctl(fd,0xAE00,0)==12
+          vm=fcntl.ioctl(fd,0xAE01,0)
+          os.close(vm);os.close(fd)
+          print('KVM_CREATE_VM passed')
+          PY
+          curl --fail --location --retry 2 --max-time 60 --range 0-1048575 \
+            https://contest.hydro.org.cn/2026/ubuntu-24.04.5-icpc2026-amd64.iso --output /tmp/hydro-probe.part
+          stat -c '%s bytes downloaded' /tmp/hydro-probe.part
+          rm /tmp/hydro-probe.part
+      - name: Build installed Hydro image
+        if: inputs.mode == 'build'
+        run: sudo bash ci/hydro/build-image.sh
+      - name: Sign in to GHCR
+        if: inputs.mode == 'build'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Publish reusable system
+        if: inputs.mode == 'build'
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}-hydro:2026-r1"
+          docker build -t "$image" ci/hydro
+          docker push "$image"
+          docker image inspect "$image" --format '{{json .RepoDigests}}' >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain image build evidence
+        if: always() && inputs.mode == 'build'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: hydro-image-evidence
+          path: ci/hydro/output/*.json
+          if-no-files-found: ignore

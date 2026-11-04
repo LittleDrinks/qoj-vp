@@ -4,8 +4,7 @@
 
 **[下载安装](https://github.com/LittleDrinks/qoj-vp/releases/latest)** · [反馈问题](https://github.com/LittleDrinks/qoj-vp/issues)
 
-唯一支持和验收环境：**Hydro Contest OS 2026**。安装以 Release 为准。
-开发中的下一版提供 `.deb` 安装包；安装后从应用菜单打开 **QOJ Workbench**，在 Firefox 确认添加扩展。
+唯一支持和验收环境：**Hydro Contest OS 2026**。安装步骤见下载页面。
 
 ## 使用
 
@@ -16,12 +15,6 @@
 
 助手只在需要时运行，不用手动开启后台服务。关闭页面后，比赛记录和已准备的文件仍保留。
 
-## 开发
+## 许可证
 
-当前开发分支正在拆分 Judger、比赛账本与 Board；本地算榜改动尚未发布。正式安装以 Release 为准。
-
-- [架构与构建](docs/ARCHITECTURE.md)
-- [CI 与签名发布](docs/CI.md)
-- [DOMjudge 来源和许可证](docs/UI_UPSTREAM.md)
-
-目前支持 QOJ，暂不支持 Codeforces / Gym。项目采用 GPL-2.0-or-later；所复用依赖保留各自许可证。
+[GPL-2.0-or-later](LICENSE)。DOMjudge 界面与其他依赖保留各自的[来源及许可证](extension/assets/licenses)。
