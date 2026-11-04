@@ -15,9 +15,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  # Never cancel a signing upload: AMO may already have consumed the version.
-  cancel-in-progress: false
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.release_mode != 'none')) && 'release' || 'test' }}
+  # Supersede stale checks, but never cancel an AMO upload or release assembly.
+  cancel-in-progress: ${{ github.ref_type != 'tag' && (github.event_name != 'workflow_dispatch' || inputs.release_mode == 'none') }}
 
 defaults:
   run:
