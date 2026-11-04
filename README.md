@@ -6,6 +6,15 @@
 
 唯一支持和验收环境：**Hydro Contest OS 2026**。安装步骤见下载页面。
 
+![Home：比赛进度与提交判定](.github/screenshots/home.png)
+
+<details>
+<summary>Problemset：题面、样例与提交入口</summary>
+
+![Problemset：按题目查看题面、下载样例和提交代码](.github/screenshots/problemset.png)
+
+</details>
+
 ## 使用
 
 1. 在 Firefox 登录 QOJ，进入比赛的 VP 确认页，点击 **准备比赛文件并打开工作台**。
