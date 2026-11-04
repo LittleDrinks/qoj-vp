@@ -23,7 +23,12 @@ def main():
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(extension.rglob('*')):
             if path.is_file() and path.name != '.amo-upload-uuid':
-                archive.write(path, str(path.relative_to(extension)))
+                # Source archives normalize mtimes to 1970, before ZIP's epoch.
+                # A fixed ZIP timestamp also makes clean rebuilds reproducible.
+                entry = zipfile.ZipInfo(str(path.relative_to(extension)))
+                entry.compress_type = zipfile.ZIP_DEFLATED
+                entry.external_attr = 0o100644 << 16
+                archive.writestr(entry, path.read_bytes())
     print(json.dumps({'path': str(target), 'bytes': target.stat().st_size,
                       'sha256': hashlib.sha256(target.read_bytes()).hexdigest(), 'signed': False}, indent=2))
 

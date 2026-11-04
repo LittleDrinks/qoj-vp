@@ -66,6 +66,30 @@ class FirefoxReleaseTests(unittest.TestCase):
     def prepare(self, **kwargs):
         return prepare_release(self.root, self.artifacts, self.output, COMMIT, **kwargs)
 
+    def test_source_archive_timestamps_package_reproducibly(self):
+        import contextlib
+        import os
+        from unittest.mock import patch
+        from scripts.build import package_extension
+
+        with patch.object(package_extension, 'ROOT', self.root):
+            with self.assertRaisesRegex(SystemExit, 'Build the Board first'):
+                package_extension.main()
+            generated = self.ext / 'board/generated'
+            generated.mkdir(parents=True)
+            for name in ('engine.js', 'view.js', 'view.css', 'upstream.json',
+                         'standard-ranklist-utils.LICENSE', 'standard-ranklist-renderer-component.LICENSE'):
+                (generated / name).write_text('fixture')
+            payloads = []
+            for timestamp in (0, 1800000000):
+                for path in self.ext.rglob('*'):
+                    if path.is_file(): os.utime(path, (timestamp, timestamp))
+                with contextlib.redirect_stdout(io.StringIO()):
+                    package_extension.main()
+                payloads.append(self.unsigned.read_bytes())
+            self.assertEqual(payloads[0], payloads[1])
+            verify_xpi(self.unsigned, self.ext, signed=False)
+
     def test_development_release_is_explicitly_unsigned_and_downloads_are_hashed(self):
         result = self.prepare()
         self.assertFalse(result['mozillaSigned'])
