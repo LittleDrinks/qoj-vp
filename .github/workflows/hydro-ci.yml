@@ -32,7 +32,7 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           if [ "$HYDRO_CI_ENABLED" != 'true' ]; then
-            echo '::error::Register the dedicated Hydro runner and set HYDRO_CI_ENABLED=true; see docs/CI.md.'
+            echo '::error::Register the dedicated Hydro runner and set HYDRO_CI_ENABLED=true.'
             exit 1
           fi
           if [ "$REQUESTED_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
@@ -50,13 +50,13 @@ jobs:
           submodules: recursive
           persist-credentials: false
       - name: Install isolated browser-test dependencies
-        run: /usr/bin/python3 -m pip install --target preflight/vendor_py . 'selenium>=4.27,<5'
+        run: /usr/bin/python3 -m pip install --target tests/browser/vendor_py . 'selenium>=4.27,<5'
       - name: Install verified geckodriver
         run: |
-          mkdir -p preflight/tools
-          curl --fail --location --retry 3 --max-time 120 https://github.com/mozilla/geckodriver/releases/download/v0.37.1/geckodriver-v0.37.1-linux64.tar.gz --output preflight/tools/geckodriver-v0.37.1-linux64.tar.gz
-          printf '%s  %s\n' 'e815130ea95983e162ae91843b48d3a3ce991735635fce83a647afde21e09f7e' 'preflight/tools/geckodriver-v0.37.1-linux64.tar.gz' | sha256sum --check
-          tar -xzf preflight/tools/geckodriver-v0.37.1-linux64.tar.gz -C preflight/tools geckodriver
+          mkdir -p tests/browser/tools
+          curl --fail --location --retry 3 --max-time 120 https://github.com/mozilla/geckodriver/releases/download/v0.37.1/geckodriver-v0.37.1-linux64.tar.gz --output tests/browser/tools/geckodriver-v0.37.1-linux64.tar.gz
+          printf '%s  %s\n' 'e815130ea95983e162ae91843b48d3a3ce991735635fce83a647afde21e09f7e' 'tests/browser/tools/geckodriver-v0.37.1-linux64.tar.gz' | sha256sum --check
+          tar -xzf tests/browser/tools/geckodriver-v0.37.1-linux64.tar.gz -C tests/browser/tools geckodriver
       - name: Run isolated Firefox regressions
         env:
           CHECK_RANKLAND_ONLINE: ${{ inputs.check_rankland_online }}
