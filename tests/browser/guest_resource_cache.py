@@ -216,13 +216,27 @@ class ResourceHarness(visual.VisualHarness):
 
     def prepare_one(self, index, pid, expected_status, expected_kind=None, *, interactive=False):
         from selenium.webdriver.common.by import By
+        from selenium.common.exceptions import StaleElementReferenceException
         self.wait_resource_modal()
-        rows = self.driver.find_elements(By.CSS_SELECTOR, '#resources-list tr')
-        require(len(rows) == 12, 'The real preparation modal does not contain all twelve fixture problems')
+        require(self.driver.execute_script("return document.querySelectorAll('#resources-list tr').length;") == 12,
+                'The real preparation modal does not contain all twelve fixture problems')
+        selector = f'#resources-list [data-prepare-problem="{pid}"]'
+        def click_current(*, checkbox=False):
+            try:
+                button = self.driver.find_element(By.CSS_SELECTOR, selector)
+                if checkbox:
+                    button = button.find_element(By.XPATH, 'ancestor::tr').find_element(By.CSS_SELECTOR, 'input[type=checkbox]')
+                    if button.is_selected(): return True
+                if not button.is_enabled(): return False
+                button.click()
+                return True
+            except StaleElementReferenceException:
+                # A completed manifest/contest read replaces every row. Retry
+                # locating this problem, not a detached handle or the whole test.
+                return False
         if interactive:
-            rows[index].find_element(By.CSS_SELECTOR, 'input[type=checkbox]').click()
-            rows = self.driver.find_elements(By.CSS_SELECTOR, '#resources-list tr')
-        rows[index].find_element(By.CSS_SELECTOR, '[data-prepare-problem]').click()
+            self.wait(lambda: click_current(checkbox=True), 'current interactive checkbox')
+        self.wait(click_current, 'current problem preparation button')
         self.wait(lambda: (entry := self.prepared_entry(pid)) and entry.get('status') == expected_status and
                   not self.ui_state().get('resourcePreparing'), 'single-problem preparation result', timeout=60)
         entry = self.prepared_entry(pid)
