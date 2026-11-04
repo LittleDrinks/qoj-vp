@@ -207,7 +207,10 @@ def main():
             for label,value in [('提交时间（时）','0'),('提交时间（分）','10')]:
                 control=h.driver.find_element(By.CSS_SELECTOR,'input[aria-label="'+label+'"]')
                 control.clear();control.send_keys(value)
-                require(control.get_attribute('value')==value,'Manual submission input did not retain '+label)
+                # Native number inputs may retain a leading zero (e.g. 010).
+                # The submitted numeric time, checked again below, is the contract.
+                actual=h.driver.execute_script('return arguments[0].valueAsNumber;',control)
+                require(actual==int(value),'Manual submission input did not retain '+label)
             def click_record():
                 button=h.driver.find_element(By.XPATH,'//button[normalize-space(.)="记录提交"]')
                 h.driver.execute_script("arguments[0].scrollIntoView({block:'center'});",button)
