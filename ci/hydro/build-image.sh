@@ -33,9 +33,15 @@ rm -f "$work/root/etc/resolv.conf"
 cp /etc/resolv.conf "$work/root/etc/resolv.conf"
 printf '#!/bin/sh\nexit 101\n' > "$work/root/usr/sbin/policy-rc.d"
 chmod +x "$work/root/usr/sbin/policy-rc.d"
+# The installer adds the kernel from the ISO pool after copying filesystem layers.
+mkdir -p "$work/root/var/tmp/hydro-kernel"
+find "$work/iso/pool" -type f \( -name 'linux-image-[0-9]*-generic_*.deb' -o -name 'linux-modules-[0-9]*-generic_*.deb' \) \
+  -exec cp '{}' "$work/root/var/tmp/hydro-kernel/" \;
+test "$(find "$work/root/var/tmp/hydro-kernel" -name '*.deb' | wc -l)" -ge 2
 cp ci/hydro/provision-guest.sh "$work/root/var/tmp/provision-guest.sh"
 chroot "$work/root" /bin/bash /var/tmp/provision-guest.sh
 rm "$work/root/var/tmp/provision-guest.sh" "$work/root/usr/sbin/policy-rc.d"
+rm -rf "$work/root/var/tmp/hydro-kernel"
 rm -f "$work/root/etc/resolv.conf"
 ln -s /run/systemd/resolve/stub-resolv.conf "$work/root/etc/resolv.conf"
 kernel=$(find "$work/root/lib/modules" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -V | tail -1)

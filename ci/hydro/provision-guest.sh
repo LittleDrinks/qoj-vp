@@ -2,7 +2,7 @@
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y --no-install-recommends openssh-server python3-pip python3-requests python3-bs4 python3-pycurl ca-certificates curl sudo
+apt-get install -y --no-install-recommends /var/tmp/hydro-kernel/*.deb openssh-server python3-pip python3-requests python3-bs4 python3-pycurl ca-certificates curl sudo
 mkdir -p /opt/hydro-ci/vendor_py
 python3 -m pip install --disable-pip-version-check --target /opt/hydro-ci/vendor_py 'selenium==4.38.0'
 curl --fail --location --retry 3 --max-time 120 https://github.com/mozilla/geckodriver/releases/download/v0.37.1/geckodriver-v0.37.1-linux64.tar.gz -o /var/tmp/geckodriver.tar.gz
