@@ -1,4 +1,5 @@
 {
   "image": "ghcr.io/littledrinks/qoj-vp-hydro@sha256:a7e86381f19e0e534ccdfebb5f4be215396f1a8a06502ea06622fed30905da39",
-  "imageId": "sha256:52c627b768e3eca6bd94d13814f907c4f2b62c0110e56e128951b6489173cb59"
+  "imageId": "sha256:52c627b768e3eca6bd94d13814f907c4f2b62c0110e56e128951b6489173cb59",
+  "runtime": "ghcr.io/littledrinks/qoj-vp-hydro@sha256:b86e1a99c2c917f7212ccdd3f6e2afd112d1e37f6f5dbc38a3f92b3ab3f0e1f3"
 }
