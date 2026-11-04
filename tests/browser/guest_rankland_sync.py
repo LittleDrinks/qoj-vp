@@ -192,6 +192,7 @@ def main():
 
         def manual_record():
             from selenium.webdriver.common.by import By
+            from selenium.webdriver.common.keys import Keys
             from selenium.webdriver.support.ui import Select
             from selenium.common.exceptions import ElementClickInterceptedException, StaleElementReferenceException
             h.rankland_handle(session)
@@ -201,7 +202,7 @@ def main():
             # first input event; that switch can repaint the field. Wait for
             # manual mode before replacing either time component.
             hour=h.driver.find_element(By.CSS_SELECTOR,'input[aria-label="提交时间（时）"]')
-            hour.clear()
+            hour.send_keys(Keys.ARROW_DOWN)
             h.wait(lambda:h.driver.find_element(By.XPATH,'//button[normalize-space(.)="当前时间"]').is_enabled(),'manual time editing mode')
             for label,value in [('提交时间（时）','0'),('提交时间（分）','10')]:
                 control=h.driver.find_element(By.CSS_SELECTOR,'input[aria-label="'+label+'"]')
