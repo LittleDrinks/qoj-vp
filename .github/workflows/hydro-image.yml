@@ -34,6 +34,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Check hosted virtualization
+        if: inputs.mode != 'runtime'
         run: |
           set -euo pipefail
           lscpu | head -25
