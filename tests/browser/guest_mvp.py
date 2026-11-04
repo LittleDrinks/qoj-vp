@@ -24,7 +24,7 @@ import uuid
 import zipfile
 
 PROJECT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(PROJECT), str(PROJECT / 'tests/browser'), str(PROJECT / 'tests/browser/vendor_py'),
+sys.path[:0] = [str(PROJECT / 'src'), str(PROJECT), str(PROJECT / 'tests/browser'), str(PROJECT / 'tests/browser/vendor_py'),
                str(PROJECT / 'vendor/qoj-submitter')]
 
 from guest_preflight import atomic_json, process_exit, require, utc_now
@@ -131,7 +131,7 @@ class MvpHarness:
         self.native_state.mkdir(parents=True, exist_ok=True)
         launcher = self.native_state / 'launcher.sh'
         environment = {
-            'PYTHONPATH': ':'.join(str(self.project / p) for p in ('', 'tests/browser/vendor_py', 'vendor/qoj-submitter')),
+            'PYTHONPATH': ':'.join(str(self.project / p) for p in ('src', 'tests/browser/vendor_py', 'vendor/qoj-submitter')),
             'QOJ_VP_STATE_DIR': str(self.native_state),
             'QOJ_VP_QOJ_PATH': str(self.project / 'vendor/qoj-submitter'),
             'QOJ_VP_FIXTURE_ORIGIN': fixture.origin,
@@ -152,9 +152,9 @@ class MvpHarness:
         self.manifest_installed = True
         self.addon = self.results / 'workbench.xpi'
         with zipfile.ZipFile(self.addon, 'w', zipfile.ZIP_DEFLATED) as archive:
-            for path in sorted((self.project / 'extension').rglob('*')):
+            for path in sorted((self.project / 'src/firefox').rglob('*')):
                 if path.is_file():
-                    archive.write(path, str(path.relative_to(self.project / 'extension')))
+                    archive.write(path, str(path.relative_to(self.project / 'src/firefox')))
         require((self.project / 'tests/browser/tools/geckodriver').is_file(), 'Guest geckodriver missing')
         return {'addon': str(self.addon), 'nativeManifest': str(self.manifest_path),
                 'nativeState': str(self.native_state), 'fixtureOrigin': fixture.origin,

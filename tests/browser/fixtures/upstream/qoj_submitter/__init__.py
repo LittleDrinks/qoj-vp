@@ -1,1 +1,0 @@
-"""Direct QOJ contest client."""

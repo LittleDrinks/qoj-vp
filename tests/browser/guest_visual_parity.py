@@ -27,7 +27,7 @@ import uuid
 import zipfile
 
 PROJECT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(PROJECT), str(PROJECT / 'tests/browser'), str(PROJECT / 'tests/browser/vendor_py'),
+sys.path[:0] = [str(PROJECT / 'src'), str(PROJECT), str(PROJECT / 'tests/browser'), str(PROJECT / 'tests/browser/vendor_py'),
                str(PROJECT / 'vendor/qoj-submitter')]
 
 from guest_mvp import MvpHarness
@@ -275,10 +275,10 @@ class VisualHarness(MvpHarness):
         clone = self.state / 'extension'
         changes = []
         byte_manifest = []
-        for source in sorted((self.project / 'extension').rglob('*')):
+        for source in sorted((self.project / 'src/firefox').rglob('*')):
             if not source.is_file():
                 continue
-            relative = source.relative_to(self.project / 'extension')
+            relative = source.relative_to(self.project / 'src/firefox')
             data = original = source.read_bytes()
             if str(relative) == 'manifest.json':
                 require(data.count(b'qoj-vp@littledrinks.local') == 1, 'Unexpected extension ID declarations')
@@ -297,7 +297,7 @@ class VisualHarness(MvpHarness):
         require(changes == ['background.js', 'manifest.json'], 'Only the two namespace files may differ')
         atomic_json(self.results / 'alias-byte-verification.json', byte_manifest)
         launcher = self.native_state / 'launcher.sh'
-        env = {'PYTHONPATH': ':'.join(str(self.project / p) for p in ('', 'tests/browser/vendor_py', 'vendor/qoj-submitter')),
+        env = {'PYTHONPATH': ':'.join(str(self.project / p) for p in ('src', 'tests/browser/vendor_py', 'vendor/qoj-submitter')),
                'QOJ_VP_STATE_DIR': str(self.native_state), 'QOJ_VP_QOJ_PATH': str(self.project / 'vendor/qoj-submitter'),
                'QOJ_VP_FIXTURE_ORIGIN': fixture.origin}
         launcher.write_text('#!/bin/sh\n' + ''.join('export ' + k + '=' + shlex.quote(v) + '\n' for k, v in env.items())

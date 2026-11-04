@@ -1,16 +1,35 @@
+# Dependencies and language caches
+.venv/
+node_modules/
 __pycache__/
 *.py[cod]
-.venv/
-build/
 *.egg-info/
-artifacts/
-dist/
-state/
-results/
-.scratch/
-node_modules/
+.pytest_cache/
+.ruff_cache/
+
+# Build outputs (scripts/build contains source)
+/build/
+/dist/
+/src/firefox/board/generated/
 .amo-upload-uuid
+
+# Local runs, downloaded tools, VM disks and browser profiles
+/artifacts/
+/state/
+/results/
+/.scratch/
 /preflight/
-tests/browser/vendor_py/
-tests/browser/tools/
-ci/hydro/output/
+/tests/browser/vendor_py/
+/tests/browser/tools/
+/infra/hydro/output/
+
+# Local configuration and editor/coverage leftovers
+.env
+.env.*
+!.env.example
+.coverage
+.coverage.*
+/htmlcov/
+.DS_Store
+*.swp
+*.swo

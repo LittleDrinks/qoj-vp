@@ -14,12 +14,20 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Build Board from pinned sources
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build:board
       - name: Prepare preinstalled Hydro runtime
         uses: ./.github/actions/hydro-runtime
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run installed system and browser regressions
-        run: bash ci/hydro/test-image.sh hydro-ci:cached full
+        run: bash infra/hydro/test-image.sh hydro-ci:cached full
       - name: Upload browser and guest evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

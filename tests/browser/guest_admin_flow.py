@@ -14,7 +14,7 @@ import sys
 import time
 
 PROJECT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(PROJECT), str(PROJECT / 'tests/browser'), str(PROJECT / 'tests/browser/vendor_py'), str(PROJECT / 'vendor/qoj-submitter')]
+sys.path[:0] = [str(PROJECT / 'src'), str(PROJECT), str(PROJECT / 'tests/browser'), str(PROJECT / 'tests/browser/vendor_py'), str(PROJECT / 'vendor/qoj-submitter')]
 from guest_resource_cache import ResourceHarness, ResourceFixture, zipped
 from guest_preflight import atomic_json, process_exit, require, utc_now
 

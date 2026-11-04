@@ -1,0 +1,6 @@
+{
+  "version": {
+    "compatibility": ["firefox"],
+    "approval_notes": "Self-distributed Linux desktop extension. Requires the one-shot native Python helper; install instructions and complete helper sources are in the attached source archive. Build from the attached source archive using Node 24: npm ci --ignore-scripts && npm run build:board. The extension is in src/firefox; native helper and judge adapters are in src/qojvp. Local-only browser regression harnesses are in tests/browser. No credentials or user state are bundled. First-party JS is unminified; third-party libraries are byte-for-byte official releases: DOMjudge 9.0.1 (https://github.com/DOMjudge/domjudge/tree/9.0.1), Bootstrap 5.3.7 (https://github.com/twbs/bootstrap/tree/v5.3.7), Font Awesome Free 6.5.2 (https://github.com/FortAwesome/Font-Awesome/tree/6.5.2). Font binaries come from the official DOMjudge 9.0.1 image at digest sha256:e9704bdae8e08440eb0042c9817116dc9767a511f577e9318c4f0710ad5b5727. Per-file hashes, origin paths and licenses are in src/firefox/assets/UPSTREAM.json and src/firefox/assets/licenses. The localhost host permissions support isolated HTTP fixture regression tests. Do not initiate a real QOJ virtual contest or submit code on a real account for testing."
+  }
+}

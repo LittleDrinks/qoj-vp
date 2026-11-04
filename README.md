@@ -26,4 +26,4 @@
 
 ## 许可证
 
-[GPL-2.0-or-later](LICENSE)。DOMjudge 界面与其他依赖保留各自的[来源及许可证](extension/assets/licenses)。
+[GPL-2.0-or-later](LICENSE)。DOMjudge 界面与其他依赖保留各自的[来源及许可证](src/firefox/assets/licenses)。

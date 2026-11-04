@@ -11,14 +11,14 @@ runs:
       shell: bash
       run: |
         test -c /dev/kvm
-        bash ci/hydro/free-runner-space.sh 24
+        bash infra/hydro/free-runner-space.sh 24
     - name: Read pinned Hydro images
       id: image
       shell: bash
       run: |
         python3 - <<'PY' >> "$GITHUB_OUTPUT"
         import json,re
-        config=json.load(open('ci/hydro/image.json'))
+        config=json.load(open('infra/hydro/image.json'))
         for key in ('image','runtime'):
             assert re.fullmatch(r'ghcr.io/littledrinks/qoj-vp-hydro@sha256:[a-f0-9]{64}',config[key])
             print(f'{key}={config[key]}')

@@ -48,7 +48,7 @@ jobs:
       - name: Check version and release tag
         env:
           RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-        run: python scripts/prepare_firefox_release.py --check-version --tag "$RELEASE_TAG"
+        run: python scripts/release/prepare_firefox_release.py --check-version --tag "$RELEASE_TAG"
       - name: Install pinned Firefox release tools
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Build pinned local Board
@@ -62,15 +62,17 @@ jobs:
           python -m pip install . build
           mkdir -p results/ci
       - name: Backend regressions
-        run: python -m unittest discover -s tests -v 2>&1 | tee results/ci/python-tests.txt
+        env:
+          QOJ_VP_QOJ_PATH: ${{ github.workspace }}/vendor/qoj-submitter
+        run: python -m unittest discover -s tests/unit -t . -v 2>&1 | tee results/ci/python-tests.txt
       - name: Frontend regressions
-        run: node --test tests/test_*.cjs 2>&1 | tee results/ci/node-tests.txt
+        run: node --test tests/unit/test_*.cjs 2>&1 | tee results/ci/node-tests.txt
       - name: Build extension, native helper and complete sources
         run: |
-          python scripts/package_extension.py
+          python scripts/build/package_extension.py
           python -m build --wheel
-          python scripts/package_source.py
-          python scripts/package_hydro.py --development
+          python scripts/build/package_source.py
+          python scripts/build/package_hydro.py --development
       - name: Hash packaged artifacts
         working-directory: dist
         run: sha256sum *.xpi *.whl *.tar.gz *.deb > SHA256SUMS
@@ -120,6 +122,10 @@ jobs:
         with:
           name: qoj-vp-${{ github.sha }}
           path: dist
+      - name: Rebuild Board before verifying release payload
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build:board
       - name: Check build, tag and existing release
         id: release
         env:
@@ -130,29 +136,29 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           RELEASE_MODE: ${{ inputs.release_mode || 'signed' }}
         run: |
-          version=$(python scripts/prepare_firefox_release.py --check-version --tag "$REQUESTED_TAG")
+          version=$(python scripts/release/prepare_firefox_release.py --check-version --tag "$REQUESTED_TAG")
           tag="v$version"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "mode=$RELEASE_MODE" >> "$GITHUB_OUTPUT"
           # Only release commits already on the default branch.
           git merge-base --is-ancestor "$SOURCE_COMMIT" "refs/remotes/origin/$DEFAULT_BRANCH"
           # A manual release may create its version tag; an existing tag is immutable.
-          gh api --paginate --slurp "repos/$GH_REPO/git/matching-refs/tags/$tag" > tag-refs.json
-          tag_exists=$(jq -r --arg ref "refs/tags/$tag" 'any(.[][]; .ref == $ref)' tag-refs.json)
+          gh api --paginate --slurp "repos/$GH_REPO/git/matching-refs/tags/$tag" > dist/tag-refs.json
+          tag_exists=$(jq -r --arg ref "refs/tags/$tag" 'any(.[][]; .ref == $ref)' dist/tag-refs.json)
           if [ "$tag_exists" = true ]; then
             if [ "$(git rev-parse "refs/tags/$tag^{commit}")" != "$SOURCE_COMMIT" ]; then
               echo '::error::The version tag points to another commit. Bump all three versions.'
               exit 1
             fi
           fi
-          gh api --paginate --slurp "repos/$GH_REPO/releases" > releases.json
-          published=$(jq -r --arg tag "$tag" 'any(.[][]; .tag_name == $tag and .draft == false)' releases.json)
+          gh api --paginate --slurp "repos/$GH_REPO/releases" > dist/releases.json
+          published=$(jq -r --arg tag "$tag" 'any(.[][]; .tag_name == $tag and .draft == false)' dist/releases.json)
           if [ "$published" = true ]; then
             echo '::error::This version is already published. Bump all three versions.'
             exit 1
           fi
           (cd dist && sha256sum --check SHA256SUMS)
-          python scripts/prepare_firefox_release.py --tag "$tag" --commit "$SOURCE_COMMIT" --output dist/checked
+          python scripts/release/prepare_firefox_release.py --tag "$tag" --commit "$SOURCE_COMMIT" --output dist/checked
       - name: Check signing credentials
         if: steps.release.outputs.mode == 'signed'
         env:
@@ -163,27 +169,21 @@ jobs:
             echo '::error::Add AMO_JWT_ISSUER and AMO_JWT_SECRET in repository Actions secrets. No unsigned release will be published.'
             exit 1
           fi
-      - name: Install pinned signing tool
-        if: steps.release.outputs.mode == 'signed'
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Rebuild pinned Board for signing verification
-        if: steps.release.outputs.mode == 'signed'
-        run: npm run build:board
       - name: Recover an already approved AMO version
         if: steps.release.outputs.mode == 'signed'
         id: recover
         env:
           WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
           WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
-        run: node scripts/recover_amo_version.mjs
+        run: node scripts/release/recover_amo_version.mjs
       - name: Sign privately with Mozilla (unlisted)
         if: steps.release.outputs.mode == 'signed' && steps.recover.outputs.downloaded != 'true'
         env:
           WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
           WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
         run: |
-          python scripts/prepare_firefox_release.py --amo-metadata dist/amo-metadata.json
-          npx --no-install web-ext sign --source-dir extension --artifacts-dir dist/amo \
+          python scripts/release/prepare_firefox_release.py --amo-metadata dist/amo-metadata.json
+          npx --no-install web-ext sign --source-dir src/firefox --artifacts-dir dist/amo \
             --channel unlisted --no-config-discovery --approval-timeout 1200000 \
             --amo-metadata dist/amo-metadata.json \
             --upload-source-code dist/qoj-vp-mvp-source.tar.gz
@@ -208,7 +208,7 @@ jobs:
               echo '::error::AMO has not returned exactly one signed XPI. No release will be published.'
               exit 1
             fi
-            python scripts/prepare_firefox_release.py --tag "$RELEASE_TAG" --commit "$SOURCE_COMMIT" \
+            python scripts/release/prepare_firefox_release.py --tag "$RELEASE_TAG" --commit "$SOURCE_COMMIT" \
               --signed-xpi "${signed[0]}" --output dist/release
           else
             mv dist/checked dist/release
@@ -220,7 +220,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify installed signed package and restart recovery
         if: steps.release.outputs.mode == 'signed'
-        run: bash ci/hydro/test-image.sh hydro-ci:cached package dist/release
+        run: bash infra/hydro/test-image.sh hydro-ci:cached package dist/release
       - name: Retain installed release evidence
         if: always() && steps.release.outputs.mode == 'signed'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

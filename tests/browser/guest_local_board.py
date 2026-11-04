@@ -8,7 +8,7 @@ import sys
 import time
 
 PROJECT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(PROJECT), str(PROJECT/'tests/browser'), str(PROJECT/'tests/browser/vendor_py')]
+sys.path[:0] = [str(PROJECT / 'src'), str(PROJECT), str(PROJECT/'tests/browser'), str(PROJECT/'tests/browser/vendor_py')]
 from guest_rankland_sync import Judge
 import guest_visual_parity as visual
 from guest_preflight import atomic_json, require, utc_now

@@ -12,7 +12,7 @@ import time
 from urllib.parse import urlsplit, parse_qs
 
 PROJECT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(PROJECT), str(PROJECT / 'tests/browser'), str(PROJECT / 'tests/browser/vendor_py')]
+sys.path[:0] = [str(PROJECT / 'src'), str(PROJECT), str(PROJECT / 'tests/browser'), str(PROJECT / 'tests/browser/vendor_py')]
 import guest_visual_parity as visual
 from guest_preflight import atomic_json, require, utc_now
 
@@ -121,7 +121,7 @@ def main():
     h.summary.update(schema='qoj-vp-delayed-sync-v1', realFirefox=True, upstreamRankland=True,
                      network='live RankLand; fixture QOJ' if '--online' in sys.argv else 'loopback fixtures', realQojSubmissions=0)
     h.summary['codeSha256'] = {str(p.relative_to(PROJECT)):hashlib.sha256(p.read_bytes()).hexdigest()
-        for folder in ('extension','qojvp') for p in (PROJECT/folder).rglob('*')
+        for folder in ('src/firefox','src/qojvp') for p in (PROJECT/folder).rglob('*')
         if p.is_file() and '__pycache__' not in p.parts}
     judge, board = Judge().start(), Board().start()
     try:

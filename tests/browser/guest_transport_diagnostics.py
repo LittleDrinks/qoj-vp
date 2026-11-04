@@ -279,7 +279,7 @@ def main():
         summary['sourceHashes'] = {}
         with zipfile.ZipFile(addon, 'w', zipfile.ZIP_DEFLATED) as archive:
             for name in ['transport.js', 'qoj-content.js']:
-                data = (project / 'extension' / name).read_bytes()
+                data = (project / 'src/firefox' / name).read_bytes()
                 archive.writestr(name, data)
                 summary['sourceHashes'][name] = hashlib.sha256(data).hexdigest()
             archive.writestr('manifest.json', json.dumps(manifest))
