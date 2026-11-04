@@ -192,6 +192,7 @@ def main():
 
         def manual_record():
             from selenium.webdriver.common.by import By
+            from selenium.webdriver.common.keys import Keys
             from selenium.webdriver.support.ui import Select
             from selenium.common.exceptions import ElementClickInterceptedException, StaleElementReferenceException
             h.rankland_handle(session)
@@ -199,7 +200,11 @@ def main():
             Select(h.driver.find_element(By.CSS_SELECTOR,'select[aria-label="结果"]')).select_by_value('CE')
             for label,value in [('提交时间（时）','0'),('提交时间（分）','10')]:
                 control=h.driver.find_element(By.CSS_SELECTOR,'input[aria-label="'+label+'"]')
-                control.clear();control.send_keys(value)
+                # React may restore the current replay hour after clear() emits
+                # an empty value. Replace the selection in one keyboard edit;
+                # otherwise entering 0 into restored 2 produces 20 hours.
+                control.send_keys(Keys.CONTROL,'a',Keys.NULL,value)
+                require(control.get_attribute('value')==value,'Manual submission input did not retain '+label)
             def click_record():
                 button=h.driver.find_element(By.XPATH,'//button[normalize-space(.)="记录提交"]')
                 h.driver.execute_script("arguments[0].scrollIntoView({block:'center'});",button)
