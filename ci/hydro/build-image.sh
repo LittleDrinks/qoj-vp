@@ -45,8 +45,9 @@ rm -rf "$work/root/var/tmp/hydro-kernel"
 rm -f "$work/root/etc/resolv.conf"
 ln -s /run/systemd/resolve/stub-resolv.conf "$work/root/etc/resolv.conf"
 kernel=$(find "$work/root/lib/modules" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -V | tail -1)
-cp "$work/root/boot/vmlinuz-$kernel" "$output/vmlinuz"
-cp "$work/root/boot/initrd.img-$kernel" "$output/initrd"
+# Docker's unprivileged context sender must be able to read these public files.
+install -m 644 "$work/root/boot/vmlinuz-$kernel" "$output/vmlinuz"
+install -m 644 "$work/root/boot/initrd.img-$kernel" "$output/initrd"
 chroot "$work/root" dpkg-query -W -f='${Package}\t${Version}\n' > "$output/packages.txt"
 python3 - "$output" "$HYDRO_ISO_SHA256" "$kernel" <<'PY'
 import json,sys
