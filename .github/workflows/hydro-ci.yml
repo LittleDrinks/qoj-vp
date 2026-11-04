@@ -17,7 +17,7 @@ jobs:
       - name: Prepare disposable hosted runner
         run: |
           test -c /dev/kvm
-          bash ci/hydro/free-runner-space.sh
+          bash ci/hydro/free-runner-space.sh 32
       - name: Read pinned Hydro image
         id: image
         run: |
