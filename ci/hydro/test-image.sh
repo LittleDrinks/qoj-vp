@@ -3,6 +3,7 @@
 set -euo pipefail
 image=${1:?Image name or immutable digest required}
 mode=${2:-full}
+case "$mode" in full|smoke|package) ;; *) echo 'Unknown Hydro test mode' >&2; exit 2;; esac
 project=$(pwd)
 run=$(mktemp -d "${RUNNER_TEMP:-/var/tmp}/hydro-run.XXXXXX")
 mkdir -p "$run/config" "$project/results/hydro-hosted"
@@ -63,8 +64,21 @@ ssh_guest 'mkdir -p project'
 tar --exclude=.git --exclude=node_modules --exclude=.venv --exclude=artifacts \
   --exclude=dist --exclude=results --exclude=.scratch --exclude=ci/hydro/output \
   --exclude=preflight --exclude=tests/browser/vendor_py --exclude=__pycache__ -czf - . | ssh_guest 'tar -xzf - -C project'
+if test "$mode" = package; then
+  bundle=${3:?Release bundle directory required}
+  shopt -s nullglob
+  debs=("$bundle"/*.deb)
+  test "${#debs[@]}" = 1
+  ssh_guest 'mkdir -p project/dist/release'
+  tar -C "$bundle" -cf - "$(basename "${debs[0]}")" | ssh_guest 'tar -xf - -C project/dist/release'
+  ssh_guest 'sudo dpkg -i project/dist/release/*.deb'
+fi
 set +e
-ssh_guest 'cd project && mkdir -p tests/browser/tools && ln -s /opt/hydro-ci/vendor_py tests/browser/vendor_py && ln -sf /opt/hydro-ci/geckodriver tests/browser/tools/geckodriver && /usr/bin/python3 scripts/run_hydro_ci.py' 2>&1 | tee "$output/regression.log"
+if test "$mode" = package; then
+  ssh_guest 'cd project && mkdir -p results && /usr/bin/python3 tests/browser/guest_hydro_package.py --signed-xpi /usr/lib/qoj-vp/firefox.xpi --geckodriver /opt/hydro-ci/geckodriver --dependencies /opt/hydro-ci/vendor_py --deb dist/release/*.deb --output results/installed-package.json' 2>&1 | tee "$output/regression.log"
+else
+  ssh_guest 'cd project && mkdir -p tests/browser/tools && ln -s /opt/hydro-ci/vendor_py tests/browser/vendor_py && ln -sf /opt/hydro-ci/geckodriver tests/browser/tools/geckodriver && /usr/bin/python3 scripts/run_hydro_ci.py' 2>&1 | tee "$output/regression.log"
+fi
 status=${PIPESTATUS[0]}
 ssh_guest 'cd project && tar --exclude="*.sqlite*" -czf - results' > "$output/guest-results.tar.gz"
 set -e

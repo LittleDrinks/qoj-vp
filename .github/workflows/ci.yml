@@ -24,6 +24,12 @@ defaults:
     shell: bash
 
 jobs:
+  hydro:
+    uses: ./.github/workflows/hydro-ci.yml
+    permissions:
+      contents: read
+      packages: read
+
   test-and-package:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -88,7 +94,7 @@ jobs:
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' && inputs.release_mode != 'none')
-    needs: test-and-package
+    needs: [test-and-package, hydro]
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     concurrency:
@@ -96,6 +102,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write
+      packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -206,6 +213,21 @@ jobs:
           else
             mv dist/checked dist/release
           fi
+      - name: Prepare Hydro release acceptance
+        if: steps.release.outputs.mode == 'signed'
+        uses: ./.github/actions/hydro-runtime
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify installed signed package and restart recovery
+        if: steps.release.outputs.mode == 'signed'
+        run: bash ci/hydro/test-image.sh hydro-ci:cached package dist/release
+      - name: Retain installed release evidence
+        if: always() && steps.release.outputs.mode == 'signed'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: installed-release-${{ github.sha }}
+          path: results/hydro-hosted/
+          if-no-files-found: ignore
       - name: Save verified release bundle
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:

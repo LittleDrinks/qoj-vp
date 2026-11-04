@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Installed Hydro package regression; isolated HOME/profile, no judge traffic."""
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -17,9 +18,11 @@ def main():
     parser.add_argument('--geckodriver', required=True, type=Path)
     parser.add_argument('--dependencies', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--deb', type=Path, help='Reinstall this package between browser launches')
     args = parser.parse_args()
     sys.path[:0] = ['/usr/lib/qoj-vp', str(args.dependencies)]
     from qojvp.native_host import read_frame, write_frame
+    from qojvp import __version__
     from selenium import webdriver
     from selenium.webdriver.firefox.options import Options
     from selenium.webdriver.firefox.service import Service
@@ -35,6 +38,7 @@ def main():
     manifest.write_text(json.dumps(old))
     report = {'status':'failed','realQojSubmissions':0,'network':'blocked proxy', 'checks':[]}
     driver = None
+    expected_hash = hashlib.sha256(args.signed_xpi.read_bytes()).hexdigest()
     def check(name, condition):
         if not condition: raise AssertionError(name)
         report['checks'].append(name)
@@ -78,7 +82,11 @@ def main():
         driver=browser()
         driver.install_addon(str(args.signed_xpi),temporary=False)
         for phase in ['first launch','restart']:
-            if phase=='restart':driver.quit();driver=None;driver=browser()
+            if phase=='restart':
+                driver.quit();driver=None
+                if args.deb:
+                    subprocess.run(['sudo','-n','dpkg','-i',str(args.deb.resolve())],check=True,timeout=60)
+                driver=browser()
             driver.set_context('chrome')
             install=driver.execute_async_script('''const done=arguments[arguments.length-1];
               const {AddonManager}=ChromeUtils.importESModule('resource://gre/modules/AddonManager.sys.mjs');
@@ -86,8 +94,12 @@ def main():
                 signed:a.signedState===AddonManager.SIGNEDSTATE_SIGNED,active:a.isActive,temporary:a.temporarilyInstalled}));''')
             report[phase]=install
             check(phase+' signed installation',install['signed'] and install['active'] and not install['temporary'])
+            check(phase+' expected extension version', install['version']==__version__)
+            installed=root/'profile/extensions/qoj-vp@littledrinks.local.xpi'
+            check(phase+' exact signed payload', hashlib.sha256(installed.read_bytes()).hexdigest()==expected_hash)
             hello=browser_native('hello')
             check(phase+' global native connection',hello.get('ok') and hello['result']['stateDir']==str(state))
+            check(phase+' matching helper version',hello['result']['version']==__version__)
             sessions=browser_native('list_sessions')
             check(phase+' persisted competition',sessions.get('ok') and any(s['sessionId']==sid for s in sessions['result']['sessions']))
             pid=hello['pid']

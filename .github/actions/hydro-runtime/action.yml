@@ -1,0 +1,59 @@
+name: Prepare Hydro runtime
+description: Restore or pull the verified preinstalled Hydro system
+inputs:
+  token:
+    description: GitHub token with packages read permission
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Prepare disposable hosted runner
+      shell: bash
+      run: |
+        test -c /dev/kvm
+        bash ci/hydro/free-runner-space.sh 32
+    - name: Read pinned Hydro image
+      id: image
+      shell: bash
+      run: |
+        image=$(python3 -c 'import json; print(json.load(open("ci/hydro/image.json"))["image"])')
+        [[ "$image" =~ ^ghcr.io/littledrinks/qoj-vp-hydro@sha256:[a-f0-9]{64}$ ]]
+        echo "reference=$image" >> "$GITHUB_OUTPUT"
+    - name: Restore verified runtime cache
+      id: runtime-cache
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: ${{ runner.temp }}/hydro-cache
+        key: hydro-runtime-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ci/hydro/image.json') }}
+    - name: Pull preinstalled Hydro
+      if: steps.runtime-cache.outputs.cache-hit != 'true'
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        IMAGE: ${{ steps.image.outputs.reference }}
+      shell: bash
+      run: |
+        printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        docker pull "$IMAGE"
+        docker logout ghcr.io
+        docker tag "$IMAGE" hydro-ci:cached
+    - name: Load cached Hydro
+      if: steps.runtime-cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: docker load --input "$RUNNER_TEMP/hydro-cache/runtime.tar"
+    - name: Verify runtime identity
+      shell: bash
+      run: |
+        expected=$(python3 -c 'import json; print(json.load(open("ci/hydro/image.json"))["imageId"])')
+        test "$(docker image inspect hydro-ci:cached --format '{{.Id}}')" = "$expected"
+    - name: Prepare reusable runtime cache
+      if: steps.runtime-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/hydro-cache"
+        docker save --output "$RUNNER_TEMP/hydro-cache/runtime.tar" hydro-ci:cached
+    - name: Save verified runtime cache
+      if: steps.runtime-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: ${{ runner.temp }}/hydro-cache
+        key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
