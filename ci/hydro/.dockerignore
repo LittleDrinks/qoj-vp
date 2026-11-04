@@ -1,0 +1,10 @@
+*
+!Dockerfile
+!entrypoint.sh
+!output
+output/*
+!output/system.qcow2
+!output/vmlinuz
+!output/initrd
+!output/image.json
+!output/SHA256SUMS

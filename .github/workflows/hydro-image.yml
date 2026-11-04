@@ -39,13 +39,28 @@ jobs:
           os.close(vm);os.close(fd)
           print('KVM_CREATE_VM passed')
           PY
-          curl --fail --location --retry 2 --max-time 60 --range 0-1048575 \
-            https://contest.hydro.org.cn/2026/ubuntu-24.04.5-icpc2026-amd64.iso --output /tmp/hydro-probe.part
-          stat -c '%s bytes downloaded' /tmp/hydro-probe.part
-          rm /tmp/hydro-probe.part
+      - name: Probe upstream download access
+        if: inputs.mode == 'probe'
+        run: |
+          curl -L -sS --max-time 10 -o /dev/null -w 'Full GET HTTP %{http_code} bytes %{size_download}\n' https://contest.hydro.org.cn/2026/ubuntu-24.04.5-icpc2026-amd64.iso || true
+          curl -IL -sS --max-time 10 https://contest.hydro.org.cn/2026/ubuntu-24.04.5-icpc2026-amd64.iso || true
+      - name: Prepare hosted disk space
+        if: inputs.mode == 'build'
+        run: bash ci/hydro/free-runner-space.sh
+      - name: Import clean ISO once
+        if: inputs.mode == 'build'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/hydro-source"
+          gh release download hydro-ci-bootstrap-2026 --pattern 'hydro.iso.part-*' --pattern 'iso.json' --dir "$RUNNER_TEMP/hydro-source"
+          digest=$(python3 ci/hydro/import-iso.py "$RUNNER_TEMP/hydro-source")
+          test "$digest" = 150812711cef3a58e1da89d40748bdf7692a3ea8cc76c5e94a9f122d1a995931
+          echo "HYDRO_ISO_SHA256=$digest" >> "$GITHUB_ENV"
+          echo "HYDRO_ISO=$RUNNER_TEMP/hydro-source/hydro.iso" >> "$GITHUB_ENV"
       - name: Build installed Hydro image
         if: inputs.mode == 'build'
-        run: sudo bash ci/hydro/build-image.sh
+        run: sudo --preserve-env=HYDRO_ISO,HYDRO_ISO_SHA256,RUNNER_TEMP bash ci/hydro/build-image.sh
       - name: Sign in to GHCR
         if: inputs.mode == 'build'
         env:
@@ -56,6 +71,7 @@ jobs:
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY,,}-hydro:2026-r1"
           docker build -t "$image" ci/hydro
+          bash ci/hydro/test-image.sh "$image" smoke
           docker push "$image"
           docker image inspect "$image" --format '{{json .RepoDigests}}' >> "$GITHUB_STEP_SUMMARY"
       - name: Retain image build evidence
@@ -63,5 +79,8 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: hydro-image-evidence
-          path: ci/hydro/output/*.json
+          path: |
+            ci/hydro/output/*.json
+            ci/hydro/output/packages.txt
+            results/hydro-hosted/
           if-no-files-found: ignore
