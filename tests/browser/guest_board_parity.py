@@ -87,7 +87,7 @@ def selected_rows(driver):
 
 def wait_local(h, description='local board'):
     return h.wait(lambda:h.driver.execute_script('''const root=document.querySelector('.qoj-board');
-      return !!root?.querySelector('.srk-main') && root.querySelectorAll('.srk-main tbody tr').length>1 &&
+      return window.qojVpUi?.getState().connected && !!root?.querySelector('.srk-main') && root.querySelectorAll('.srk-main tbody tr').length>1 &&
         root.querySelector('.srk-ranklist-title')?.textContent.includes('QOJ 前置测试');'''),description)
 
 
@@ -101,6 +101,8 @@ def metrics(driver):
       return {url:location.href,viewport:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},root:rect(root),rootStyle:style(root),title:rect(root?.querySelector('.srk-ranklist-title')),
         titleStyle:style(root?.querySelector('.srk-ranklist-title')),header:rect(header),firstRow:rect(first),headerCells:header?[...header.cells].map(rect):[],
         firstCells:first?[...first.cells].map(rect):[],tableStyle:style(table),rows:table?.tBodies[0]?.rows.length||0,
+        problemHeaderAlign:[...root.querySelectorAll('thead .srk-problem-header')].map(e=>getComputedStyle(e).textAlign),
+        speedWidth:document.querySelector('.qoj-speed-select')?.getBoundingClientRect().width||null,
         richRows:root?.querySelectorAll('tbody tr[data-rich-row="true"]').length||0,
         retainedNames:root?.querySelectorAll('.srk-main tbody .srk-user-name-text').length||0,
         windowed:root?.querySelector('.ranklist-window')?.dataset.windowed||null,scrollY,
@@ -131,6 +133,8 @@ def seek(driver, minutes):
         return driver.execute_script('''const input=document.querySelector('.qoj-board input[aria-label="Time Travel"]');
           const region=document.querySelector('.qoj-board .srk-ranklist-table-scroll');
           return input?.value===String(arguments[0]) && region?.getAttribute('aria-busy')==='false' &&
+            window.qojVpUi?.getState().connected && region.querySelectorAll('tbody tr').length>1 &&
+            document.querySelector('.qoj-board .srk-ranklist-title')?.textContent.includes('QOJ 前置测试') &&
             document.querySelector('.qoj-board .srk-progress-secondary-area-left')?.textContent.includes(arguments[1]);''',minutes,f'{minutes//60:02d}:{minutes%60:02d}:00')
     deadline=time.monotonic()+20
     while time.monotonic()<deadline:
@@ -249,6 +253,8 @@ def main():
             seek(h.driver,120);local=capture(h.driver,h.results,'local-main-light')
             require(ref['viewport']==local['viewport'],'Viewport differs')
             require(ref['rows']==local['rows']==len(archive['rows'])+1,'SRK row count differs')
+            require(local['problemHeaderAlign']==ref['problemHeaderAlign']==['center']*len(archive['problems']), 'Host CSS changed problem header alignment')
+            require(0<local['speedWidth']<100, 'Playback speed inherited the organization filter width')
             require(local['firstRow']['y']+1>=max(cell['bottom'] for cell in local['headerCells']),'Header cells overlap first row')
             atomic_json(h.results/'main-comparison.json',{'reference':ref,'local':local,'pixelEquality':'assessed separately; not assumed'})
             return {'reference':ref['titleStyle'],'local':local['titleStyle'],'rows':local['rows'],'richRows':local['richRows']}

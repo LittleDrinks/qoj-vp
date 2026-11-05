@@ -24,7 +24,13 @@
 
 助手只在需要时运行，不用手动开启后台服务。关闭页面后，比赛记录和已准备的文件仍保留。
 
-开发时可运行 `npm run preview:board`，打开 `http://localhost:8765` 交互预览榜单。使用已收录的南京站历史数据，可切换赛前、赛中和赛后；预览不连接 QOJ，也不创建真实比赛。正式工作台仍需 Hydro Firefox 和本地助手。
+## 开发与验证
+
+产品入口是 Firefox 扩展 `src/firefox/ui.html`：DOMjudge 工作台通过 `ui.js` 将当前比赛交给 `board/`，在 **Scoreboard** 页面展示 RankLand 风格的榜单。比赛状态和本队提交由 `src/qojvp/` 管理；榜单只读取这些数据。
+
+安装 Node 和 Python 依赖后，在已激活的 Python 环境运行 `npm run check`，执行构建、扩展检查及单元测试。浏览器验证使用 `infra/hydro/test-image.sh <image> full`；预安装镜像固定在 `infra/hydro/image.json`，完整命令见 `.github/workflows/hydro-ci.yml`。
+
+界面验收从工作台的 **Scoreboard** 导航进入，核对同数据、同进度的实际显示和交互。浏览器证据统一放在忽略的 `results/`，一次性诊断放 `/tmp`。
 
 ## 许可证
 

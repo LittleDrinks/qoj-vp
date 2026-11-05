@@ -14,7 +14,6 @@ import {
 import {ProblemDetails} from './details.jsx';
 import {VirtualRanklist} from './virtual-ranklist.jsx';
 import {
-  DEFAULT_SETTINGS,
   LANGUAGES,
   OWN_TEAM_ID,
   SPEEDS,
@@ -248,7 +247,7 @@ function Board({snapshot, options}) {
   const prepared = session.startAt === null || session.startAt === undefined;
   const elapsedMs = clock.elapsedMs, liveMs = clock.liveMs;
   const replay = canReplay(session, liveMs);
-  const externalUrl = options.externalUrlFor?.({elapsedMs}) || options.externalUrl;
+  const externalUrl = options.externalUrl?.({elapsedMs});
 
   const requestProjection = React.useCallback((target, eventKey = 'manual') => {
     if (!optionsRef.current.onProject || prepared) return Promise.resolve(null);
@@ -332,7 +331,7 @@ function Board({snapshot, options}) {
   const togglePlayback = () => {
     if (!replay) return;
     const now = Date.now(), currentLive = liveElapsed(session, now), currentElapsed = clockRef.current.elapsedMs;
-    const next = playbackForToggle(playbackRef.current, currentElapsed, durationMs, now, durationMs);
+    const next = playbackForToggle(playbackRef.current, currentElapsed, durationMs, now);
     setPlayback(next); setClock({liveMs: currentLive, elapsedMs: next.elapsedMs});
     if (next.custom) requestProjection(next.elapsedMs);
   };

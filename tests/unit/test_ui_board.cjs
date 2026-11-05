@@ -8,15 +8,6 @@ const test = require("node:test");
 const source = fs.readFileSync(path.join(__dirname, "../../src/firefox/ui.js"), "utf8");
 const sessionId = "ffe1f51d-bcc8-44ee-8bff-c97de7fd8bd8";
 const ranklandUrl = `https://vp.xcpc.link/?contest=icpc2022xi_an&rule=ICPC&run=${sessionId}&from=0&at=2026-10-31T17%3A03%3A02.045Z`;
-const identity = raw => {
-  const url = new URL(raw), query = url.searchParams;
-  return JSON.stringify([url.origin, query.get("contest"), query.get("run"), query.get("rule") || "auto",
-    Number(query.get("count") ?? 50), Number(query.get("ratio") ?? 20), query.get("at") || "null", Number(query.get("from") || 0)]);
-};
-const snapshot = overrides => ({version: 1, sessionId, url: ranklandUrl, identity: identity(ranklandUrl),
-  targetKey: "RanklandVP2:exact-current-run", ownName: "LittleDrinks", rank: 465,
-  ranks: [{label: "#", value: 465}, {label: "R#", value: 510}], score: 1, penaltyMinutes: 77,
-  elapsedMs: 18000000, running: false, observedAt: 1793493600000, ...overrides});
 
 class Element {
   constructor(tag) {
@@ -29,7 +20,6 @@ class Element {
   get firstChild() { return this.children[0]; }
 }
 const walk = element => typeof element === "string" ? [] : [element, ...element.children.flatMap(walk)];
-const text = element => typeof element === "string" ? element : element.textContent + element.children.map(text).join("");
 const byClass = (target, name) => walk(target).filter(element => element.className.split(/\s+/).includes(name));
 
 function environment() {
@@ -37,9 +27,8 @@ function environment() {
   const state = {session: {sessionId, contestId: "1051", account: "LittleDrinks", ranklandUrl, durationMs: 18000000, startAt:0, elapsedMs:18000000},
     contest: {account: "LittleDrinks", problems: [{id: "5115", label: "C", name: "Clone Ranran"}]},
     submissions: [{id: "3331061", problemId: "5115", state: "confirmed", elapsedMs: 4674955, pending: false, verdict: "CORRECT", inSession:true, timeSource:"provider-absolute"}],
-    generation: 1, ranklandSnapshot: null, ranklandSnapshotState: "unavailable", ranklandSnapshotMessage: "",
-    ranklandRequestSequence: 0, ranklandRequest: null};
-  let handler = async () => ({state: "live", url: ranklandUrl, snapshot: snapshot()});
+    generation: 1};
+  let handler = async () => {throw new Error('Unexpected background call');};
   const context = {URL, Date, state, location:{hash:"#home"},VpBoardView:{render(){}}, document: {createElement: tag => new Element(tag)}, $: () => target,
     current: (expected, generation) => state.session?.sessionId === expected && state.generation === generation,
     formatDate: value => new Date(value).toISOString(),

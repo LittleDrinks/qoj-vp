@@ -18,10 +18,12 @@ test('view playback is independent of the immutable contest clock and survives a
  const session={startAt:1000000,durationMs:300000,state:'finished',finishedAt:1060000},before=JSON.stringify(session);
  const initial=view.initialPlayback(session,null,1000000);
  assert.equal(initial.custom,false);assert.equal(initial.elapsedMs,0);
- const paused=view.playbackForToggle(initial,0,60000,1060000,300000);
+ const replay=view.playbackForToggle(initial,60000,300000,1060000);
+ assert.equal(replay.elapsedMs,0);assert.equal(replay.playing,true);
+ const paused=view.playbackForToggle(replay,60000,300000,1120000);
  assert.equal(paused.custom,true);assert.equal(paused.playing,false);
  assert.equal(view.advancePlayback(paused,90000,1120000,300000).elapsedMs,60000);
- const playing=view.playbackForToggle(paused,60000,90000,1120000,300000);
+ const playing=view.playbackForToggle(paused,60000,300000,1120000);
  assert.equal(view.advancePlayback({...playing,speed:5},90000,1122000,300000).elapsedMs,70000);
  const sought=view.playbackForSeek(playing,120000,300000,1122000);
  assert.equal(sought.playing,false);assert.equal(sought.elapsedMs,120000);

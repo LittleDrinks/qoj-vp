@@ -31,7 +31,7 @@ function environment({first=snapshot(), second=snapshot(other), snapshotWait}={}
     if(method==="session_snapshot") {if(snapshotWait)await snapshotWait.promise;return structuredClone(snapshots.get(args.sessionId));}
     const key=method+":"+args.sessionId; if(!pending.has(key))pending.set(key,deferred());return pending.get(key).promise;
   },
-  renderBoard:()=>{},resetRanklandSnapshot:()=>{},refreshBoard:()=>{},resetScoreboardSource:()=>{},resolveScoreboardSource:()=>{},renderScoreboardSource:()=>{},loadResourceManifest:()=>{},renderResourceModal:()=>{},renderNavigation:()=>{},renderSession:()=>{},renderClock:()=>{},
+  renderBoard:()=>{},resetBoard:()=>{},refreshBoard:()=>{},resetScoreboardSource:()=>{},resolveScoreboardSource:()=>{},renderScoreboardSource:()=>{},loadResourceManifest:()=>{},renderResourceModal:()=>{},renderNavigation:()=>{},renderSession:()=>{},renderClock:()=>{},
   renderSummary:()=>observed.push({contest:state.contest,submissions:state.submissions.slice()}),message:e=>e.message,fail:e=>{throw e;},
   showMessage:(target,text)=>{target.textContent=text;target.hidden=false;},hideMessage:target=>{target.textContent="";target.hidden=true;},
   safeQojUrl:(url,fallback)=>url||fallback,problemUrl:p=>"https://qoj.ac/problem/"+p.id,readyResources:()=>[],updateResourceBusyControls:()=>{},cardSubmit:()=>new Element("a"),

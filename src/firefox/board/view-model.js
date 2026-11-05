@@ -7,7 +7,6 @@ import {
   resolveUserMarkers,
 } from '@algoux/standard-ranklist-utils';
 import {
-  DEFAULT_STYLED_RANKLIST_SETTINGS,
   normalizeStyledRanklistSettings,
 } from '../../../vendor/rankland-web/src/client/components/ranklist/styled-ranklist-settings.ts';
 import {canReplay} from './clock.js';
@@ -23,12 +22,6 @@ export {
 export const LANGUAGES = ['zh-CN', 'en'];
 export const OWN_TEAM_ID = '__qoj_vp_local_team__';
 export const SPEEDS = [1, 2, 5, 10, 30, 60];
-
-export const DEFAULT_SETTINGS = Object.freeze({
-  ...DEFAULT_STYLED_RANKLIST_SETTINGS,
-  theme: 'system',
-  feed: true,
-});
 
 export function normalizeSettings(value) {
   return {
@@ -84,11 +77,8 @@ export function playbackForSeek(playback, elapsedMs, durationMs, now = Date.now(
   return {...playback, custom: true, elapsedMs: elapsed, playing: false, anchorAt: now, anchorElapsedMs: elapsed};
 }
 
-export function playbackForToggle(playback, elapsedMs, liveMs, now, durationMs) {
-  if (!playback.custom && liveMs < durationMs) {
-    return {...playback, custom: true, elapsedMs: liveMs, playing: false, anchorAt: now, anchorElapsedMs: liveMs};
-  }
-  if (!playback.custom && liveMs >= durationMs) {
+export function playbackForToggle(playback, elapsedMs, durationMs, now = Date.now()) {
+  if (!playback.custom) {
     return {custom: true, elapsedMs: 0, playing: true, speed: playback.speed, anchorAt: now, anchorElapsedMs: 0};
   }
   if (playback.playing) return {...playback, elapsedMs, playing: false, anchorAt: now, anchorElapsedMs: elapsedMs};
