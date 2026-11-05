@@ -106,6 +106,8 @@ def main():
             h.wait(lambda:h.driver.find_element(By.ID,'rankland-settings').is_displayed(),'Jury settings')
             h.driver.find_element(By.ID,'rankland-settings').click()
             h.wait(lambda:h.driver.find_element(By.ID,'board-rule').is_displayed(),'board settings modal')
+            # Bootstrap activates modal focus after the opening transition completes.
+            h.wait(lambda:h.driver.execute_script("return document.activeElement?.id==='rankland-modal';"),'modal ready for interaction')
             for rule in ('ICPC','auto','CCPC26','ICPC'):
                 Select(h.driver.find_element(By.ID,'board-rule')).select_by_value(rule)
                 visible=h.driver.find_element(By.ID,'board-count').is_displayed()
@@ -120,6 +122,8 @@ def main():
             h.wait(lambda:h.driver.find_element(By.ID,'rankland-settings').is_displayed(),'Jury after reload')
             h.driver.find_element(By.ID,'rankland-settings').click()
             h.wait(lambda:h.driver.find_element(By.ID,'board-rule').is_displayed(),'saved board settings')
+            # Bootstrap activates modal focus after the opening transition completes.
+            h.wait(lambda:h.driver.execute_script("return document.activeElement?.id==='rankland-modal';"),'modal ready for interaction')
             require(Select(h.driver.find_element(By.ID,'board-rule')).first_selected_option.get_attribute('value')=='ICPC','Saved rule did not survive reload')
             query=parse_qs(urlparse(h.driver.find_element(By.ID,'rankland-url').get_attribute('value')).query)
             require(query.get('rule')==['ICPC'] and 'count' not in query and 'ratio' not in query,'Saved URL differs from saved rule')
