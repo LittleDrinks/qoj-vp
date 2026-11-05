@@ -93,10 +93,12 @@ def release_notes(version, signed):
 **[下载]({base}/qoj-vp_{version}_amd64.deb)** · Hydro Contest OS 2026
 
 ```sh
-sudo apt install ./qoj-vp_{version}_amd64.deb
+curl -fL {base}/qoj-vp_{version}_amd64.deb -o /tmp/qoj-vp.deb &&
+sudo apt install -y /tmp/qoj-vp.deb &&
+qoj-vp
 ```
 
-安装后从应用菜单打开 **QOJ Workbench**，在 Firefox 确认添加扩展。升级安装新版即可，比赛记录保留。
+在 Firefox 确认添加扩展。之后从应用菜单打开 **QOJ Workbench**；升级执行新版命令即可，比赛记录保留。
 '''
 
 

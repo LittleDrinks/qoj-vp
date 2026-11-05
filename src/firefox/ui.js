@@ -1570,6 +1570,23 @@
     $("board-rule-hint").textContent=rule==="auto" ? (known ? "当前采用 "+actual+"，揭题条件来自历史榜单。" : "自动使用历史榜单提供的赛制和揭题条件。") :
       rule==="ICPC" ? "题号始终显示，不使用揭题条件。" : "达到队数或比例任一条件后揭示题号。";
   }
+  function updateRanklandDraftUrl() {
+    const raw=$("rankland-url").value.trim(), rule=$("board-rule").value;
+    if(!raw || !["auto","ICPC","CCPC26"].includes(rule)) return;
+    let url;
+    try {url=new URL(raw);} catch (_) {return;}
+    if(rule==="CCPC26") {
+      const count=$("board-count").value, ratio=$("board-ratio").value;
+      if(count==="" || ratio==="" || !Number.isInteger(Number(count)) || Number(count)<0 || Number(count)>100000 ||
+          !Number.isFinite(Number(ratio)) || Number(ratio)<0 || Number(ratio)>100) return;
+      url.searchParams.set("count",String(Number(count)));
+      url.searchParams.set("ratio",String(Number(ratio)));
+    } else {
+      url.searchParams.delete("count");url.searchParams.delete("ratio");
+    }
+    if(rule==="auto") url.searchParams.delete("rule");else url.searchParams.set("rule",rule);
+    $("rankland-url").value=url.href;
+  }
   async function refreshSyncStatus() {
     if (!state.session || !isJuryRoute()) return;
     const sessionId=state.session.sessionId, generation=state.generation;
@@ -1679,7 +1696,10 @@
       if ($("nav-scoreboard").getAttribute("aria-disabled") !== "true") openScoreboard();
     });
     $("rankland-settings").addEventListener("click", openRanklandSettings);
-    $("board-rule").addEventListener("change", renderBoardRuleSettings);
+    $("board-rule").addEventListener("change", () => {renderBoardRuleSettings();updateRanklandDraftUrl();});
+    $("board-count").addEventListener("input", updateRanklandDraftUrl);
+    $("board-ratio").addEventListener("input", updateRanklandDraftUrl);
+    $("rankland-url").addEventListener("change", updateRanklandDraftUrl);
     $("stop-rankland-sync").addEventListener("click", async () => {
       if(!state.session) return;
       const sessionId=state.session.sessionId,generation=state.generation;
@@ -1694,6 +1714,7 @@
       event.preventDefault(); const control = event.submitter; control.disabled = true;
       const sessionId = state.session.sessionId, generation = state.generation;
       try {
+        updateRanklandDraftUrl();
         const updated = await call("update_session", {sessionId, ranklandUrl: $("rankland-url").value.trim(),
           board:$("board-rule").value==="CCPC26" ?
             {rule:"CCPC26",revealCount:Number($("board-count").value),revealRatio:Number($("board-ratio").value)} :

@@ -345,3 +345,34 @@ test("a canonical timestamp-based export reply is adopted and its automatic stat
  assert.match(p.$("rankland-status").textContent,/automatic delivery confirmed/);
  assert.equal(p.$("stop-rankland-sync").hidden,false);
 });
+
+test("changing the rule updates the draft RankLand URL without saving the session",async()=>{
+ const snapshot=fixture();
+ snapshot.session.ranklandUrl="https://vp.xcpc.link/?contest=ccpc2024hv&rule=ICPC&at=2026-11-01T00%3A00%3A00Z&play=0&team=My+team";
+ snapshot.session.board={rule:"ICPC",revealCount:50,revealRatio:20};
+ const p=page(stores(),{snapshot,hash:"#jury"});await ticks();
+ p.$("rankland-settings").listeners.click();
+ p.$("board-rule").value="CCPC26";p.$("board-rule").listeners.change();
+ let q=new URL(p.$("rankland-url").value).searchParams;
+ assert.equal(q.get("rule"),"CCPC26");assert.equal(q.get("count"),"50");assert.equal(q.get("ratio"),"20");
+ assert.equal(q.get("contest"),"ccpc2024hv");assert.equal(q.get("play"),"0");assert.equal(q.get("team"),"My team");
+ assert.equal(q.get("at"),"2026-11-01T00:00:00Z");
+ p.$("board-count").value="10";p.$("board-count").listeners.input();
+ p.$("board-ratio").value="25";p.$("board-ratio").listeners.input();
+ q=new URL(p.$("rankland-url").value).searchParams;
+ assert.equal(q.get("count"),"10");assert.equal(q.get("ratio"),"25");
+ p.$("board-rule").value="ICPC";p.$("board-rule").listeners.change();
+ q=new URL(p.$("rankland-url").value).searchParams;
+ assert.equal(q.get("rule"),"ICPC");assert.equal(q.has("count"),false);assert.equal(q.has("ratio"),false);
+ p.$("board-rule").value="auto";p.$("board-rule").listeners.change();
+ q=new URL(p.$("rankland-url").value).searchParams;
+ assert.equal(q.has("rule"),false);assert.equal(q.has("count"),false);assert.equal(q.has("ratio"),false);
+ assert.equal(p.calls.some(c=>c.method==="update_session"),false,"editing is a draft until Save");
+ p.$("rankland-settings").listeners.click();
+ assert.equal(p.$("board-rule").value,"ICPC");
+ assert.equal(p.$("rankland-url").value,snapshot.session.ranklandUrl,"reopening discards unsaved edits");
+ for(const raw of ["","https://"]) {
+   p.$("rankland-url").value=raw;p.$("board-rule").value="CCPC26";p.$("board-rule").listeners.change();
+   assert.equal(p.$("rankland-url").value,raw);
+ }
+});

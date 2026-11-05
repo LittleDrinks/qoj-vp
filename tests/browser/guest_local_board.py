@@ -101,6 +101,7 @@ def main():
         def rule_controls():
             from selenium.webdriver.common.by import By
             from selenium.webdriver.support.ui import Select
+            from urllib.parse import urlparse, parse_qs
             h.driver.execute_script("location.hash='#jury/contest/'+arguments[0];",sid)
             h.wait(lambda:h.driver.find_element(By.ID,'rankland-settings').is_displayed(),'Jury settings')
             h.driver.find_element(By.ID,'rankland-settings').click()
@@ -110,9 +111,21 @@ def main():
                 visible=h.driver.find_element(By.ID,'board-count').is_displayed()
                 enabled=h.driver.find_element(By.ID,'board-count').is_enabled()
                 require(visible==(rule=='CCPC26') and enabled==(rule=='CCPC26'),'Reveal settings leaked into '+rule)
-            h.driver.find_element(By.CSS_SELECTOR,'#rankland-modal [data-bs-dismiss="modal"]').click()
+                query=parse_qs(urlparse(h.driver.find_element(By.ID,'rankland-url').get_attribute('value')).query)
+                require(query.get('rule',['auto'])==[rule],'Draft URL did not follow rule '+rule)
+                require(('count' in query)==(rule=='CCPC26') and ('ratio' in query)==(rule=='CCPC26'),'Draft URL retained stale reveal parameters')
+            h.driver.find_element(By.CSS_SELECTOR,'#rankland-form button[type="submit"]').click()
             h.wait(lambda:not h.driver.find_element(By.ID,'rankland-modal').is_displayed(),'settings close')
-            return {'rules':['ICPC','auto','CCPC26'],'conditionalRevealControls':True}
+            h.driver.refresh()
+            h.wait(lambda:h.driver.find_element(By.ID,'rankland-settings').is_displayed(),'Jury after reload')
+            h.driver.find_element(By.ID,'rankland-settings').click()
+            h.wait(lambda:h.driver.find_element(By.ID,'board-rule').is_displayed(),'saved board settings')
+            require(Select(h.driver.find_element(By.ID,'board-rule')).first_selected_option.get_attribute('value')=='ICPC','Saved rule did not survive reload')
+            query=parse_qs(urlparse(h.driver.find_element(By.ID,'rankland-url').get_attribute('value')).query)
+            require(query.get('rule')==['ICPC'] and 'count' not in query and 'ratio' not in query,'Saved URL differs from saved rule')
+            h.driver.find_element(By.CSS_SELECTOR,'#rankland-modal [data-bs-dismiss="modal"]').click()
+            h.wait(lambda:not h.driver.find_element(By.ID,'rankland-modal').is_displayed(),'settings close after reload')
+            return {'rules':['ICPC','auto','CCPC26'],'conditionalRevealControls':True,'draftUrlFollowsRule':True,'savedUrlSurvivesReload':True}
         h.step('rule_specific_settings_in_real_firefox',rule_controls)
 
         def rejudge():
