@@ -9,7 +9,7 @@ globalThis.VpQojLifecycle = (() => {
       return url.origin === "https://qoj.ac" && match ? {cid:match[1], register:Boolean(match[2])} : null;
     } catch (_) { return null; }
   }
-  function create({native, openSession, storage = browser.storage.local, tabs = browser.tabs, clock = Date.now}) {
+  function create({native, openSession, onStarted = async () => {}, storage = browser.storage.local, tabs = browser.tabs, clock = Date.now}) {
     const preparing = new Map(), checking = new Map(), confirmedStarts = new Set();
     function source(message, sender, register = false) {
       const found = page(sender?.url);
@@ -70,6 +70,7 @@ globalThis.VpQojLifecycle = (() => {
           session.qojVirtual.startAt !== session.startAt) return {state:"waiting", sessionId:session.sessionId};
       confirmedStarts.add(session.sessionId);
       await refreshSessions();
+      await onStarted(session);
       await openSession(session, {prepare:false, active:true});
       await storage.remove(key);
       await storage.remove(RULES_PREFIX + intent.tabId);

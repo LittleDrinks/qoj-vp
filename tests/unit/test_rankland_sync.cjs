@@ -2,7 +2,7 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm');
 function harness(cache = {}) {
-  const calls = [], events = {}, session = {sessionId:'practice', account:'me', startAt:1,
+  const calls = [], events = {}, session = {sessionId:'practice', contestId:'7', account:'me', startAt:1,
     durationMs:1000, state:'running', ranklandUrl:'https://vp.xcpc.link/?contest=test&run=practice&from=0'};
   const listen = {addListener() {}};
   const env = {calls, cache, session, events, failRefresh:false, tabOpen:true, inspectWait:null,
@@ -10,6 +10,12 @@ function harness(cache = {}) {
   const context = {URL, Map, Set, Promise, Date, setTimeout, clearTimeout, crypto:require('node:crypto').webcrypto,
     VpTransport:{pause:async()=>{}}, VpRanklandTransfer:{sync:async args=>{calls.push(['transfer',args]);if(env.transferError)throw env.transferError;return {synced:0};}},
     __native:async (method,args)=>{ calls.push([method,args]); switch(method) {
+      case 'qoj_bind_virtual':session.qojVirtual={mode:'qoj-native',origin:'https://qoj.ac',contestId:'7',account:'me',startAt:session.startAt};return {session:{...session}};
+      case 'qoj_confirm_virtual_start':return {session:{...session,qojVirtual:{mode:'qoj-native',origin:'https://qoj.ac',contestId:'7',account:'me',startAt:session.startAt}},virtual:{state:env.startUnconfirmed?'unknown':'running'}};
+      case 'hello':return {fixture:!env.resolveResult};
+      case 'session_snapshot':return {session:{...session},contest:{id:'7',name:'Fixture contest',scoreboardUrl:'https://qoj.ac/contest/7/standings',problems:[]}};
+      case 'update_session':session.ranklandUrl=args.ranklandUrl;return {...session};
+      case 'list_sessions':return {sessions:[{...session}]};
       case 'inspect_session':if(env.inspectWait)return env.inspectWait;return {...session};
       case 'prepare_rankland':return {...session};
       case 'qoj_submissions': if(env.failRefresh) throw Error('offline');return env.refreshResult;
@@ -21,22 +27,23 @@ function harness(cache = {}) {
     }},
     browser:{runtime:{id:'test',getURL:p=>'moz-extension://test/'+p,onMessage:listen,onInstalled:listen},
       action:{onClicked:listen}, alarms:{create(){},onAlarm:{addListener:f=>{events.alarm=f;}}},
-      tabs:{query:async()=>env.tabOpen?[{id:7,url:session.ranklandUrl}]:[],get:async()=>({id:7,url:session.ranklandUrl}),
+      tabs:{query:async()=>env.tabOpen?[{id:7,url:session.ranklandUrl}]:[],get:async id=>id===17?{id,url:'https://qoj.ac/contest/7/virtual/register'}:({id:7,url:session.ranklandUrl}),
         sendMessage:async()=>({ready:true}), update:async()=>{},create:async args=>{
           calls.push(['tab.create',args]);env.tabOpen=true;return {id:7,url:session.ranklandUrl};}},
       scripting:{executeScript:async()=>[{result:null}]},
-      storage:{local:{get:async k=>k===null?{...cache}:({[k]:cache[k]}),set:async v=>Object.assign(cache,v)}}}};
+      storage:{local:{get:async k=>k===null?{...cache}:({[k]:cache[k]}),set:async v=>Object.assign(cache,v),remove:async k=>{delete cache[k];}}}}};
   vm.createContext(context);
  for (const file of ['board/generated/engine.js','board/cache.js','board/service.js'])
   vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
- if (!context.VpScoreboardSources) context.VpScoreboardSources={};
+ if (!context.VpScoreboardSources) context.VpScoreboardSources={resolve:async()=>env.resolveResult};
   vm.runInContext(fs.readFileSync('src/firefox/rankland-protocol.js','utf8'),context);
   vm.runInContext(fs.readFileSync('src/firefox/qoj-lifecycle.js','utf8'),context);
   vm.runInContext(fs.readFileSync('src/firefox/background.js','utf8').replace(/\}\)\(\);\s*$/,
-    'native=globalThis.__native;globalThis.dispatch=dispatch;})();'),context);
+    'native=globalThis.__native;globalThis.dispatch=dispatch;globalThis.lifecycle=qojLifecycle;})();'),context);
   env.sync=()=>context.dispatch('rankland.sync',{sessionId:session.sessionId});
   env.stop=()=>context.dispatch('rankland.stop',{sessionId:session.sessionId});
   env.dispatch=context.dispatch;
+  env.start=()=>context.lifecycle.startIntent({cid:'7'},{id:'test',frameId:0,url:'https://qoj.ac/contest/7/virtual/register',tab:{id:17}});
   env.readCached=()=>context.dispatch('qoj_submissions',{sessionId:session.sessionId,refresh:false});
   return env;
 }
@@ -133,4 +140,37 @@ test('ownership conflicts require an explicit retry rather than overwriting manu
   await h.events.alarm({name:'vp-refresh'});
   assert.equal(h.calls.filter(c=>c[0]==='transfer').length,1);
   await h.sync();assert.equal(h.calls.filter(c=>c[0]==='transfer').length,2);
+});
+
+const settleBackground=async()=>{for(let i=0;i<8;i++)await new Promise(setImmediate);};
+test('verified QOJ Start binds and syncs its board without a separate sync click',async()=>{
+ const h=harness();const result=await h.start();await settleBackground();
+ assert.equal(result.state,'started');
+ assert.equal(h.cache['rankland-auto-sync:'+h.session.sessionId],true);
+ const transfers=h.calls.filter(c=>c[0]==='transfer');assert.equal(transfers.length,1);
+ assert.equal(transfers[0][1].session.startAt,h.session.startAt);
+ assert.equal(transfers[0][1].session.account,'me');
+});
+test('unconfirmed Start never enables exports; a stopped export stays stopped on repeated start observation',async()=>{
+ const h=harness();h.startUnconfirmed=true;
+ assert.equal((await h.start()).state,'waiting');await settleBackground();
+ assert.equal(h.calls.some(c=>c[0]==='transfer'),false);
+ assert.notEqual(h.cache['rankland-auto-sync:'+h.session.sessionId],true);
+ h.startUnconfirmed=false;await h.start();await settleBackground();await h.stop();h.calls.length=0;
+ await h.start();await settleBackground();
+ assert.equal(h.cache['rankland-auto-sync:'+h.session.sessionId],false);
+ assert.equal(h.calls.some(c=>c[0]==='transfer'),false);
+});
+
+test('native Start matches an unconfigured historical board before exporting and leaves unmatched contests local',async()=>{
+ const matched=harness();const target=matched.session.ranklandUrl;matched.session.ranklandUrl=null;
+ matched.resolveResult={source:'rankland',state:'matched',ranklandUrl:target};
+ await matched.start();await settleBackground();
+ assert.equal(matched.session.ranklandUrl,target);
+ assert.equal(matched.calls.filter(c=>c[0]==='transfer').length,1);
+ const unmatched=harness();unmatched.session.ranklandUrl=null;
+ await unmatched.start();await settleBackground();
+ assert.equal(unmatched.session.ranklandUrl,null);
+ assert.equal(unmatched.calls.filter(c=>c[0]==='transfer').length,0);
+ assert.equal(unmatched.calls.filter(c=>c[0]==='tab.create' && c[1].url.startsWith('https://vp.xcpc.link')).length,0);
 });

@@ -163,7 +163,14 @@
     }
     return tab ? browser.tabs.update(tab.id, {url:url.href, active}) : browser.tabs.create({url:url.href, active});
   }
-  const qojLifecycle = VpQojLifecycle.create({native:(...args) => native(...args), openSession:openBoundSession});
+  const qojLifecycle = VpQojLifecycle.create({native:(...args) => native(...args), openSession:openBoundSession,
+    onStarted:async session => {
+      const key="rankland-auto-sync:"+session.sessionId;
+      // A repeated start observation must respect a later explicit Stop.
+      if((await browser.storage.local.get(key))[key]===false) return;
+      await browser.storage.local.set({[key]:true});
+      autoSync(session.sessionId).catch(()=>{});
+    }});
   const resourcePreparationJobs = new Map();
   function resourceRequestCid(message, sender) {
     const cid = String(message?.cid || ""), url = new URL(sender.url || "about:blank");
@@ -435,6 +442,10 @@
     const retryKey="rankland-sync-retry:"+sessionId;
     const retry=(await browser.storage.local.get(retryKey))[retryKey];
     if(retry?.suspended || retry?.nextAt>Date.now()) return;
+    const session=await native("inspect_session",{sessionId});
+    if(!session.ranklandUrl && session.qojVirtual?.mode==="qoj-native" && session.state!=="archived") {
+      await scoreboardSource({sessionId});
+    }
     await exclusiveSync(sessionId);
   }
   async function continueExports() {
