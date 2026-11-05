@@ -321,3 +321,27 @@ test("a reply for the old contest cannot change the newly selected contest or it
   assert.equal(view.calls.filter(item=>item.method==="qoj_submissions").length,reads);
   assert.equal(view.$("sync-rankland").disabled,false);
 });
+
+test("Jury rule controls only require reveal settings for CCPC26",async()=>{
+ const p=page(stores(),{hash:"#jury"});await ticks();
+ for(const rule of ["ICPC","auto","CCPC26","ICPC"]) {
+   p.$("board-rule").value=rule;p.$("board-rule").listeners.change();
+   assert.equal(p.$("board-reveal-settings").hidden,rule!=="CCPC26");
+   assert.equal(p.$("board-reveal-settings").disabled,rule!=="CCPC26");
+ }
+});
+
+test("a canonical timestamp-based export reply is adopted and its automatic status is shown",async()=>{
+ const canonical="https://vp.xcpc.link/?contest=synthetic&at=2026-11-01T00%3A00%3A00Z&rule=ICPC";
+ const identity=require('../../src/firefox/rankland-protocol.js').identity(canonical);
+ // Use the actual page state restored from the same session, not a parallel mock identity.
+ const snapshot=fixture();snapshot.session.ranklandUrl=canonical;
+ const p=page(stores(),{snapshot,hash:"#jury",handler:async request=>{
+   if(request.method==="rankland.sync")return {ok:true,result:{enabled:true,url:canonical,identity,message:"automatic delivery confirmed"}};
+   if(request.method==="qoj_submissions")return {ok:true,result:snapshot.history};
+   if(request.method==="qoj_contest")return {ok:true,result:snapshot.contest};
+ }});
+ await ticks();await p.$("sync-scoreboard").listeners.click();await ticks();
+ assert.match(p.$("rankland-status").textContent,/automatic delivery confirmed/);
+ assert.equal(p.$("stop-rankland-sync").hidden,false);
+});

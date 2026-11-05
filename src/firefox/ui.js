@@ -35,7 +35,7 @@
     resourceManifestError: "", resourceSummary: "", resourceReadSequence: 0, resourceMutation: 0,
     ranklandSnapshot: null, ranklandSnapshotState: "unavailable", ranklandSnapshotMessage: "",
     ranklandRequestSequence: 0, ranklandRequest: null,
-    ranklandSyncRequest: null, ranklandSyncStatus: null,
+    ranklandSyncRequest: null, ranklandSyncStatus: null, ranklandAutoSync: false,
     scoreboardSource: null, scoreboardRequestSequence: 0, scoreboardRequest: null,
     juryRequest: null, adminBusy: false, manualProblem: null, manualSessionId: null, manualBusy: false, deleteSessionId: null,
   };
@@ -295,6 +295,8 @@
     $("sync-rankland").hidden = true;
     $("sync-rankland").disabled = disabled;
     $("sync-scoreboard").disabled = disabled;
+    $("stop-rankland-sync").hidden = !state.ranklandAutoSync;
+    $("stop-rankland-sync").disabled = Boolean(state.ranklandSyncRequest);
     const status = state.ranklandSyncStatus && state.ranklandSyncStatus.sessionId === state.session?.sessionId &&
       state.ranklandSyncStatus.identity === ranklandViewIdentity(state.session?.ranklandUrl) ? state.ranklandSyncStatus.text : "";
     $("rankland-sync-status").textContent = status;
@@ -307,6 +309,7 @@
     if ((!explicit || result.identity) && result.identity !== identity) return;
     const observedAt = Number.isSafeInteger(result.observedAt) && result.observedAt >= 0 ? result.observedAt : explicit ? Date.now() : null;
     if (observedAt === null) return;
+    if (typeof result.enabled === "boolean") state.ranklandAutoSync = result.enabled;
     const previous = state.ranklandSyncStatus;
     if (!explicit && previous?.sessionId === sessionId && previous.identity === identity && previous.observedAt > observedAt) return;
     const synced = Number.isSafeInteger(result.synced) && result.synced >= 0 ? result.synced : 0;
@@ -320,6 +323,12 @@
       const url = new URL(raw), query = url.searchParams;
       if (url.username || url.password || !query.get("contest") ||
           !(url.origin === "https://vp.xcpc.link" || url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname))) return null;
+      if (query.get("at")) {
+        const at = Date.parse(query.get("at"));
+        if (!Number.isFinite(at)) return null;
+        return JSON.stringify([url.origin, query.get("contest"), new Date(at).toISOString(),
+          query.get("rule") || "auto", Number(query.get("count") ?? 50), Number(query.get("ratio") ?? 20)]);
+      }
       return JSON.stringify([url.origin, query.get("contest"), query.get("run"), query.get("rule") || "auto",
         Number(query.get("count") ?? 50), Number(query.get("ratio") ?? 20), query.get("at") || "null", Number(query.get("from") || 0)]);
     } catch (_) { return null; }
@@ -333,7 +342,7 @@
       (snapshot.penaltyMinutes === null || metric(snapshot.penaltyMinutes)) && metric(snapshot.observedAt));
   }
   function resetRanklandSnapshot() {
-    state.board=null; state.boardRequest=null;
+    state.board=null; state.boardRequest=null; state.ranklandAutoSync=false;
     state.ranklandRequestSequence++;
     state.ranklandRequest = null;
     state.ranklandSnapshot = null;
@@ -343,15 +352,16 @@
   function adoptRanklandUrl(raw) {
     const previous = ranklandViewIdentity(state.session?.ranklandUrl), incoming = ranklandViewIdentity(raw);
     if (!state.session || !previous || !incoming) return false;
-    const url = new URL(raw);
-    if (url.searchParams.get("run") !== state.session.sessionId) return false;
+    const url = new URL(raw), old = new URL(state.session.ranklandUrl);
+    if (url.searchParams.get("run") && url.searchParams.get("run") !== state.session.sessionId) return false;
     const changed = previous !== incoming;
     if (changed) {
-      const configured = JSON.parse(previous), updated = JSON.parse(incoming);
-      if ([0, 1, 3, 4, 5].some(index => configured[index] !== updated[index]) ||
-          configured[2] && configured[2] !== state.session.sessionId ||
-          configured[6] !== "null" && configured[6] !== updated[6] ||
-          state.session.ranklandPrepared === true || configured[7] !== 0) return false;
+      if (old.origin!==url.origin || ["contest","rule","count","ratio"].some(key=>
+          (old.searchParams.get(key) || ({rule:"auto",count:"50",ratio:"20"}[key] || "")) !==
+          (url.searchParams.get(key) || ({rule:"auto",count:"50",ratio:"20"}[key] || ""))) ||
+          old.searchParams.has("at") || Number(old.searchParams.get("from") || 0)!==0 ||
+          state.session.ranklandPrepared===true ||
+          Date.parse(url.searchParams.get("at"))!==epoch(state.session.startAt)) return false;
     }
     state.session.ranklandUrl = raw;
     const stored = state.sessions?.find(session => session.sessionId === state.session.sessionId);
@@ -379,7 +389,8 @@
   function renderBoard() {
     const result=currentBoard(), target=$("board-table");
     if (!result) { VpBoardView.clear?.(target); $("board-status").textContent="题表尚未准备完成。"; return; }
-    $("board-status").textContent=(result.scope==="historical" ? "历史对手与本队 · 本地回放" : "本队成绩 · 尚无可回放的历史榜单")+
+    const actualRule=result.ranklist?.sorter?.config?.extendedAlgorithms?.some(item=>item.algorithm==="CCPC26") ? "CCPC26":"ICPC";
+    $("board-status").textContent=actualRule+" · "+(result.scope==="historical" ? "历史对手与本队 · 本地回放" : "本队成绩 · 尚无可回放的历史榜单")+
       (result.provisional ? " · 部分判定待确认" : "")+
       (result.warning ? " · 历史榜单暂不可用（"+result.warning+"）" : "");
     if (location.hash==="#scoreboard") VpBoardView.render(target,result);
@@ -1550,10 +1561,28 @@
     })();
     return request.promise;
   }
+  function renderBoardRuleSettings() {
+    const rule=$("board-rule").value, reveal=rule==="CCPC26";
+    $("board-reveal-settings").hidden=!reveal;
+    $("board-reveal-settings").disabled=!reveal;
+    const actual=state.board?.ranklist?.sorter?.config?.extendedAlgorithms?.some(item=>item.algorithm==="CCPC26") ? "CCPC26":"ICPC";
+    const known=rule==="auto" && VpBoardEngine.configuration(state.session).rule==="auto" && state.board?.scope==="historical";
+    $("board-rule-hint").textContent=rule==="auto" ? (known ? "当前采用 "+actual+"，揭题条件来自历史榜单。" : "自动使用历史榜单提供的赛制和揭题条件。") :
+      rule==="ICPC" ? "题号始终显示，不使用揭题条件。" : "达到队数或比例任一条件后揭示题号。";
+  }
+  async function refreshSyncStatus() {
+    if (!state.session || !isJuryRoute()) return;
+    const sessionId=state.session.sessionId, generation=state.generation;
+    try {
+      const result=await call("rankland.status",{sessionId});
+      if(current(sessionId,generation)) applyRanklandSyncStatus(result,true);
+    } catch (_) { /* Local sync status must never block the workbench. */ }
+  }
   function openRanklandSettings() {
     if (!state.session || !isJuryRoute()) return;
     const config=VpBoardEngine.configuration(state.session);
     $("board-rule").value=config.rule;$("board-count").value=config.revealCount;$("board-ratio").value=config.revealRatio;
+    renderBoardRuleSettings();
     $("rankland-url").value = state.session.ranklandUrl || ""; hideMessage($("rankland-error")); modals.rankland.show();
   }
   async function openScoreboard() {
@@ -1650,6 +1679,15 @@
       if ($("nav-scoreboard").getAttribute("aria-disabled") !== "true") openScoreboard();
     });
     $("rankland-settings").addEventListener("click", openRanklandSettings);
+    $("board-rule").addEventListener("change", renderBoardRuleSettings);
+    $("stop-rankland-sync").addEventListener("click", async () => {
+      if(!state.session) return;
+      const sessionId=state.session.sessionId,generation=state.generation;
+      try {
+        const result=await call("rankland.stop",{sessionId});
+        if(current(sessionId,generation)) applyRanklandSyncStatus(result,true);
+      } catch(error) {fail(error);}
+    });
     $("sync-scoreboard").addEventListener("click", syncScoreboard);
     $("sync-rankland").addEventListener("click", syncScoreboard);
     $("rankland-form").addEventListener("submit", async event => {
@@ -1657,7 +1695,9 @@
       const sessionId = state.session.sessionId, generation = state.generation;
       try {
         const updated = await call("update_session", {sessionId, ranklandUrl: $("rankland-url").value.trim(),
-          board:{rule:$("board-rule").value,revealCount:Number($("board-count").value),revealRatio:Number($("board-ratio").value)}});
+          board:$("board-rule").value==="CCPC26" ?
+            {rule:"CCPC26",revealCount:Number($("board-count").value),revealRatio:Number($("board-ratio").value)} :
+            {rule:$("board-rule").value}});
         if (!current(sessionId, generation)) return;
         state.session = preserveNativeStart(updated);
         resetRanklandSnapshot(); resetScoreboardSource();
@@ -1687,7 +1727,7 @@
       if (!document.hidden && state.session && !state.submitting && (sessionState() === "running" || state.submissions.some(item => item.pending))) refresh(true).catch(() => {});
     }, 5000);
     setInterval(() => {
-      if (!document.hidden && state.connected && state.session && !state.submitting) refreshBoard();
+      if (!document.hidden && state.connected && state.session && !state.submitting) {refreshBoard();refreshSyncStatus();}
     }, 10000);
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden && state.connected && state.session) refreshBoard();

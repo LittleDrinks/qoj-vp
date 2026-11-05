@@ -295,15 +295,25 @@
     const tab = await openingRankland.get(identity);
     return activate ? browser.tabs.update(tab.id, {active: true}) : tab;
   }
-  async function sync(sessionId, open = false) {
+  async function performSync(sessionId, open = false) {
     let session = await native("inspect_session", {sessionId});
     if (!session.ranklandUrl) return {state: "not_configured", synced: 0, message: "请先配置这场 VP 的 RankLand 比赛链接。"};
+    if (session.state === "archived" || session.startAt == null || session.startAt > Date.now())
+      return {state:"inactive",synced:0,message:"比赛尚未开始或已归档。"};
     const autoKey = "rankland-auto-sync:" + sessionId;
     if (open) await browser.storage.local.set({[autoKey]:true});
     const auto = open || (await browser.storage.local.get(autoKey))[autoKey] === true;
+    if(!auto) return {state:"inactive",synced:0,message:"外部榜单自动同步未开启。"};
     const refreshed = open ? await providerRead("qoj_submissions", {sessionId, refresh:true}) : null;
     if (auto) session = await native("prepare_rankland", {sessionId});
     const incomplete = refreshed?.coverage?.complete === false || session.lastHistoryRefreshComplete === false;
+    const plan = await native("rankland_plan", {sessionId});
+    if (!open && plan.planToken && session.ranklandSyncedPlanToken===plan.planToken) {
+      const previous=(await browser.storage.local.get("rankland-sync-status:"+sessionId))["rankland-sync-status:"+sessionId];
+      return {...previous,state:plan.pendingCount || plan.blockedCount || incomplete ? "waiting":"ready",
+        pending:plan.pendingCount || 0,blocked:plan.blockedCount || 0,needsRefresh:incomplete,
+        url:session.ranklandUrl,identity:ranklandIdentity(session.ranklandUrl),observedAt:Date.now()};
+    }
     let tab;
     const matches = await matchingRanklandTabs(session.ranklandUrl, session.sessionId);
     if (matches.length > 1) return {state: "attention", synced: 0, message: "同一场 VP 打开了多个榜单页。请保留一个，避免原站的多个页面互相覆盖进度。"};
@@ -356,7 +366,6 @@
       const current = await browser.tabs.get(tab.id);
       if (ranklandIdentity(current.url) === ranklandIdentity(session.ranklandUrl)) await rememberRanklandUrl(current.url);
     }
-    const plan = await native("rankland_plan", {sessionId});
     try {
       const delivered = await VpRanklandTransfer.sync({session, plan, tabId:tab.id});
       const acknowledgements = (plan.allItems || []).map(item => ({queueId:item.queueId, revision:item.revision, state:"synced"}));
@@ -385,6 +394,65 @@
       await browser.storage.local.set({["rankland-sync-status:" + sessionId]:status});
       return status;
     }
+  }
+  async function sync(sessionId, open=false) {
+    const retryKey="rankland-sync-retry:"+sessionId;
+    if(open) await browser.storage.local.set({[retryKey]:null});
+    let result;
+    try {result=await performSync(sessionId,open);}
+    catch(error) {
+      // Persist failures even before the transfer starts (e.g. QOJ is offline).
+      const session=await native("inspect_session",{sessionId}).catch(()=>null);
+      result={state:"retrying",synced:0,reason:error.code || "SYNC_UNAVAILABLE",
+        message:"暂时无法同步；已有判定保留，稍后重试。",url:session?.ranklandUrl,
+        identity:session?.ranklandUrl ? ranklandIdentity(session.ranklandUrl):null};
+      await saveSyncStatus(sessionId,result,retryKey);
+      if(open) throw error;
+      return result;
+    }
+    return saveSyncStatus(sessionId,result,retryKey);
+  }
+  async function saveSyncStatus(sessionId,result,retryKey) {
+    const enabled=(await browser.storage.local.get("rankland-auto-sync:"+sessionId))["rankland-auto-sync:"+sessionId]===true;
+    const session=await native("inspect_session",{sessionId}).catch(()=>null);
+    let identity=null;
+    try {identity=session?.ranklandUrl ? ranklandIdentity(session.ranklandUrl):null;} catch (_) {}
+    // A previous target's in-flight export must not overwrite the new target's status/backoff.
+    if(result.identity && result.identity!==identity) return {...result,enabled};
+    result={...result,identity,url:session?.ranklandUrl,enabled,observedAt:Date.now()};
+    const failed=["attention","retrying","page_not_ready","waiting_for_scoreboard"].includes(result.state);
+    const previous=(await browser.storage.local.get(retryKey))[retryKey];
+    const attempts=failed ? (previous?.attempts || 0)+1 : 0;
+    const suspended=failed && /CONFLICT|MULTIPLE_WRITERS|VERSION_CHANGED|SCHEMA_CHANGED|STORAGE_FORMAT_CHANGED/.test(result.reason || "");
+    await browser.storage.local.set({["rankland-sync-status:"+sessionId]:result,
+      [retryKey]:{attempts,suspended,nextAt:failed ? Date.now()+Math.min(300000,30000*2**Math.min(attempts-1,4)):0}});
+    return result;
+  }
+  async function autoSync(sessionId) {
+    if(syncUnavailable(sessionId)) return;
+    const key="rankland-auto-sync:"+sessionId;
+    if((await browser.storage.local.get(key))[key]!==true) return;
+    const retryKey="rankland-sync-retry:"+sessionId;
+    const retry=(await browser.storage.local.get(retryKey))[retryKey];
+    if(retry?.suspended || retry?.nextAt>Date.now()) return;
+    await exclusiveSync(sessionId);
+  }
+  async function continueExports() {
+    // Separate from Judger polling: finished contests can still have an
+    // undelivered revision even after their final history pass succeeded.
+    const stored=await browser.storage.local.get(null);
+    const ids=Object.keys(stored).filter(key=>key.startsWith("rankland-auto-sync:") && stored[key]===true)
+      .map(key=>key.slice("rankland-auto-sync:".length));
+    await Promise.allSettled(ids.map(id=>autoSync(id)));
+  }
+  async function syncStatus(sessionId) {
+    const session=await native("inspect_session",{sessionId});
+    let identity=null;
+    try {identity=session.ranklandUrl ? ranklandIdentity(session.ranklandUrl):null;} catch (_) {}
+    const saved=(await browser.storage.local.get("rankland-sync-status:"+sessionId))["rankland-sync-status:"+sessionId];
+    const enabled=(await browser.storage.local.get("rankland-auto-sync:"+sessionId))["rankland-auto-sync:"+sessionId]===true;
+    return {...(saved?.identity===identity ? saved:{}),enabled,identity,url:session.ranklandUrl,observedAt:Date.now(),
+      message:saved?.identity===identity && enabled ? saved.message : enabled ? "自动同步已开启。" : "外部榜单自动同步未开启。"};
   }
   const synchronizing = new Map();
   const syncOpening = new Map();
@@ -426,6 +494,7 @@
       // Keep this tombstone even if refreshing the browser cache fails. Late
       // qoj_submissions/qoj_submit responses can still request automatic sync.
       deletedSessions.add(id);
+      await browser.storage.local.set({["rankland-auto-sync:"+id]:false});
       try { await browser.storage.local.set({sessions: (await native("list_sessions")).sessions}); }
       catch (_) { return {...result, sessionsRefreshFailed: true}; }
       return result;
@@ -534,17 +603,27 @@
       const changed = syncUnavailable(args.sessionId);
       if (changed) throw changed;
       const tab = await ranklandTab(session, true);
+      await browser.storage.local.set({["rankland-auto-sync:"+args.sessionId]:true});
       exclusiveSync(args.sessionId).catch(() => {});
       return {tabId: tab.id, url: session.ranklandUrl};
     }
     if (method === "rankland.sync") return exclusiveSync(args.sessionId, true);
+    if (method === "rankland.status") return syncStatus(args.sessionId);
+    if (method === "rankland.stop") {
+      await browser.storage.local.set({["rankland-auto-sync:"+args.sessionId]:false});
+      // Finish an already-started transaction before reporting that sync stopped.
+      await synchronizing.get(args.sessionId)?.catch(()=>{});
+      return syncStatus(args.sessionId);
+    }
     if (method === "delete_session") return deleteSession(args);
     if (!methods.has(method)) throw new Error("UNKNOWN_METHOD");
     const result = await providerRead(method, args);
     if (["create_session", "start_session", "finish_session", "archive_session", "update_session"].includes(method)) {
       await browser.storage.local.set({sessions: (await native("list_sessions")).sessions});
     }
-    // Judger reads/writes never depend on an external board tab.
+    // Return judge results immediately; optional export has its own retries.
+    if(args.sessionId && (["qoj_submit","qoj_reconcile","update_session","finish_session"].includes(method) ||
+        method==="qoj_submissions" && args.refresh!==false)) autoSync(args.sessionId).catch(()=>{});
     return result;
   }
   browser.runtime.onMessage.addListener((message, sender) => {
@@ -586,13 +665,14 @@
     if (alarm.name !== "vp-refresh") return;
     await qojLifecycle.resume().catch(() => {});
     let sessions;
-    try { sessions = (await native("settlement_sessions")).sessions || []; } catch (_) { return; }
+    try { sessions = (await native("settlement_sessions")).sessions || []; } catch (_) { sessions=[]; }
     for (const session of sessions) {
       try {
         if (session.refreshRequired) await providerRead("qoj_submissions", {sessionId:session.sessionId, refresh:true});
-        // Local Board reads this ledger independently. External export is explicit.
+        // Local Board reads this ledger independently of optional export.
       }
       catch (_) { /* The UI and durable queue expose failures on the next interaction. */ }
     }
+    await continueExports();
   });
 })();

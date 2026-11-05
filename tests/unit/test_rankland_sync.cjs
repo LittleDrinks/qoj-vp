@@ -1,22 +1,22 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm');
-function harness() {
-  const calls = [], cache = {}, events = {}, session = {sessionId:'practice', account:'me', startAt:1,
+function harness(cache = {}) {
+  const calls = [], events = {}, session = {sessionId:'practice', account:'me', startAt:1,
     durationMs:1000, state:'running', ranklandUrl:'https://vp.xcpc.link/?contest=test&run=practice&from=0'};
   const listen = {addListener() {}};
   const env = {calls, cache, session, events, failRefresh:false, tabOpen:true, inspectWait:null,
     refreshResult:{submissions:[],coverage:{complete:true,pages:1}},plan:{items:[],pendingCount:1,waiting:[{}]}};
   const context = {URL, Map, Set, Promise, Date, setTimeout, clearTimeout, crypto:require('node:crypto').webcrypto,
-    VpTransport:{pause:async()=>{}}, VpRanklandTransfer:{sync:async args=>{calls.push(['transfer',args]);return {synced:0};}},
+    VpTransport:{pause:async()=>{}}, VpRanklandTransfer:{sync:async args=>{calls.push(['transfer',args]);if(env.transferError)throw env.transferError;return {synced:0};}},
     __native:async (method,args)=>{ calls.push([method,args]); switch(method) {
       case 'inspect_session':if(env.inspectWait)return env.inspectWait;return {...session};
       case 'prepare_rankland':return {...session};
       case 'qoj_submissions': if(env.failRefresh) throw Error('offline');return env.refreshResult;
       case 'rankland_plan':return {...env.plan,sessionId:session.sessionId};
       case 'rankland_queue':return {items:[]};
-      case 'rankland_ack':case 'rankland_ack_batch':return {accepted:true};
-      case 'settlement_sessions':return {sessions:[{...session,refreshRequired:true,syncRequired:true}]};
+      case 'rankland_ack':case 'rankland_ack_batch':session.ranklandSyncedPlanToken=args.planToken;return {accepted:true};
+      case 'settlement_sessions':return {sessions:env.settled?[]:[{...session,refreshRequired:true,syncRequired:true}]};
       default:throw Error('unexpected native '+method);
     }},
     browser:{runtime:{id:'test',getURL:p=>'moz-extension://test/'+p,onMessage:listen,onInstalled:listen},
@@ -25,7 +25,7 @@ function harness() {
         sendMessage:async()=>({ready:true}), update:async()=>{},create:async args=>{
           calls.push(['tab.create',args]);env.tabOpen=true;return {id:7,url:session.ranklandUrl};}},
       scripting:{executeScript:async()=>[{result:null}]},
-      storage:{local:{get:async k=>({[k]:cache[k]}),set:async v=>Object.assign(cache,v)}}}};
+      storage:{local:{get:async k=>k===null?{...cache}:({[k]:cache[k]}),set:async v=>Object.assign(cache,v)}}}};
   vm.createContext(context);
  for (const file of ['board/generated/engine.js','board/cache.js','board/service.js'])
   vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
@@ -35,6 +35,8 @@ function harness() {
   vm.runInContext(fs.readFileSync('src/firefox/background.js','utf8').replace(/\}\)\(\);\s*$/,
     'native=globalThis.__native;globalThis.dispatch=dispatch;})();'),context);
   env.sync=()=>context.dispatch('rankland.sync',{sessionId:session.sessionId});
+  env.stop=()=>context.dispatch('rankland.stop',{sessionId:session.sessionId});
+  env.dispatch=context.dispatch;
   env.readCached=()=>context.dispatch('qoj_submissions',{sessionId:session.sessionId,refresh:false});
   return env;
 }
@@ -84,4 +86,51 @@ test('cached history is independent; explicit exports coalesce and reopen a clos
   assert.equal(h.calls.find(c=>c[0]==='tab.create')[1].active,false);
   assert.equal(h.calls.filter(c=>c[0]==='transfer').length,1);
   assert.equal(h.cache['rankland-auto-sync:'+h.session.sessionId],true,'the click must enable later automatic reopening');
+});
+
+test('opting in once delivers a delayed verdict on the next alarm without another click',async()=>{
+  const h=harness();
+  h.plan={items:[],allItems:[],pendingCount:1,waiting:[{}],planToken:'a'.repeat(64)};
+  await h.sync();h.calls.length=0;
+  h.plan={items:[],allItems:[],pendingCount:0,waiting:[],planToken:'b'.repeat(64)};
+  await h.events.alarm({name:'vp-refresh'});
+  assert.equal(h.calls.filter(c=>c[0]==='transfer').length,1,'a late verdict must reach the opted-in external board');
+});
+
+test('unchanged projections do not touch tabs, and restart retains delivery identity',async()=>{
+  const h=harness();h.plan={items:[],allItems:[],pendingCount:0,waiting:[],planToken:'c'.repeat(64)};
+  await h.sync();h.calls.length=0;h.tabOpen=false;
+  await h.events.alarm({name:'vp-refresh'});
+  assert.equal(h.calls.filter(c=>c[0]==='transfer'||c[0]==='tab.create').length,0);
+  const restarted=harness(h.cache);restarted.session.ranklandSyncedPlanToken=h.session.ranklandSyncedPlanToken;restarted.plan=h.plan;restarted.tabOpen=false;restarted.settled=true;
+  await restarted.events.alarm({name:'vp-refresh'});
+  assert.equal(restarted.calls.filter(c=>c[0]==='transfer'||c[0]==='tab.create').length,0);
+  restarted.plan={...h.plan,planToken:'d'.repeat(64)};
+  await restarted.events.alarm({name:'vp-refresh'});
+  assert.equal(restarted.calls.filter(c=>c[0]==='transfer').length,1,'finished ledger still delivers an outstanding revision');
+});
+test('automatic failures back off and stopping disables persisted background delivery',async()=>{
+  const h=harness();await h.sync();h.calls.length=0;
+  h.transferError=Object.assign(new Error('offline'),{code:'RANKLAND_LOAD_TIMEOUT'});
+  await h.events.alarm({name:'vp-refresh'});
+  assert.equal(h.calls.filter(c=>c[0]==='transfer').length,1);
+  const retry=h.cache['rankland-sync-retry:'+h.session.sessionId];assert.ok(retry.nextAt>Date.now());
+  await h.events.alarm({name:'vp-refresh'});
+  assert.equal(h.calls.filter(c=>c[0]==='transfer').length,1,'no rapid retries');
+  retry.nextAt=0;h.transferError=null;
+  await h.events.alarm({name:'vp-refresh'});
+  assert.equal(h.calls.filter(c=>c[0]==='transfer').length,2);
+  assert.equal((await h.stop()).enabled,false);
+  const restarted=harness(h.cache);await restarted.events.alarm({name:'vp-refresh'});
+  assert.equal(restarted.calls.filter(c=>c[0]==='transfer').length,0);
+});
+test('ownership conflicts require an explicit retry rather than overwriting manual records',async()=>{
+  const h=harness();await h.sync();h.calls.length=0;
+  h.transferError=Object.assign(new Error('conflict'),{code:'RANKLAND_OWNERSHIP_CONFLICT'});
+  await h.events.alarm({name:'vp-refresh'});
+  assert.equal(h.cache['rankland-sync-retry:'+h.session.sessionId].suspended,true);
+  h.transferError=null;h.cache['rankland-sync-retry:'+h.session.sessionId].nextAt=0;
+  await h.events.alarm({name:'vp-refresh'});
+  assert.equal(h.calls.filter(c=>c[0]==='transfer').length,1);
+  await h.sync();assert.equal(h.calls.filter(c=>c[0]==='transfer').length,2);
 });

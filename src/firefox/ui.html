@@ -131,7 +131,8 @@
             <button id="finish-session" class="btn btn-primary btn-sm" type="button" hidden><i class="fas fa-stop" aria-hidden="true"></i> Finish now</button>
             <button id="rankland-settings" class="btn btn-secondary btn-sm" type="button">榜单设置</button>
             <button id="open-resources" class="btn btn-secondary btn-sm" type="button">题目资源与样例</button>
-            <button id="sync-scoreboard" class="btn btn-secondary btn-sm" type="button"><i class="fas fa-sync-alt" aria-hidden="true"></i> 导出到外部 RankLand</button>
+            <button id="sync-scoreboard" class="btn btn-secondary btn-sm" type="button"><i class="fas fa-sync-alt" aria-hidden="true"></i> 同步到 RankLand</button>
+            <button id="stop-rankland-sync" class="btn btn-outline-secondary btn-sm" type="button" hidden>停止自动同步</button>
             <button id="archive-session" class="btn btn-secondary btn-sm" type="button">归档</button>
             <button id="delete-session" class="btn btn-danger btn-sm" type="button"><i class="fas fa-trash-alt" aria-hidden="true"></i> Delete</button>
           </div>
@@ -197,7 +198,8 @@
       <form id="rankland-form"><div class="modal-body"><div id="rankland-error" class="alert alert-danger d-none" role="alert"></div><label for="rankland-url" class="form-label">RankLand 比赛链接</label><input id="rankland-url" class="form-control" type="url" autocomplete="off" placeholder="https://vp.xcpc.link/?contest=…"><p class="form-text">历史对手数据将在本地回放；留空只显示本队成绩。</p>
 <label for="board-rule" class="form-label">赛制</label>
 <select id="board-rule" class="form-select"><option value="auto">采用历史榜单赛制</option><option value="ICPC">ICPC</option><option value="CCPC26">CCPC26</option></select>
-<div class="row mt-2"><div class="col"><label for="board-count" class="form-label">CCPC26 揭题队数</label><input id="board-count" class="form-control" type="number" min="0" value="50" required></div><div class="col"><label for="board-ratio" class="form-label">揭题比例 %</label><input id="board-ratio" class="form-control" type="number" min="0" max="100" value="20" required></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">保存</button></div></form>
+<p id="board-rule-hint" class="form-text"></p>
+<fieldset id="board-reveal-settings" class="row mt-2" hidden disabled><div class="col"><label for="board-count" class="form-label">CCPC26 揭题队数</label><input id="board-count" class="form-control" type="number" min="0" max="100000" value="50" required></div><div class="col"><label for="board-ratio" class="form-label">揭题比例 %</label><input id="board-ratio" class="form-control" type="number" min="0" max="100" value="20" required></div></fieldset></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">保存</button></div></form>
     </div></div>
   </div>
 

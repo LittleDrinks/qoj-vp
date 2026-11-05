@@ -52,3 +52,19 @@ class JudgerBoundaryTests(unittest.TestCase):
             with self.subTest(value=value),self.assertRaises((ValueError,ApplicationError)):
                 self.app.dispatch('update_session',{'sessionId':s['sessionId'],'board':value})
         self.assertEqual(self.app.dispatch('inspect_session',{'sessionId':s['sessionId']})['board'],board_settings({'rule':'ICPC'}))
+
+    def test_board_rule_and_export_url_are_one_configuration(self):
+        from urllib.parse import urlparse, parse_qs
+        s=self.app.dispatch('create_session',{'contestId':'7',
+            'ranklandUrl':'https://vp.xcpc.link/?contest=fixture&rule=CCPC26&count=50&ratio=20',
+            'board':{'rule':'ICPC'}})
+        self.assertEqual(parse_qs(urlparse(s['ranklandUrl']).query)['rule'], ['ICPC'])
+        s=self.app.dispatch('update_session',{'sessionId':s['sessionId'],
+            'board':{'rule':'CCPC26','revealCount':10,'revealRatio':25}})
+        q=parse_qs(urlparse(s['ranklandUrl']).query)
+        self.assertEqual((q['rule'],q['count'],q['ratio']), (['CCPC26'],['10'],['25']))
+        s=self.app.dispatch('update_session',{'sessionId':s['sessionId'],'board':{'rule':'auto'}})
+        q=parse_qs(urlparse(s['ranklandUrl']).query)
+        self.assertNotIn('rule', q)
+        self.assertNotIn('count', q)
+        self.assertNotIn('ratio', q)

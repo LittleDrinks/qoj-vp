@@ -139,10 +139,12 @@ def main():
         def row(sid, label, elapsed, verdict, start):
             return {'id':str(sid), 'label':label, 'pid':'15419' if label=='A' else '15420', 'at':start+elapsed, 'verdict':verdict}
 
-        def sync(session):
+        def sync(session, *, automatic=False):
             result = h.call('rankland.sync', {'sessionId':session['sessionId']})
             require(result['state'] in {'ready','waiting'}, 'Sync failed: ' + str(result))
             session.update(h.call('inspect_session', {'sessionId':session['sessionId']}))
+            if not automatic:
+                h.call('rankland.stop', {'sessionId':session['sessionId']})
             return result
 
         start = int(time.time()*1000) - 7200000
@@ -245,28 +247,31 @@ def main():
             ended_start=int(time.time()*1000)-18120000
             ended=create(ended_start)
             judge.rows=[row(1000010,'A',17980200,'Judging',ended_start)]
-            first=sync(ended)
+            first=sync(ended, automatic=True)
             h.wait(lambda: h.archive(ended)['value']['elapsed']==18000000,'original replay to finish',timeout=15)
             before=h.archive(ended)['value']
             require(not before['running'], 'Original replay is still running')
             h.driver.close()
             judge.rows[0]['verdict']='AC'
             h.focus_ui()
-            # The alarm settles the ledger independently of the optional export.
+            # One opt-in must settle and deliver a late result even after the board tab closes.
             h.driver.execute_script('browser.alarms.create("vp-refresh",{when:Date.now()+100});')
             def settled():
                 snapshot=h.call('session_snapshot',{'sessionId':ended['sessionId']})
                 rows=snapshot['history']['submissions']
                 return snapshot if any(str(row.get('id'))=='1000010' and row.get('verdict')=='CORRECT' for row in rows) else None
             h.wait(settled,'automatic post-end ledger settlement',timeout=40)
-            result=sync(ended)
+            def exported():
+                result=h.call('rankland.status',{'sessionId':ended['sessionId']})
+                return result if result.get('state')=='ready' and result.get('pending')==0 else None
+            result=h.wait(exported,'automatic post-end external delivery without a second click',timeout=40)
             after=h.archive(ended)['value']
             require(after['elapsed']==18000000 and not after['running'],'Late result changed ended clock')
             require(after['manual']==[{'problemIndex':0,'timeMs':17980200,'result':'AC'}], 'Late result lost original submission time')
             require(h.score(ended)=={'score':1,'penalty':299},'Ended original scoreboard did not recompute')
             h.driver.save_screenshot(str(h.results/'post-end-settlement.png'))
-            return {'first':first,'automaticLedger':True,'explicitExport':True,'result':result,'archive':after,'score':h.score(ended)}
-        h.step('post_end_settlement_then_explicit_export',late_after_end)
+            return {'first':first,'automaticLedger':True,'automaticExport':True,'result':result,'archive':after,'score':h.score(ended)}
+        h.step('post_end_automatic_settlement_and_export',late_after_end)
     except Exception as error:
         h.summary['fatalError']={'type':type(error).__name__,'message':str(error)}
         if h.driver:

@@ -39,7 +39,7 @@ class Application:
 
     def session_started(self, session):
         session['ranklandUrl'] = rankland_url(session.get('ranklandUrl'), session['sessionId'], session['startAt'],
-                                             allow_loopback=bool(self.fixture_origin))
+                                             allow_loopback=bool(self.fixture_origin), board=session.get('board'))
         session['ranklandPrepared'], session['ranklandPreparedAt'] = False, None
 
     def close(self):
@@ -155,6 +155,8 @@ class Application:
         record['judger'] = args.get('judger', 'qoj')
         if 'board' in args:
             record['board'] = board_settings(args['board'])
+            record['ranklandUrl'] = rankland_url(record['ranklandUrl'], sid, start,
+                allow_loopback=bool(self.fixture_origin), board=record['board'])
         self.ledger.create_session(record)
         return self.view(record)
 
@@ -192,7 +194,7 @@ class Application:
                         raise ApplicationError('QOJ_VIRTUAL_START_REQUIRED', 'Start this VP on the QOJ confirmation page; its verified clock will synchronize automatically')
                     record['startAt'], record['state'] = self.clock(), 'running'
                     record['ranklandUrl'] = rankland_url(record.get('ranklandUrl'), sid, record['startAt'],
-                                                         allow_loopback=bool(self.fixture_origin))
+                                                         allow_loopback=bool(self.fixture_origin), board=record.get('board'))
                     record['ranklandPrepared'], record['ranklandPreparedAt'] = False, None
             elif method == 'prepare_rankland':
                 if record.get('startAt') is None or self.clock() < record['startAt']:
@@ -201,7 +203,7 @@ class Application:
                     raise ApplicationError('RANKLAND_NOT_CONFIGURED', 'Choose a RankLand contest URL first')
                 previous_url = record['ranklandUrl']
                 target = rankland_url(previous_url, sid, record['startAt'],
-                                      allow_loopback=bool(self.fixture_origin))
+                                      allow_loopback=bool(self.fixture_origin), board=record.get('board'))
                 if 'run' in dict(parse_qsl(urlparse(previous_url).query, keep_blank_values=True)):
                     # Preserve the exact old storage identity as migration
                     # evidence. The browser adapter decides whether any owned
@@ -252,9 +254,9 @@ class Application:
                     if isinstance(duration, bool) or not isinstance(duration, int) or not 0 < duration <= 14 * 24 * 60 * 60 * 1000:
                         raise ValueError('Invalid contest duration')
                     record['durationMs'] = duration
-                if 'ranklandUrl' in args:
-                    target = rankland_url(args['ranklandUrl'], sid, record['startAt'],
-                                          allow_loopback=bool(self.fixture_origin))
+                if 'ranklandUrl' in args or 'board' in args:
+                    target = rankland_url(args.get('ranklandUrl', record.get('ranklandUrl')), sid, record['startAt'],
+                                          allow_loopback=bool(self.fixture_origin), board=record.get('board'))
                     original = rankland_url(record.get('ranklandUrl'), sid, record['startAt'],
                                             allow_loopback=bool(self.fixture_origin))
                     # Compare canonical target configuration while ignoring

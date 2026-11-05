@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-def rankland_url(raw, session_id, start_at, *, allow_loopback=False):
+def rankland_url(raw, session_id, start_at, *, allow_loopback=False, board=None):
     if not raw:
         return None
     parsed = urlparse(str(raw).strip())
@@ -16,6 +16,14 @@ def rankland_url(raw, session_id, start_at, *, allow_loopback=False):
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     if not query.get('contest'):
         raise ValueError('The RankLand URL must select a contest')
+    if board is not None:
+        config = board_settings(board)
+        for key in ('rule', 'count', 'ratio'):
+            query.pop(key, None)
+        if config['rule'] != 'auto':
+            query['rule'] = config['rule']
+        if config['rule'] == 'CCPC26':
+            query.update(count=str(config['revealCount']), ratio=str(config['revealRatio']))
     # The provider's current replay advances from `at` on the wall clock.
     # `run` is no longer a provider identity, and copied pause/speed anchors
     # must not override the QOJ clock managed by this local session.

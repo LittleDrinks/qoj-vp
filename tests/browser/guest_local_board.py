@@ -98,6 +98,23 @@ def main():
             require(b['own']['rank']==2 and b['own']['penaltyMinutes']==40,'Reload changed rank or penalty')
             return {'rank':b['own']['rank'],'penalty':b['own']['penaltyMinutes']}
         h.step('reload_preserves_board',reload)
+        def rule_controls():
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.support.ui import Select
+            h.driver.execute_script("location.hash='#jury';")
+            h.wait(lambda:h.driver.find_element(By.ID,'rankland-settings').is_displayed(),'Jury settings')
+            h.driver.find_element(By.ID,'rankland-settings').click()
+            h.wait(lambda:h.driver.find_element(By.ID,'board-rule').is_displayed(),'board settings modal')
+            for rule in ('ICPC','auto','CCPC26','ICPC'):
+                Select(h.driver.find_element(By.ID,'board-rule')).select_by_value(rule)
+                visible=h.driver.find_element(By.ID,'board-count').is_displayed()
+                enabled=h.driver.find_element(By.ID,'board-count').is_enabled()
+                require(visible==(rule=='CCPC26') and enabled==(rule=='CCPC26'),'Reveal settings leaked into '+rule)
+            h.driver.find_element(By.CSS_SELECTOR,'#rankland-modal [data-bs-dismiss="modal"]').click()
+            h.wait(lambda:not h.driver.find_element(By.ID,'rankland-modal').is_displayed(),'settings close')
+            return {'rules':['ICPC','auto','CCPC26'],'conditionalRevealControls':True}
+        h.step('rule_specific_settings_in_real_firefox',rule_controls)
+
         def rejudge():
             judge.rows[1]['verdict']='WA'
             b=read()
