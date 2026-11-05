@@ -133,6 +133,14 @@ def main():
         h.step('rule_specific_settings_in_real_firefox',rule_controls)
 
         def rejudge():
+            # Stop page polling and join reads started before changing the judge
+            # fixture. Otherwise a coalesced read may legitimately return the
+            # previous verdict while the fixture is being mutated.
+            h.focus_ui()
+            h.driver.get(h.ui_url.split('ui.html')[0]+'manifest.json')
+            h.driver.execute_async_script("const done=arguments[arguments.length-1];browser.alarms.clear('vp-refresh').then(done);")
+            h.call('judger.submissions',{'sessionId':sid,'refresh':True})
+            h.call('board.snapshot',{'sessionId':sid})
             judge.rows[1]['verdict']='WA'
             b=read()
             require(b['own']['score']==0 and b['own']['penaltyMinutes']==0,'Rejudge retained an AC')
@@ -140,14 +148,7 @@ def main():
             return b['own']
         h.step('rejudge_replaces_verdict',rejudge)
         def board_does_not_fetch_judge():
-            # Isolate this RPC from the workbench's independent five-second
-            # judger poll. A static extension document retains runtime access
-            # without running UI timers; leave the production scripts intact.
-            h.focus_ui()
-            h.driver.get(h.ui_url.split('ui.html')[0]+'manifest.json')
-            h.driver.execute_async_script("const done=arguments[arguments.length-1];browser.alarms.clear('vp-refresh').then(done);")
-            # Join any provider read already started before navigation.
-            h.call('judger.submissions',{'sessionId':sid,'refresh':True})
+            # The static extension document above has no independent UI poll.
             before=len(judge.requests)
             for _ in range(3): h.call('board.snapshot',{'sessionId':sid})
             require(len(judge.requests)==before,'Board read fetched the judge: '+str(judge.requests[before:]))
