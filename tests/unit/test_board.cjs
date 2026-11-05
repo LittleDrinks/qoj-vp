@@ -58,6 +58,31 @@ test('replay is pure; moving backwards excludes future submissions without chang
  assert.ok(projected.ranklist.contest.startAt.endsWith('+08:00'));
  assert.equal(Date.parse(projected.ranklist.contest.startAt),i.session.startAt);
 });
+test('running projections cannot reveal future or final history, including through the service',async()=>{
+ const i=input(),a=archive();Object.assign(i.session,{state:'running',elapsedMs:20*60000});
+ a.rows[0].statuses[1]={solutions:[{result:'AC',time:[250,'min']}]};
+ const before=JSON.stringify(i);
+ const future=engine.project(i,a,duration);
+ assert.equal(future.elapsedMs,20*60000);
+ assert.equal(future.ranklist.rows.find(r=>r.user.name==='Opponent').score.value,0);
+ i.session.ranklandUrl='https://vp.xcpc.link/?contest=fixture';
+ const board=context.VpBoard.create({readSnapshot:async()=>i,engine,cache:{get:async()=>({archive:a}),set:async()=>{}},sources:{}});
+ assert.equal((await board.snapshot('practice',{elapsedMs:duration})).elapsedMs,20*60000);
+ delete i.session.ranklandUrl;assert.equal(JSON.stringify(i),before);
+});
+test('prepared projections remain at zero even when a final instant is requested',()=>{
+ const i=input();Object.assign(i.session,{state:'prepared',startAt:null,elapsedMs:0});
+ assert.equal(engine.project(i,archive(),duration).elapsedMs,0);
+});
+test('early finish keeps own scoring cutoff but permits full historical replay',()=>{
+ const i=input([submission(1,10*60000),submission(2,40*60000,'CORRECT',{problemId:'2'})]),a=archive();
+ Object.assign(i.session,{finishedAt:i.session.startAt+20*60000,elapsedMs:20*60000});
+ a.rows[0].statuses[1]={solutions:[{result:'AC',time:[250,'min']}]};
+ const live=engine.project(i,a),final=engine.project(i,a,duration);
+ assert.equal(live.elapsedMs,20*60000);
+ assert.equal(final.elapsedMs,duration);assert.equal(final.own.score,1);
+ assert.equal(final.ranklist.rows.find(r=>r.user.name==='Opponent').score.value,2);
+});
 test('summarized-only history, mismatched duration/problem links and unknown algorithms fail explicitly',()=>{
  const i=input(),a=archive();delete a.rows[0].statuses[0].solutions;
  assert.throws(()=>engine.project(i,a),/HISTORY_INCOMPLETE/);

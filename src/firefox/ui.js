@@ -377,12 +377,17 @@
   function boardInput() {
     return {session:state.session,contest:state.contest,history:{submissions:state.submissions}};
   }
-  function ranklandBoardUrl() {
+  function ranklandBoardUrl(playback=null, now=Date.now()) {
     if (!state.session?.ranklandUrl) return null;
     try {
       const url=new URL(state.session.ranklandUrl), start=epoch(state.session.startAt);
       if (!ranklandViewIdentity(url.href)) return null;
-      url.searchParams.delete("anchor");url.searchParams.set("from","0");url.searchParams.set("speed","1");url.searchParams.set("play","0");
+      const live=start===null ? 0 : Math.max(0,Math.min(state.session.durationMs,(epoch(state.session.finishedAt) ?? now)-start));
+      const replay=VpBoardEngine.canReplay(state.session,live);
+      const display=replay ? Math.max(0,Math.min(state.session.durationMs,playback?.elapsedMs ?? live)) : 0;
+      // Live URLs follow the confirmed start. Replay/share URLs capture a paused instant.
+      url.searchParams.delete("anchor");url.searchParams.set("from",String(display/60000));
+      url.searchParams.set("speed","1");url.searchParams.set("play",start!==null && !replay ? "1" : "0");
       if (start===null) url.searchParams.delete("at");else url.searchParams.set("at",new Date(start).toISOString());
       return url.href;
     } catch (_) { return null; }
@@ -419,7 +424,7 @@
     if (location.hash==="#scoreboard") {
       let contestKey="scoreboard";
       try {contestKey=new URL(state.session.ranklandUrl).searchParams.get("contest") || contestKey;} catch (_) {}
-      VpBoardView.render(target,result,{session:state.session,externalUrl:ranklandBoardUrl(),contestKey,onProject:projectBoard});
+      VpBoardView.render(target,result,{session:state.session,externalUrl:ranklandBoardUrl(),externalUrlFor:ranklandBoardUrl,contestKey,onProject:projectBoard});
     }
   }
   function refreshBoard(refreshSource = false) {

@@ -20,6 +20,7 @@ import {
   SPEEDS,
   actualRule,
   advancePlayback,
+  canReplay,
   feedSolutions,
   formatClock,
   formatContestTimeRange,
@@ -116,14 +117,15 @@ function OrganizationFilter({organizations, selected, onChange}) {
 
 function ViewProgress({session, playback, elapsedMs, liveMs, frozenDuration, onSeek}) {
   const durationMs = Number(session.durationMs), prepared = session.startAt === null || session.startAt === undefined;
+  const replay = canReplay(session, liveMs);
   const [draft, setDraft] = React.useState(null);
   const percent = durationMs ? elapsedMs / durationMs * 100 : 0;
   const frozenMs = frozenDuration ? formatTimeDuration(frozenDuration, 'ms') : 0;
   const freezeAt = durationMs ? 1 - frozenMs / durationMs : 1;
   const normalPercent = freezeAt ? Math.min(100, percent / freezeAt) : 0;
   const frozenPercent = freezeAt < 1 ? Math.min(100, Math.max(0, (percent / 100 - freezeAt) / (1 - freezeAt))) : 0;
-  const center = prepared ? '准备中' : playback.custom ? '回放模式' : liveMs < durationMs ? 'Live' : '已结束';
-  const commit = () => {if (draft !== null) {onSeek(draft * 60000); setDraft(null);}};
+  const center = prepared ? '准备中' : playback.custom ? '回放模式' : replay ? '已结束' : 'Live';
+  const commit = () => {if (draft !== null) {if (replay) onSeek(draft * 60000); setDraft(null);}};
   const sliderValue = draft ?? Math.floor(elapsedMs / 60000);
   return <div className="srk-progress-bar-container" data-playback={playback.custom ? 'custom' : 'live'}>
     <div className="srk-progress-bar">
@@ -132,12 +134,12 @@ function ViewProgress({session, playback, elapsedMs, liveMs, frozenDuration, onS
         <div className="srk-progress-bar-segment srk-progress-bar-frozen" style={{width: `${(1 - freezeAt) * 100}%`}}><div className="srk-progress-bar-fill" style={{width: `${frozenPercent}%`}} /></div>
       </div>
       <div className="srk-progress-slider-layer"><input aria-label="Time Travel" className="srk-progress-slider" type="range" min="0"
-        max={Math.ceil(durationMs / 60000)} step="1" disabled={prepared} value={sliderValue} title={formatClock(sliderValue * 60000)}
+        max={Math.ceil(durationMs / 60000)} step="1" disabled={!replay} value={sliderValue} title={replay ? formatClock(sliderValue * 60000) : '赛后可回放'}
         onChange={event => setDraft(Number(event.target.value))} onPointerUp={commit} onKeyUp={commit} onBlur={commit} /></div>
     </div>
     <div className="srk-progress-secondary-area">
       <div className="srk-progress-secondary-area-left">Elapsed: {formatClock(elapsedMs)}</div>
-      <div className={`srk-progress-secondary-area-center ${!playback.custom && liveMs < durationMs && !prepared ? 'srk-progress-live-text' : 'srk-progress-time-machine-status'}`}>{center}</div>
+      <div className={`srk-progress-secondary-area-center ${!replay && !prepared ? 'srk-progress-live-text' : 'srk-progress-time-machine-status'}`}>{center}</div>
       <div className="srk-progress-secondary-area-right">Remaining: {formatClock(durationMs - elapsedMs)}</div>
     </div>
   </div>;
@@ -245,13 +247,18 @@ function Board({snapshot, options}) {
   const rule = actualRule(activeSnapshot.ranklist);
   const prepared = session.startAt === null || session.startAt === undefined;
   const elapsedMs = clock.elapsedMs, liveMs = clock.liveMs;
+  const replay = canReplay(session, liveMs);
+  const externalUrl = options.externalUrlFor?.({elapsedMs}) || options.externalUrl;
 
   const requestProjection = React.useCallback((target, eventKey = 'manual') => {
     if (!optionsRef.current.onProject || prepared) return Promise.resolve(null);
     const sequence = ++requestSequence.current, expectedSession = sessionId, expectedInput = snapshot.inputKey;
     pendingProjection.current = true; setProjectionBusy(true); setProjectionError('');
     return Promise.resolve().then(() => optionsRef.current.onProject(target)).then(result => {
-      if (!result || result.sessionId !== expectedSession || result.inputKey !== expectedInput || Math.abs(result.elapsedMs - target) > 1) throw new Error('榜单显示时刻更新失败，请重试。');
+      // A live request can be capped by the native snapshot's confirmed clock.
+      if (!result || result.sessionId !== expectedSession || result.inputKey !== expectedInput ||
+          !Number.isFinite(result.elapsedMs) || result.elapsedMs < 0 || result.elapsedMs > target + 1 ||
+          canReplay(optionsRef.current.session, clockRef.current.liveMs) && Math.abs(result.elapsedMs - target) > 1) throw new Error('榜单显示时刻更新失败，请重试。');
       if (sequence === requestSequence.current) {setProjection(result); failedEvent.current = '';}
       return result;
     }).catch(error => {
@@ -318,13 +325,14 @@ function Board({snapshot, options}) {
 
   const changeSetting = (key, value) => setSettings(current => ({...current, [key]: value}));
   const seek = target => {
+    if (!replay) return;
     const now = Date.now(), next = playbackForSeek(playbackRef.current, target, durationMs, now);
     setPlayback(next); setClock({liveMs: liveElapsed(session, now), elapsedMs: next.elapsedMs}); requestProjection(next.elapsedMs);
   };
   const togglePlayback = () => {
-    if (prepared) return;
+    if (!replay) return;
     const now = Date.now(), currentLive = liveElapsed(session, now), currentElapsed = clockRef.current.elapsedMs;
-    const next = playbackForToggle(playbackRef.current, currentElapsed, currentLive, now, durationMs);
+    const next = playbackForToggle(playbackRef.current, currentElapsed, durationMs, now, durationMs);
     setPlayback(next); setClock({liveMs: currentLive, elapsedMs: next.elapsedMs});
     if (next.custom) requestProjection(next.elapsedMs);
   };
@@ -335,7 +343,7 @@ function Board({snapshot, options}) {
     requestProjection(current);
   };
   const changeSpeed = speed => {
-    if (!SPEEDS.includes(speed)) return;
+    if (!replay || !SPEEDS.includes(speed)) return;
     const now = Date.now(), current = clockRef.current.elapsedMs;
     setPlayback({...playback, speed, anchorAt: now, anchorElapsedMs: current, elapsedMs: current});
   };
@@ -356,8 +364,8 @@ function Board({snapshot, options}) {
     window.setTimeout(() => URL.revokeObjectURL(url), 60000); setNotice('已导出当前显示时刻的标准榜单。');
   };
   const share = async () => {
-    if (!options.externalUrl) return;
-    try {await navigator.clipboard.writeText(options.externalUrl); setNotice('RankLand 链接已复制。');}
+    if (!externalUrl) return;
+    try {await navigator.clipboard.writeText(externalUrl); setNotice('RankLand 链接已复制。');}
     catch (_) {setNotice('无法访问剪贴板，请使用“打开 RankLand”。');}
   };
   const contest = activeSnapshot.ranklist.contest, range = formatContestTimeRange(contest.startAt, contest.duration);
@@ -376,11 +384,11 @@ function Board({snapshot, options}) {
   React.useEffect(() => {
     if (problemPayload && !activeProblemRevealed) setProblemPayload(null);
   }, [problemPayload, activeProblemRevealed]);
-  const playLabel = prepared ? '尚未开始' : playback.playing || !playback.custom && liveMs < durationMs ? '暂停' : !playback.custom && liveMs >= durationMs ? '回放' : '继续';
+  const playLabel = prepared ? '尚未开始' : !replay ? '比赛进行中' : !playback.custom ? '回放' : playback.playing ? '暂停' : '继续';
   return <section className={`qoj-board qoj-theme-${resolvedTheme}`} data-theme={resolvedTheme} data-id="vp-ranklist-content" data-session-id={sessionId}>
     <div className="qoj-playback-controls">
-      <button type="button" className="qoj-button qoj-button-primary" data-id="board-play-toggle" disabled={prepared} onClick={togglePlayback}>{playLabel}</button>
-      <label className="qoj-speed" title={!playback.custom && liveMs<durationMs ? "实时榜单跟随比赛时钟；暂停后可设置回放倍速" : "只改变榜单回放速度"}>倍速 <select className="srk-ranklist-org-select" aria-label="虚拟参赛倍速" disabled={prepared || !playback.custom && liveMs<durationMs} value={playback.speed} onChange={event => changeSpeed(Number(event.target.value))}>
+      <button type="button" className="qoj-button qoj-button-primary" data-id="board-play-toggle" disabled={!replay} onClick={togglePlayback}>{playLabel}</button>
+      <label className="qoj-speed" title={replay ? "只改变榜单回放速度" : "赛后可设置回放倍速"}>倍速 <select className="qoj-speed-select" aria-label="虚拟参赛倍速" disabled={!replay} value={playback.speed} onChange={event => changeSpeed(Number(event.target.value))}>
         {SPEEDS.map(value => <option value={value} key={value}>{value}×</option>)}
       </select></label>
       <button type="button" className="qoj-button qoj-button-outline" data-id="board-follow-live" disabled={!playback.custom} onClick={followLive}>回到当前</button>
@@ -389,12 +397,12 @@ function Board({snapshot, options}) {
     </div>
     {prepared && <p className="qoj-prepared-note">比赛尚未开始，打开榜单不会启动计时。</p>}
     <div className="qoj-title-wrap"><h1 className="srk-ranklist-title">{text(contest.title)}</h1>
-      {options.externalUrl && <a className="qoj-rankland-link" data-id="board-open-rankland" href={options.externalUrl} target="_blank" rel="noopener noreferrer">打开 RankLand <Icon name="external" /></a>}
+      {externalUrl && <a className="qoj-rankland-link" data-id="board-open-rankland" href={externalUrl} target="_blank" rel="noopener noreferrer">打开 RankLand <Icon name="external" /></a>}
     </div>
     <div className="srk-ranklist-meta">
       <button type="button" className="srk-ranklist-action-menu srk-ranklist-action-trigger" data-id="ranklist-download-action" aria-label="下载当前榜单" onClick={download}><Icon name="download" /></button>
       <span className="srk-ranklist-meta-divider" />
-      {options.externalUrl && <button type="button" className="srk-ranklist-action-menu srk-ranklist-action-trigger" data-id="ranklist-share-action" aria-label="复制 RankLand 链接" onClick={share}><Icon name="share" /></button>}
+      {externalUrl && <button type="button" className="srk-ranklist-action-menu srk-ranklist-action-trigger" data-id="ranklist-share-action" aria-label="复制 RankLand 链接" onClick={share}><Icon name="share" /></button>}
       {contributors.length > 0 && <p className="srk-ranklist-meta-line">贡献者：{contributors.map((contributor, index) => <React.Fragment key={`${contributor.name}:${index}`}>
         {index > 0 && ', '}{contributor.url && /^https:\/\//.test(contributor.url) ? <a href={contributor.url} target="_blank" rel="noopener noreferrer">{contributor.name}</a> : contributor.name}
       </React.Fragment>)}</p>}

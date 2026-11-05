@@ -88,14 +88,28 @@ test("early finish excludes later AC without changing the immutable submission t
  const e=environment();e.state.session.finishedAt=60000;e.context.renderSummary();
  assert.equal(byClass(e.target,"score_correct").length,0);assert.equal(e.state.submissions[0].elapsedMs,4674955);
 });
-test("the explicit RankLand link keeps the confirmed start and rule but opens paused at the contest origin",()=>{
+test("the running RankLand link follows the confirmed start instead of opening paused at zero",()=>{
  const e=environment(),started=1793493600045;
  e.state.session.startAt=started;e.state.session.ranklandUrl=ranklandUrl+"&anchor=2026-11-01T00%3A00%3A00Z&from=90&play=1&speed=60";
- const before=JSON.stringify(e.state.session),url=new URL(e.context.ranklandBoardUrl());
- assert.equal(Date.parse(url.searchParams.get("at")),started);assert.equal(url.searchParams.get("play"),"0");
+ e.state.session.state='running';e.state.session.elapsedMs=1200000;
+ const before=JSON.stringify(e.state.session),url=new URL(e.context.ranklandBoardUrl(null,started+1200000));
+ assert.equal(Date.parse(url.searchParams.get("at")),started);assert.equal(url.searchParams.get("play"),"1");
  assert.equal(url.searchParams.get("from"),"0");assert.equal(url.searchParams.get("speed"),"1");
  assert.equal(url.searchParams.get("anchor"),null);assert.equal(url.searchParams.get("rule"),"ICPC");
  assert.equal(JSON.stringify(e.state.session),before);
+});
+test('finished RankLand links and shares preserve the displayed replay instant without restarting the contest',()=>{
+ const e=environment();e.state.session.state='finished';e.state.session.finishedAt=1200000;
+ const before=JSON.stringify(e.state.session);
+ const url=new URL(e.context.ranklandBoardUrl({elapsedMs:7500000,speed:5,playing:true},2000000));
+ assert.equal(url.searchParams.get('from'),'125');assert.equal(url.searchParams.get('play'),'0');
+ assert.equal(url.searchParams.get('speed'),'1');assert.equal(Date.parse(url.searchParams.get('at')),0);
+ assert.equal(JSON.stringify(e.state.session),before);
+});
+test('prepared external links pause at zero and have no invented start',()=>{
+ const e=environment();Object.assign(e.state.session,{startAt:null,state:'prepared',elapsedMs:0});
+ const url=new URL(e.context.ranklandBoardUrl());
+ assert.equal(url.searchParams.get('at'),null);assert.equal(url.searchParams.get('from'),'0');assert.equal(url.searchParams.get('play'),'0');
 });
 test("display projection reads the requested time without replacing the real Home snapshot",async()=>{
  const e=environment(),real={own:{score:99}};e.state.connected=true;e.state.board=real;

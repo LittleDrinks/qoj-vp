@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QOJ Workbench · 榜单预览</title>
+<link rel="stylesheet" href="/bootstrap.css">
+<link rel="stylesheet" href="/view.css">
+<style>
+body{margin:0;background:#f5f5f5}header{padding:16px 24px;background:#212529;color:#fff;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+header strong{margin-right:auto}header select{border-radius:6px;padding:6px}header p{width:100%;margin:0;font-size:13px;color:#ddd}
+#load-error{padding:24px;color:#b22}
+</style>
+<header><strong>QOJ Workbench · 榜单预览</strong>
+<label>比赛阶段 <select id="phase"><option value="finished">赛后 · 可回放</option><option value="running">赛中 · 20 分钟</option><option value="early">提前结束 · 20 分钟</option><option value="prepared">赛前</option></select></label>
+<label>赛制 <select id="rule"><option>ICPC</option><option>CCPC26</option></select></label>
+<p>南京站 2025 历史榜，13 题、359 支队伍。可操作筛选、详情、设置及回放；此预览不会创建真实比赛或提交代码。</p></header>
+<main id="board"></main><p id="load-error" hidden></p>
+<script src="/engine.js"></script><script src="/view.js"></script>
+<script>
+(async()=>{
+  const archive=await fetch('/history.json').then(r=>{if(!r.ok)throw Error('历史榜加载失败');return r.json()});
+  const durationMs=VpBoardEngine.milliseconds(archive.contest.duration),root=document.querySelector('#board');
+  const problems=archive.problems.map((p,i)=>({id:String(p.link?.match(/problem\/(\d+)/)?.[1]||i+1),label:p.alias,name:p.title}));
+  let input,timer;
+  const project=elapsedMs=>({...VpBoardEngine.project(input,archive,elapsedMs),inputKey:VpBoardEngine.inputKey(input),observedAt:Date.now()});
+  function open(){
+    clearInterval(timer);VpBoardView.clear(root);
+    const phase=document.querySelector('#phase').value,rule=document.querySelector('#rule').value,now=Date.now();
+    const session={sessionId:'preview-'+phase+'-'+rule,account:'我的预览队伍',durationMs,
+      startAt:phase==='prepared'?null:now-(phase==='finished'?durationMs:1200000),
+      state:phase==='prepared'?'prepared':phase==='running'?'running':'finished',
+      elapsedMs:phase==='prepared'?0:phase==='finished'?durationMs:1200000,board:{rule,revealCount:50,revealRatio:20}};
+    if(phase==='early')session.finishedAt=now;
+    input={session,contest:{problems},history:{submissions:[]}};
+    function render(){
+      if(phase==='running')session.elapsedMs=Math.min(durationMs,Date.now()-session.startAt);
+      VpBoardView.render(root,project(null),{session:{...session},contestKey:'icpc2025-nanjing',onProject:async elapsed=>project(elapsed)});
+    }
+    render();if(phase==='running')timer=setInterval(render,1000);
+  }
+  document.querySelector('#phase').onchange=open;document.querySelector('#rule').onchange=open;open();
+})().catch(error=>{const node=document.querySelector('#load-error');node.hidden=false;node.textContent=error.message;});
+</script>
+</html>

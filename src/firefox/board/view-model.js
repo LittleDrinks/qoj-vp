@@ -10,6 +10,8 @@ import {
   DEFAULT_STYLED_RANKLIST_SETTINGS,
   normalizeStyledRanklistSettings,
 } from '../../../vendor/rankland-web/src/client/components/ranklist/styled-ranklist-settings.ts';
+import {canReplay} from './clock.js';
+export {canReplay} from './clock.js';
 
 export {
   LARGE_RANKLIST_THRESHOLD,
@@ -62,7 +64,7 @@ export function initialPlayback(session, saved, now = Date.now()) {
   const live = liveElapsed(session, now);
   const valid = saved && saved.version === 1 && saved.startAt === session?.startAt && Number.isFinite(saved.elapsedMs) &&
     Number.isFinite(saved.savedAt) && SPEEDS.includes(saved.speed) && typeof saved.playing === 'boolean' && saved.custom === true;
-  if (!valid || session?.startAt === null || session?.startAt === undefined) {
+  if (!valid || !canReplay(session, live)) {
     return {custom: false, elapsedMs: live, playing: live < duration, speed: 1, anchorAt: now, anchorElapsedMs: live};
   }
   const elapsedMs = clampElapsed(saved.elapsedMs + (saved.playing ? Math.max(0, now - saved.savedAt) * saved.speed : 0), duration);

@@ -15,7 +15,7 @@ test('display settings use the upstream defaults and reject unknown or stale val
 });
 
 test('view playback is independent of the immutable contest clock and survives a paused restore',()=>{
- const session={startAt:1000000,durationMs:300000},before=JSON.stringify(session);
+ const session={startAt:1000000,durationMs:300000,state:'finished',finishedAt:1060000},before=JSON.stringify(session);
  const initial=view.initialPlayback(session,null,1000000);
  assert.equal(initial.custom,false);assert.equal(initial.elapsedMs,0);
  const paused=view.playbackForToggle(initial,0,60000,1060000,300000);
@@ -29,6 +29,12 @@ test('view playback is independent of the immutable contest clock and survives a
  assert.equal(restored.elapsedMs,120000);assert.equal(restored.playing,false);assert.equal(restored.custom,true);
  assert.equal(JSON.stringify(session),before);
  assert.equal(view.liveElapsed({startAt:null,durationMs:300000},9999999),0);
+});
+test('restoring an old replay cannot move a running board into future history',()=>{
+ const session={startAt:1000000,durationMs:18000000,state:'running',elapsedMs:1200000};
+ const restored=view.initialPlayback(session,{version:1,startAt:session.startAt,elapsedMs:18000000,
+  playing:true,speed:60,custom:true,savedAt:1000000},2200000);
+ assert.equal(restored.custom,false);assert.equal(restored.elapsedMs,1200000);assert.equal(restored.speed,1);
 });
 
 test('feed diff preserves same-time submissions, recognizes late rejudges and never replays backwards',()=>{

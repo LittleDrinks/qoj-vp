@@ -24,6 +24,8 @@
 
 助手只在需要时运行，不用手动开启后台服务。关闭页面后，比赛记录和已准备的文件仍保留。
 
+开发时可运行 `npm run preview:board`，打开 `http://localhost:8765` 交互预览榜单。使用已收录的南京站历史数据，可切换赛前、赛中和赛后；预览不连接 QOJ，也不创建真实比赛。正式工作台仍需 Hydro Firefox 和本地助手。
+
 ## 许可证
 
 [GPL-2.0-or-later](LICENSE)。DOMjudge 界面与其他依赖保留各自的[来源及许可证](src/firefox/assets/licenses)。

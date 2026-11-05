@@ -86,6 +86,7 @@ def main():
                 save()
         # Timing-sensitive original controls and the large-board comparison are CPU-isolated.
         for case in [('rankland-export', ['tests/browser/guest_rankland_sync.py']),
+                     ('board-lifecycle', ['tests/browser/guest_board_lifecycle.py']),
                      ('board-parity', ['tests/browser/guest_board_parity.py'])]:
             check = run_case(case)
             report['checks'].append(check)
