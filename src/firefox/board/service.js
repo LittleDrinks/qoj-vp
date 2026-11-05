@@ -6,7 +6,7 @@ globalThis.VpBoard = (() => {
       const parsed=new URL(url);
       return parsed.origin+':'+parsed.searchParams.get('contest');
     }
-    async function project(sessionId,refresh) {
+    async function project(sessionId,refresh,elapsedMs) {
       const input=await readSnapshot(sessionId);
       if(input.session.sessionId!==sessionId) throw new Error('BOARD_SESSION_MISMATCH');
       let record=null,warning=null,cached=false;
@@ -30,15 +30,17 @@ globalThis.VpBoard = (() => {
         }
       }
       let result;
-      try { result=engine.project(input,record?.archive || null); }
-      catch(error) {warning=error.code || error.message;record=null;result=engine.project(input);}
+      try { result=engine.project(input,record?.archive || null,elapsedMs); }
+      catch(error) {warning=error.code || error.message;record=null;result=engine.project(input,null,elapsedMs);}
       return {...result,inputKey:engine.inputKey(input),observedAt:clock(),warning,cached,
         source:record?{provider:'rankland',contestKey:record.contestKey,hash:record.hash,fetchedAt:record.fetchedAt}:null};
     }
-    function snapshot(sessionId,{refresh=false}={}) {
-      // A manual refresh joins an existing read; it never creates another writer.
-      if(!pending.has(sessionId)) pending.set(sessionId,project(sessionId,refresh).finally(()=>pending.delete(sessionId)));
-      return pending.get(sessionId);
+    function snapshot(sessionId,{refresh=false,elapsedMs=null}={}) {
+      if(elapsedMs!==null && (!Number.isFinite(elapsedMs) || elapsedMs<0)) return Promise.reject(new Error('INVALID_BOARD_TIME'));
+      // Each display instant has its own read; identical seeks join one writer.
+      const key=sessionId+':'+(elapsedMs===null?'live':elapsedMs);
+      if(!pending.has(key)) pending.set(key,project(sessionId,refresh,elapsedMs).finally(()=>pending.delete(key)));
+      return pending.get(key);
     }
     return {snapshot};
   }

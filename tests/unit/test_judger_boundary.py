@@ -48,7 +48,8 @@ class JudgerBoundaryTests(unittest.TestCase):
 
     def test_invalid_rules_do_not_modify_session(self):
         s=self.app.dispatch('create_session',{'contestId':'7','board':{'rule':'ICPC'}})
-        for value in ({'rule':'unknown'},{'revealCount':True},{'revealRatio':float('nan')},{'revealCount':-1}):
+        for value in ({'rule':'unknown'},{'revealCount':True},{'revealRatio':float('nan')},{'revealCount':-1},
+                      {'rule':'CCPC26','revealCount':0,'revealRatio':0}):
             with self.subTest(value=value),self.assertRaises((ValueError,ApplicationError)):
                 self.app.dispatch('update_session',{'sessionId':s['sessionId'],'board':value})
         self.assertEqual(self.app.dispatch('inspect_session',{'sessionId':s['sessionId']})['board'],board_settings({'rule':'ICPC'}))

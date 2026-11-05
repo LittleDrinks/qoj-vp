@@ -88,3 +88,21 @@ test("early finish excludes later AC without changing the immutable submission t
  const e=environment();e.state.session.finishedAt=60000;e.context.renderSummary();
  assert.equal(byClass(e.target,"score_correct").length,0);assert.equal(e.state.submissions[0].elapsedMs,4674955);
 });
+test("the explicit RankLand link keeps the confirmed start and rule but opens paused at the contest origin",()=>{
+ const e=environment(),started=1793493600045;
+ e.state.session.startAt=started;e.state.session.ranklandUrl=ranklandUrl+"&anchor=2026-11-01T00%3A00%3A00Z&from=90&play=1&speed=60";
+ const before=JSON.stringify(e.state.session),url=new URL(e.context.ranklandBoardUrl());
+ assert.equal(Date.parse(url.searchParams.get("at")),started);assert.equal(url.searchParams.get("play"),"0");
+ assert.equal(url.searchParams.get("from"),"0");assert.equal(url.searchParams.get("speed"),"1");
+ assert.equal(url.searchParams.get("anchor"),null);assert.equal(url.searchParams.get("rule"),"ICPC");
+ assert.equal(JSON.stringify(e.state.session),before);
+});
+test("display projection reads the requested time without replacing the real Home snapshot",async()=>{
+ const e=environment(),real={own:{score:99}};e.state.connected=true;e.state.board=real;
+ e.setHandler(async(method,args)=>{
+  assert.equal(method,"board.snapshot");const input=e.context.boardInput(),result=e.context.VpBoardEngine.project(input,null,args.elapsedMs);
+  return {...result,inputKey:e.context.VpBoardEngine.inputKey(input)};
+ });
+ const replay=await e.context.projectBoard(0);assert.equal(replay.elapsedMs,0);assert.equal(replay.own.score,0);
+ assert.equal(e.state.board,real);assert.equal(e.state.submissions[0].elapsedMs,4674955);
+});

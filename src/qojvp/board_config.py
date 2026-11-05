@@ -51,4 +51,6 @@ def board_settings(value):
         raise ValueError('Invalid CCPC26 reveal count')
     if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not 0 <= ratio <= 100:
         raise ValueError('Invalid CCPC26 reveal ratio')
+    if rule == 'CCPC26' and count == 0 and ratio == 0:
+        raise ValueError('CCPC26 requires a nonzero reveal threshold')
     return {'rule': rule, 'revealCount': count, 'revealRatio': ratio}

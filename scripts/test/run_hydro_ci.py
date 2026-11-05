@@ -53,7 +53,6 @@ def main():
         cases = [
             ('visual-parity', ['tests/browser/guest_visual_parity.py', '--reference-snapshot',
                                'tests/browser/visual-reference/rendered', '--width', '1440', '--height', '880']),
-            ('rankland-export', ['tests/browser/guest_rankland_sync.py']),
             ('administration', ['tests/browser/guest_admin_flow.py']),
             ('resources', ['tests/browser/guest_resource_cache.py']),
             ('home-refresh', ['tests/browser/guest_home_parity.py', '--reference-snapshot',
@@ -85,6 +84,13 @@ def main():
                 report['checks'].append(check)
                 print(check['name'] + ': ' + check['status'], flush=True)
                 save()
+        # Timing-sensitive original controls and the large-board comparison are CPU-isolated.
+        for case in [('rankland-export', ['tests/browser/guest_rankland_sync.py']),
+                     ('board-parity', ['tests/browser/guest_board_parity.py'])]:
+            check = run_case(case)
+            report['checks'].append(check)
+            print(check['name'] + ': ' + check['status'], flush=True)
+            save()
         report['status'] = 'passed' if all(check['status'] == 'passed' for check in report['checks']) else 'failed'
     except Exception as error:
         report.update(status='failed', errorType=type(error).__name__, error=str(error))

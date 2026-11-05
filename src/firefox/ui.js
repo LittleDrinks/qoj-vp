@@ -377,23 +377,50 @@
   function boardInput() {
     return {session:state.session,contest:state.contest,history:{submissions:state.submissions}};
   }
+  function ranklandBoardUrl() {
+    if (!state.session?.ranklandUrl) return null;
+    try {
+      const url=new URL(state.session.ranklandUrl), start=epoch(state.session.startAt);
+      if (!ranklandViewIdentity(url.href)) return null;
+      url.searchParams.delete("anchor");url.searchParams.set("from","0");url.searchParams.set("speed","1");url.searchParams.set("play","0");
+      if (start===null) url.searchParams.delete("at");else url.searchParams.set("at",new Date(start).toISOString());
+      return url.href;
+    } catch (_) { return null; }
+  }
   function currentBoard() {
     if (!state.session || !state.contest?.problems?.length) return null;
     const input=boardInput();
     if (state.board?.inputKey===VpBoardEngine.inputKey(input)) return state.board;
     try {
       const elapsed=input.session.startAt==null ? 0 : Math.max(0,Date.now()-input.session.startAt);
-      return VpBoardEngine.project(input,null,elapsed);
+      const projected=VpBoardEngine.project(input,null,elapsed);
+      return {...projected,inputKey:VpBoardEngine.inputKey(input),observedAt:0};
     } catch (_) { return null; }
   }
+  async function projectBoard(elapsedMs) {
+    const sessionId=state.session?.sessionId,generation=state.generation,input=boardInput();
+    if (!sessionId || !state.contest?.problems?.length || !Number.isFinite(elapsedMs) || elapsedMs<0) throw new Error("榜单显示时刻无效。");
+    let result;
+    if (state.connected) result=await call("board.snapshot",{sessionId,elapsedMs});
+    else {
+      const projected=VpBoardEngine.project(input,null,elapsedMs);
+      result={...projected,inputKey:VpBoardEngine.inputKey(input),observedAt:Date.now()};
+    }
+    if (!current(sessionId,generation) || result.sessionId!==sessionId || result.inputKey!==VpBoardEngine.inputKey(boardInput())) throw new Error("比赛数据已更新，请重新定位。");
+    return result;
+  }
   function renderBoard() {
-    const result=currentBoard(), target=$("board-table");
-    if (!result) { VpBoardView.clear?.(target); $("board-status").textContent="题表尚未准备完成。"; return; }
-    const actualRule=result.ranklist?.sorter?.config?.extendedAlgorithms?.some(item=>item.algorithm==="CCPC26") ? "CCPC26":"ICPC";
-    $("board-status").textContent=actualRule+" · "+(result.scope==="historical" ? "历史对手与本队 · 本地回放" : "本队成绩 · 尚无可回放的历史榜单")+
-      (result.provisional ? " · 部分判定待确认" : "")+
-      (result.warning ? " · 历史榜单暂不可用（"+result.warning+"）" : "");
-    if (location.hash==="#scoreboard") VpBoardView.render(target,result);
+    const result=currentBoard(), target=$("board-table"), status=$("board-status");
+    if (!result) { VpBoardView.clear?.(target); status.textContent="题表尚未准备完成。";status.hidden=false;return; }
+    const notes=[];
+    if(result.provisional)notes.push("部分判定待确认");
+    if(result.warning)notes.push(result.cached ? "历史榜单更新暂不可用，正在显示已缓存内容" : "历史榜单暂不可用，当前仅显示本队成绩");
+    status.textContent=notes.join(" · ");status.hidden=!notes.length;
+    if (location.hash==="#scoreboard") {
+      let contestKey="scoreboard";
+      try {contestKey=new URL(state.session.ranklandUrl).searchParams.get("contest") || contestKey;} catch (_) {}
+      VpBoardView.render(target,result,{session:state.session,externalUrl:ranklandBoardUrl(),contestKey,onProject:projectBoard});
+    }
   }
   function refreshBoard(refreshSource = false) {
     const sessionId=state.session?.sessionId,generation=state.generation;
@@ -667,6 +694,7 @@
     $("contest-view").hidden = jury || !state.session;
     $("home-view").hidden = problems || jury || board;
     $("board-view").hidden=!board || jury;
+    document.body?.classList?.toggle("board-route",board && !jury);
     $("nav-scoreboard").classList.toggle("active",board);
     if(board) {renderBoard();refreshBoard();} $("problems-view").hidden = !problems || jury;
     $("jury-list-view").hidden = Boolean(target); $("jury-detail-view").hidden = !target || state.session?.sessionId !== target;

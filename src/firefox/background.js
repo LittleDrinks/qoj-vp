@@ -591,7 +591,8 @@
     if (method.startsWith("judger.")) {
       const action=method.slice(7);method=action==="prepare_resource"?action:"qoj_"+action;
     }
-    if (method === "board.snapshot") return board.snapshot(args.sessionId, {refresh:args.refresh === true});
+    if (method === "board.snapshot") return board.snapshot(args.sessionId, {refresh:args.refresh === true,
+      elapsedMs:typeof args.elapsedMs === "number" ? args.elapsedMs : null});
     if (method === "qoj.virtual.open") {
       const session = await native("inspect_session", args);
       if (session.qojVirtual?.mode !== "qoj-native") throw new Error("QOJ_VIRTUAL_NOT_BOUND");

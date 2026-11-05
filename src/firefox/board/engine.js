@@ -7,6 +7,10 @@ const verdicts = {'CORRECT':'AC','WRONG-ANSWER':'WA','TIMELIMIT':'TLE','RUN-ERRO
   'COMPILER-ERROR':'CE','NO-OUTPUT':'NOUT','OUTPUT-LIMIT':'OLE','MEMORY-LIMIT':'MLE','PRESENTATION-ERROR':'PE'};
 const fail = code => {throw Object.assign(new Error(code),{code});};
 const clone = value => JSON.parse(JSON.stringify(value));
+const compareRows = (a,b) => {
+  const left=String(a.user?.id ?? ''),right=String(b.user?.id ?? '');
+  return left<right?-1:left>right?1:0;
+};
 export function milliseconds(time) {
   if (!Array.isArray(time) || time.length !== 2 || typeof time[0] !== 'number' || !Number.isFinite(time[0]) ||
       !['ms','s','min','h','d'].includes(time[1])) fail('INVALID_BOARD_TIME');
@@ -22,7 +26,7 @@ export function configuration(session) {
   if (!['auto','ICPC','CCPC26'].includes(rule)) fail('UNSUPPORTED_BOARD_RULE');
   const count = Number(input.revealCount ?? query.get('count') ?? 50);
   const ratio = Number(input.revealRatio ?? query.get('ratio') ?? 20);
-  if (!Number.isInteger(count) || count < 0 || !Number.isFinite(ratio) || ratio < 0 || ratio > 100) fail('INVALID_BOARD_RULE');
+  if (!Number.isInteger(count) || count < 0 || count > 100000 || !Number.isFinite(ratio) || ratio < 0 || ratio > 100 || rule==='CCPC26' && count===0 && ratio===0) fail('INVALID_BOARD_RULE');
   return {...input, rule, revealCount:count, revealRatio:ratio};
 }
 function sourceFor(input, archive) {
@@ -52,7 +56,6 @@ function sourceFor(input, archive) {
   if(config.rule==='ICPC') delete source.sorter.config.extendedAlgorithms;
   if(config.rule==='CCPC26') source.sorter.config.extendedAlgorithms=[{algorithm:'CCPC26',config:{
     problemRevealAcceptedThreshold:{count:config.revealCount,ratio:config.revealRatio/100}}}];
-  source.series=[{title:'Rank',rule:{preset:'Normal'}}];
   // Historical names/links are data; never load remote avatars or executable links.
   function sanitize(value) {
     if (!value || typeof value!=='object') return;
@@ -67,12 +70,14 @@ function sourceFor(input, archive) {
 }
 export function project(input, archive=null, elapsedMs=null) {
   const {session,contest,history}=input;
+  if(elapsedMs!==null && (!Number.isFinite(elapsedMs) || elapsedMs<0)) fail('INVALID_BOARD_TIME');
   const {source,indexes,config}=sourceFor(input,archive);
   const end=session.finishedAt!=null && session.startAt!=null ? Math.min(session.durationMs,session.finishedAt-session.startAt) : session.durationMs;
   const elapsed=Math.max(0,Math.min(end,elapsedMs ?? session.elapsedMs ?? 0));
-  const timelines=[], ids=new Set();
+  const timelines=[], eventTimes=[], ids=new Set();
   let freeze=source.contest.frozenDuration ? session.durationMs-milliseconds(source.contest.frozenDuration) : session.durationMs;
   let partial=false;
+  source.rows.sort(compareRows);
   source.rows.forEach((row,i)=>{
     const id='historical:'+i; row.user={...row.user,id};
     if (!Array.isArray(row.statuses) || row.statuses.length!==source.problems.length) fail('INVALID_BOARD_HISTORY');
@@ -81,7 +86,9 @@ export function project(input, archive=null, elapsedMs=null) {
       if (!status.solutions?.length && (status.result || status.tries)) fail('BOARD_HISTORY_INCOMPLETE');
       for(const solution of status.solutions || []) {
         const at=milliseconds(solution.time);
-        if(at>=session.durationMs || at>elapsed) continue;
+        if(at>=end) continue;
+        eventTimes.push(at);
+        if(at>elapsed) continue;
         const result=elapsed<session.durationMs && at>=freeze ? '?' : solution.result;
         if(solution.result==='?') partial=true;
         timelines.push([id,index,result,[at,'ms']]);
@@ -89,6 +96,7 @@ export function project(input, archive=null, elapsedMs=null) {
     });
   });
   source.rows.push({user:{id:OWN,name:session.account || 'My team',official:true},statuses:source.problems.map(()=>({solutions:[]})),score:{value:0}});
+  source.rows.sort(compareRows);
   const ownPending=new Array(source.problems.length).fill(0);
   let unverified=0;
   const records=[...(history?.submissions || [])].sort((a,b)=>a.elapsedMs-b.elapsedMs || String(a.id).localeCompare(String(b.id),undefined,{numeric:true}));
@@ -101,6 +109,7 @@ export function project(input, archive=null, elapsedMs=null) {
     ids.add(key);
     const local=contest.problems.findIndex(p=>String(p.id)===String(item.problemId));
     if(local<0) fail('BOARD_PROBLEM_MAPPING_MISMATCH');
+    eventTimes.push(item.elapsedMs);
     if(item.elapsedMs>elapsed) continue;
     const index=indexes[local], result=verdicts[item.verdict];
     if(item.pending || !result) ownPending[index]++;
@@ -125,12 +134,18 @@ export function project(input, archive=null, elapsedMs=null) {
   own.statuses.forEach((status,i)=>{
     if(ownPending[i] && !['AC','FB'].includes(status.result)) {status.result='?';status.tries=(status.tries||0)+ownPending[i];}
   });
-  ranklist.contest.startAt=new Date(session.startAt??0).toISOString();
+  const originalStart=String(ranklist.contest.startAt || ''), offset=originalStart.match(/([+-])([01]\d|2[0-3]):?([0-5]\d)$/);
+  if(offset) {
+    const minutes=(Number(offset[2])*60+Number(offset[3]))*(offset[1]==='-'?-1:1);
+    ranklist.contest.startAt=new Date((session.startAt??0)+minutes*60000).toISOString().replace('Z',offset[0]);
+  } else ranklist.contest.startAt=new Date(session.startAt??0).toISOString();
   ranklist.time=new Date((session.startAt??0)+elapsed).toISOString();
   ranklist=convertToStaticRanklist(ranklist);
   const self=ranklist.rows.find(row=>row.user.id===OWN);
-  return {version:1,sessionId:session.sessionId,elapsedMs:elapsed,rule:config.rule,ranklist,
-    own:{score:self.score.value,penaltyMinutes:Math.floor(milliseconds(self.score.time)/60000),
+  const next=eventTimes.filter(at=>at>elapsed).reduce((value,at)=>Math.min(value,at),Infinity);
+  const nextEventMs=Number.isFinite(next)?next:null;
+  return {version:1,sessionId:session.sessionId,elapsedMs:elapsed,rule:config.rule,ranklist,nextEventMs,
+    own:{id:OWN,score:self.score.value,penaltyMinutes:Math.floor(milliseconds(self.score.time)/60000),
       rank:archive?self.rankValues[0]?.rank??null:null,progress},
     provisional:partial || ownPending.some(Boolean) || unverified>0,unverified,
     scope:archive?'historical':'self'};

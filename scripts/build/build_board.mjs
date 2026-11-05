@@ -23,10 +23,14 @@ await mkdir(resolve(root,'src/firefox/board/generated'),{recursive:true});
 await build({...options,entryPoints:['src/firefox/board/engine.js'],outfile:'src/firefox/board/generated/engine.js',format:'iife',globalName:'VpBoardEngine'});
 await build({...options,entryPoints:['src/firefox/board/view.jsx'],outfile:'src/firefox/board/generated/view.js',format:'iife',globalName:'VpBoardView'});
 const styleRoot=resolve(vendor,'standard-ranklist-renderer-component/packages/styles/src');
-const css=await less.render(['Modal','ProgressBar','Ranklist'].map(name=>'@import "'+resolve(styleRoot,name+'.less')+'";').join('\n'));
+const ranklandStyleRoot=resolve(vendor,'rankland-web/src/client/components/ranklist');
+const customCss=await readFile(resolve(root,'src/firefox/board/view.less'),'utf8');
+const imports=['Modal','ProgressBar','Ranklist'].map(name=>'@import "'+resolve(styleRoot,name+'.less')+'";');
+imports.push(...['styled-ranklist-renderer.less','problem-info-modal.less'].map(name=>'@import "'+resolve(ranklandStyleRoot,name)+'";'));
+const css=await less.render(imports.join('\n')+'\n'+customCss);
 await writeFile(resolve(root,'src/firefox/board/generated/view.css'),css.css);
 const revisions={};
-for(const name of ['standard-ranklist-utils','standard-ranklist-renderer-component']) {
+for(const name of ['standard-ranklist-utils','standard-ranklist-renderer-component','rankland-web']) {
   const dir=resolve(vendor,name);
   try {
     const manifest=JSON.parse(await readFile(resolve(root,'SOURCE_MANIFEST.json'),'utf8'));
@@ -36,7 +40,13 @@ for(const name of ['standard-ranklist-utils','standard-ranklist-renderer-compone
     revisions[name]=execFileSync('git',['-C',dir,'rev-parse','HEAD'],{encoding:'utf8'}).trim();
   }
   if(!/^[a-f0-9]{40}$/.test(revisions[name] || '')) throw new Error('Missing pinned revision for '+name);
-  await copyFile(resolve(dir,'LICENSE'),resolve(root,'src/firefox/board/generated',name+'.LICENSE'));
+  try {
+    await copyFile(resolve(dir,'LICENSE'),resolve(root,'src/firefox/board/generated',name+'.LICENSE'));
+  } catch(error) {
+    if(error.code!=='ENOENT' || name!=='rankland-web') throw error;
+    await writeFile(resolve(root,'src/firefox/board/generated/rankland-web.LICENSE-STATUS.txt'),
+      'No LICENSE file was found in rankland-web at '+revisions[name]+'. No MIT or other license is asserted here.\n');
+  }
 }
 await writeFile(resolve(root,'src/firefox/board/generated/upstream.json'),JSON.stringify(revisions,null,2)+'\n');
 console.log('Board built from pinned submodules:',revisions);

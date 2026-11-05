@@ -27,3 +27,5 @@
 ## 许可证
 
 [GPL-2.0-or-later](LICENSE)。DOMjudge 界面与其他依赖保留各自的[来源及许可证](src/firefox/assets/licenses)。
+
+本地 Board 的算榜与标准渲染继续使用固定提交的 MIT 组件 `standard-ranklist-utils` / `standard-ranklist-renderer-component`。完整榜单页通过 `vendor/rankland-web` 子模块直接复用 [`rankland-web` 展示层](https://github.com/algoux/rankland-web/tree/3bf66be459ac67326a2f488f2f0071f1d36ce18c/src/client/components/ranklist)的设置、虚拟窗口、列宽和样式源码（固定 ref `3bf66be459ac67326a2f488f2f0071f1d36ce18c`），并以 React 薄适配接入本地数据；同时核对了 `vp.xcpc.link` 实际页面的只读行为。该仓库是主站展示源码，并非 VP 应用的完整公开源码，且在核查时未提供明确的 LICENSE，因此不声称其采用 MIT；插件不引入主站服务、SSR 或账号系统，新增适配代码遵循本仓库许可证。

@@ -54,6 +54,9 @@ test('replay is pure; moving backwards excludes future submissions without chang
  const i=input([submission(1,40*60000)]),a=archive(),before=JSON.stringify([i,a]);
  assert.equal(engine.project(i,a,20*60000).own.score,0);
  assert.equal(engine.project(i,a,50*60000).own.score,1);assert.equal(JSON.stringify([i,a]),before);
+ a.contest.startAt='2024-11-03T09:00:00+08:00';const projected=engine.project(i,a,50*60000);
+ assert.ok(projected.ranklist.contest.startAt.endsWith('+08:00'));
+ assert.equal(Date.parse(projected.ranklist.contest.startAt),i.session.startAt);
 });
 test('summarized-only history, mismatched duration/problem links and unknown algorithms fail explicitly',()=>{
  const i=input(),a=archive();delete a.rows[0].statuses[0].solutions;
@@ -68,6 +71,7 @@ test('explicit rules override archive defaults while auto preserves CCPC26',()=>
  i.session.board={rule:'ICPC'};assert.equal(engine.project(i,a).ranklist.sorter.config.extendedAlgorithms,undefined);
  i.session.board={rule:'CCPC26',revealCount:7,revealRatio:25};
  assert.equal(engine.project(i,a).ranklist.sorter.config.extendedAlgorithms[0].config.problemRevealAcceptedThreshold.ratio,.25);
+ i.session.board={rule:'CCPC26',revealCount:0,revealRatio:0};assert.throws(()=>engine.project(i,a),/INVALID_BOARD_RULE/);
 });
 test('data adapter cache survives service restart; no external tab or source fetch is needed to score',async()=>{
  const i=input([submission(1,60000)]);i.session.ranklandUrl='https://vp.xcpc.link/?contest=fixture';
@@ -85,4 +89,22 @@ test('unavailable source degrades to own score and is backed off; cached invalid
  sources:{loadArchive:async()=>{reads++;throw Error('offline');}}});
  const b=await board.snapshot('practice');assert.equal(b.own.rank,null);assert.equal(b.own.score,1);
  await board.snapshot('practice');assert.equal(reads,1);
+});
+test('event scheduling and explicit projections preserve multi-series metadata and isolate display time',async()=>{
+ const i=input([submission(1,40*60000),submission(2,50*60000,'JUDGING',{pending:true})]),a=archive();
+ a.series=[{title:'#',rule:{preset:'Normal'}},{title:'S#',rule:{preset:'Normal'}}];
+ const initial=engine.project(i,a,0);assert.equal(initial.nextEventMs,30*60000);
+ assert.equal(initial.ranklist.series.length,2);assert.equal(initial.ranklist.series[1].title,'S#');
+ assert.equal(initial.own.score,0);assert.equal(initial.ranklist.rows.length,2);
+ assert.equal(initial.ranklist.rows[0].user.id,initial.own.id,'Zero-score own row must follow the VP user-id tie order');
+ assert.equal(engine.project(i,a,40*60000).nextEventMs,50*60000);
+ assert.equal(engine.project(i,a,50*60000).nextEventMs,null);
+ i.session.ranklandUrl='https://vp.xcpc.link/?contest=fixture';
+ const board=context.VpBoard.create({readSnapshot:async()=>i,engine,cache:{get:async()=>({archive:a,hash:'hash'}),set:async()=>{}},
+  sources:{loadArchive:async()=>{throw Error('unexpected network');}}});
+ const reads=[];const original=board.snapshot('practice');const zero=board.snapshot('practice',{elapsedMs:0});
+ const same=board.snapshot('practice',{elapsedMs:0}),later=board.snapshot('practice',{elapsedMs:50*60000});
+ const results=await Promise.all([original,zero,same,later]);
+ assert.equal(results[1],results[2]);assert.notEqual(results[0],results[1]);assert.notEqual(results[1],results[3]);
+ assert.equal(results[1].own.score,0);assert.equal(results[3].own.score,1);assert.equal(results[3].provisional,true);
 });
