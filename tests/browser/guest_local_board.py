@@ -101,7 +101,7 @@ def main():
         def rule_controls():
             from selenium.webdriver.common.by import By
             from selenium.webdriver.support.ui import Select
-            h.driver.execute_script("location.hash='#jury';")
+            h.driver.execute_script("location.hash='#jury/contest/'+arguments[0];",sid)
             h.wait(lambda:h.driver.find_element(By.ID,'rankland-settings').is_displayed(),'Jury settings')
             h.driver.find_element(By.ID,'rankland-settings').click()
             h.wait(lambda:h.driver.find_element(By.ID,'board-rule').is_displayed(),'board settings modal')
