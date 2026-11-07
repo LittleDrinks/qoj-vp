@@ -38,7 +38,7 @@ globalThis.VpBoard = (() => {
     function snapshot(sessionId,{refresh=false,elapsedMs=null,localOnly=false}={}) {
       if(elapsedMs!==null && (!Number.isFinite(elapsedMs) || elapsedMs<0)) return Promise.reject(new Error('INVALID_BOARD_TIME'));
       // Each display instant has its own read; identical seeks join one writer.
-      const key=sessionId+':'+(localOnly?'self:':'historical:')+(elapsedMs===null?'live':elapsedMs);
+      const key=sessionId+':'+(localOnly?'self:':'historical:')+(refresh?'refresh:':'read:')+(elapsedMs===null?'live':elapsedMs);
       if(!pending.has(key)) pending.set(key,project(sessionId,refresh,elapsedMs,localOnly).finally(()=>pending.delete(key)));
       return pending.get(key);
     }

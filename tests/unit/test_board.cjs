@@ -158,3 +158,15 @@ test('view-only local score bypasses historical archives even when cached or ref
  assert.equal(result.scope,'self');assert.equal(result.own.rank,null);assert.equal(result.own.score,1);
  assert.equal(result.own.penaltyMinutes,1);
 });
+
+test('explicit refresh checks the source during a concurrent cached read',async()=>{
+ const i=input([submission(1,60000)]);i.session.ranklandUrl='https://vp.xcpc.link/?contest=fixture';
+ let release,reads=0,loads=0;const gate=new Promise(resolve=>{release=resolve;});
+ const board=context.VpBoard.create({readSnapshot:async()=>{if(++reads===1)await gate;return i;},engine,
+  cache:{get:async()=>({archive:archive()}),set:async()=>{}},
+  sources:{loadArchive:async()=>{loads++;throw Error('offline');}}});
+ const cached=board.snapshot('practice');const refreshed=board.snapshot('practice',{refresh:true});
+ release();const results=await Promise.all([cached,refreshed]);
+ assert.equal(loads,1);assert.equal(results[1].scope,'historical');assert.equal(results[1].cached,true);
+ assert.equal(results[1].warning,'offline');assert.equal(results[1].own.score,1);
+});

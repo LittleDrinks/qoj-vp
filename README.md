@@ -27,3 +27,5 @@
 ## 许可证
 
 [GPL-2.0-or-later](LICENSE)。DOMjudge 界面与其他依赖保留各自的[来源及许可证](src/firefox/assets/licenses)。
+
+[DOMjudge](https://github.com/DOMjudge/domjudge) · [qoj-submitter](https://github.com/LittleDrinks/qoj-submitter) · [standard-ranklist-utils](https://github.com/algoux/standard-ranklist-utils) · [standard-ranklist-renderer-component](https://github.com/algoux/standard-ranklist-renderer-component) · [rankland-web](https://github.com/algoux/rankland-web)
