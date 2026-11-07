@@ -81,6 +81,34 @@
       "sourceImage": "domjudge/domserver@sha256:e9704bdae8e08440eb0042c9817116dc9767a511f577e9318c4f0710ad5b5727",
       "sourceImagePath": "/opt/domjudge/domserver/webapp/vendor/fortawesome/font-awesome/webfonts/fa-brands-400.woff2",
       "sourceKind": "official-domserver-image"
+    },
+    {
+      "path": "icons/domjudge-16.png",
+      "reference": "tests/browser/visual-reference/rendered/site-assets/favicon.ico",
+      "sourceKind": "official-domserver-favicon",
+      "sourceVersion": "9.0.1",
+      "dimensions": [
+        16,
+        16
+      ],
+      "resized": false,
+      "bytes": 635,
+      "sha256": "98beafb1301802da965672b029e51b0ca8f5bffc9804198d1111e3e6fe6abd85",
+      "license": "assets/licenses/DOMjudge-COPYING"
+    },
+    {
+      "path": "icons/domjudge-32.png",
+      "reference": "tests/browser/visual-reference/rendered/site-assets/favicon.ico",
+      "sourceKind": "official-domserver-favicon",
+      "sourceVersion": "9.0.1",
+      "dimensions": [
+        32,
+        32
+      ],
+      "resized": false,
+      "bytes": 1378,
+      "sha256": "0abdf413ff3403aec283926fac984cb97a92c107b702e6cd508551d78d0be5fc",
+      "license": "assets/licenses/DOMjudge-COPYING"
     }
   ],
   "fontAwesomeFontSource": {

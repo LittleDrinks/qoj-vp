@@ -7,9 +7,11 @@ import {
   resolveUserMarkers,
 } from '@algoux/standard-ranklist-utils';
 import {
-  DEFAULT_STYLED_RANKLIST_SETTINGS,
   normalizeStyledRanklistSettings,
 } from '../../../vendor/rankland-web/src/client/components/ranklist/styled-ranklist-settings.ts';
+import {canReplay} from './clock.js';
+import {shouldEnableCCPC26} from '../../../vendor/rankland-web/src/client/utils/ccpc26.util.ts';
+export {canReplay} from './clock.js';
 
 export {
   LARGE_RANKLIST_THRESHOLD,
@@ -21,12 +23,6 @@ export {
 export const LANGUAGES = ['zh-CN', 'en'];
 export const OWN_TEAM_ID = '__qoj_vp_local_team__';
 export const SPEEDS = [1, 2, 5, 10, 30, 60];
-
-export const DEFAULT_SETTINGS = Object.freeze({
-  ...DEFAULT_STYLED_RANKLIST_SETTINGS,
-  theme: 'system',
-  feed: true,
-});
 
 export function normalizeSettings(value) {
   return {
@@ -62,7 +58,7 @@ export function initialPlayback(session, saved, now = Date.now()) {
   const live = liveElapsed(session, now);
   const valid = saved && saved.version === 1 && saved.startAt === session?.startAt && Number.isFinite(saved.elapsedMs) &&
     Number.isFinite(saved.savedAt) && SPEEDS.includes(saved.speed) && typeof saved.playing === 'boolean' && saved.custom === true;
-  if (!valid || session?.startAt === null || session?.startAt === undefined) {
+  if (!valid || !canReplay(session, live)) {
     return {custom: false, elapsedMs: live, playing: live < duration, speed: 1, anchorAt: now, anchorElapsedMs: live};
   }
   const elapsedMs = clampElapsed(saved.elapsedMs + (saved.playing ? Math.max(0, now - saved.savedAt) * saved.speed : 0), duration);
@@ -82,11 +78,8 @@ export function playbackForSeek(playback, elapsedMs, durationMs, now = Date.now(
   return {...playback, custom: true, elapsedMs: elapsed, playing: false, anchorAt: now, anchorElapsedMs: elapsed};
 }
 
-export function playbackForToggle(playback, elapsedMs, liveMs, now, durationMs) {
-  if (!playback.custom && liveMs < durationMs) {
-    return {...playback, custom: true, elapsedMs: liveMs, playing: false, anchorAt: now, anchorElapsedMs: liveMs};
-  }
-  if (!playback.custom && liveMs >= durationMs) {
+export function playbackForToggle(playback, elapsedMs, durationMs, now = Date.now()) {
+  if (!playback.custom) {
     return {custom: true, elapsedMs: 0, playing: true, speed: playback.speed, anchorAt: now, anchorElapsedMs: 0};
   }
   if (playback.playing) return {...playback, elapsedMs, playing: false, anchorAt: now, anchorElapsedMs: elapsedMs};
@@ -99,7 +92,10 @@ export function actualRule(data) {
 }
 
 export function presentRanklist(source, filter, settings) {
-  const ccpc26Layout = settings.preferCCPC26 ? getCCPC26ProblemLayout(source) : undefined;
+  const stamp=Date.parse(source.time),start=Date.parse(source.contest.startAt);
+  const elapsed=Number.isFinite(stamp) && Number.isFinite(start) ? stamp-start : null;
+  const ccpc26Layout = settings.preferCCPC26 && shouldEnableCCPC26(source,
+    {isLive:false,timeTravelTime:elapsed,now:Date.now()}) ? getCCPC26ProblemLayout(source) : undefined;
   const seriesIndexes = source.series.map((_, index) => index).filter(index => {
     const rule = source.series[index].rule;
     return !filter.marker || rule?.preset !== 'ICPC' || !rule.options?.filter?.byMarker || rule.options.filter.byMarker === filter.marker;

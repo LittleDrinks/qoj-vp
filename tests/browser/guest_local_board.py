@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hydro Firefox: real native helper + local SRK renderer, read-only judge fixture."""
+"""Hydro Firefox: automatic view-only board binding and local score calculation."""
 from __future__ import annotations
 import json
 from pathlib import Path
@@ -26,8 +26,12 @@ class Harness(visual.VisualHarness):
 
 def main():
     h=Harness(PROJECT,1440,1000)
-    h.summary.update(schema='qoj-vp-local-board-v1',realFirefox=True,network='GET-only QOJ fixture; cached synthetic SRK',realQojSubmissions=0)
+    h.summary.update(schema='qoj-vp-local-board-v1',realFirefox=True,network='GET-only QOJ and historical-board fixtures',realQojSubmissions=0)
     judge=Judge().start()
+    class ViewPage(visual.ReadOnlyServer):
+        def response(self, path, xhr):
+            return 200,b'<!doctype html><title>Historical board</title><p>Historical opponents</p>','text/html'
+    external=ViewPage().start()
     try:
         h.step('isolated_product_install',lambda:h.setup_visual(judge))
         h.step('headless_firefox',h.start_browser)
@@ -42,6 +46,20 @@ def main():
             """)
             raise AssertionError('Renderer initialization: '+str(failure))
         h.call('judger.contest',{'contestId':'3387'})
+        def automatic_binding():
+            prepared=h.call('create_session',{'contestId':'3387','account':judge.account,
+                'title':'View-only start','durationMs':18000000,'ranklandUrl':external.origin+'/?contest=historical'})
+            started=h.call('start_session',{'sessionId':prepared['sessionId']})
+            def opened():
+                return h.driver.execute_async_script("const done=arguments[arguments.length-1];browser.tabs.query({}).then(t=>done(t.filter(x=>x.url.startsWith(arguments[0])).map(x=>x.url)));",external.origin)
+            urls=h.wait(opened,'automatic historical board tab')
+            from urllib.parse import parse_qs,urlsplit
+            query=parse_qs(urlsplit(urls[0]).query)
+            require(query['play']==['1'] and query['from']==['0'] and query['speed']==['1'],'Board did not use the VP clock')
+            require(query['at'][0] and not h.call('inspect_session',{'sessionId':prepared['sessionId']})['ranklandPrepared'],'A team export was prepared')
+            require(len(urls)==1,'Automatic binding opened duplicate historical boards')
+            return {'automaticTab':True,'clock':query['at'][0],'exportPrepared':False}
+        h.step('start_opens_read_only_board',automatic_binding)
         start=int(time.time()*1000)-7200000
         session=h.call('create_session',{'contestId':'3387','account':judge.account,'title':'Local Board QA',
             'startAt':start,'durationMs':18000000,'ranklandUrl':'https://vp.xcpc.link/?contest=board-fixture',
@@ -72,17 +90,17 @@ def main():
         def pending():
             b=read()
             require(b['own']['score']==1 and b['own']['penaltyMinutes']==20 and b['provisional'],'Pending inflated penalty')
-            require(b['own']['rank']==1 and b['scope']=='historical','Historical source not consumed')
+            require(b['own']['rank'] is None and b['scope']=='self','A historical rank leaked into local scoring')
             return {'own':b['own'],'scope':b['scope'],'provisional':b['provisional']}
         h.step('pending_before_ac',pending)
         def late():
             judge.rows[0]['verdict']='WA'
             b=read()
-            require(b['own']['penaltyMinutes']==40 and b['own']['rank']==2,'Late verdict did not recompute original time')
+            require(b['own']['penaltyMinutes']==40 and b['own']['rank'] is None,'Late verdict did not recompute original time')
             h.driver.get(h.ui_url.split('?')[0].split('#')[0]+'?session='+sid+'#scoreboard')
             def rendered():
                 return h.driver.execute_script('''return document.querySelector('#board-table')?.textContent.includes('Historical opponent') && document.querySelector('#board-table')?.textContent.includes('SyntheticSyncTeam');''')
-            h.wait(rendered,'bundled SRK renderer to show both teams')
+            h.wait(rendered,'local board with historical opponents')
             urls=[]
             for handle in h.driver.window_handles:
                 h.driver.switch_to.window(handle);urls.append(h.driver.current_url)
@@ -95,7 +113,7 @@ def main():
             h.driver.refresh()
             h.wait(lambda:h.driver.execute_script("return document.querySelector('#board-table')?.textContent.includes('Historical opponent');"),'board after page reload')
             b=h.call('board.snapshot',{'sessionId':sid})
-            require(b['own']['rank']==2 and b['own']['penaltyMinutes']==40,'Reload changed rank or penalty')
+            require(b['own']['rank'] is None and b['own']['penaltyMinutes']==40,'Reload changed rank or penalty')
             return {'rank':b['own']['rank'],'penalty':b['own']['penaltyMinutes']}
         h.step('reload_preserves_board',reload)
         def rule_controls():
@@ -160,11 +178,11 @@ def main():
             try:h.driver.save_screenshot(str(h.results/'failure.png'))
             except Exception:pass
     finally:
-        for name,fn in [('firefox',h.quit_browser),('nativeManifest',h.cleanup_manifest),('judge',judge.shutdown)]:
+        for name,fn in [('firefox',h.quit_browser),('nativeManifest',h.cleanup_manifest),('judge',judge.shutdown),('externalBoard',external.shutdown)]:
             try:h.summary['cleanup'][name]={'status':'passed','evidence':fn()}
             except Exception as error:h.summary['cleanup'][name]={'status':'failed','error':str(error)}
         h.summary['judgePostCount']=judge.post_count
-        if judge.post_count:h.summary['fatalError']={'message':'Unexpected source POST'}
+        if judge.post_count or external.post_count:h.summary['fatalError']={'message':'Unexpected source POST'}
         if h.profile.exists() and h.summary['cleanup']['firefox']['status']=='passed':shutil.rmtree(h.profile)
         h.summary['status']='failed' if h.summary.get('fatalError') or any(c['status']!='passed' for c in h.summary['checks']) or any(c['status']!='passed' for c in h.summary['cleanup'].values()) else 'passed'
         h.phase='finished';h.flush()

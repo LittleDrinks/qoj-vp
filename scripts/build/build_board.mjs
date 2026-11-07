@@ -45,8 +45,8 @@ for(const name of ['standard-ranklist-utils','standard-ranklist-renderer-compone
   } catch(error) {
     if(error.code!=='ENOENT' || name!=='rankland-web') throw error;
     await writeFile(resolve(root,'src/firefox/board/generated/rankland-web.LICENSE-STATUS.txt'),
-      'No LICENSE file was found in rankland-web at '+revisions[name]+'. No MIT or other license is asserted here.\n');
+      'No LICENSE file was found in the bundled rankland-web source. No MIT or other license is asserted here.\n');
   }
 }
 await writeFile(resolve(root,'src/firefox/board/generated/upstream.json'),JSON.stringify(revisions,null,2)+'\n');
-console.log('Board built from pinned submodules:',revisions);
+console.log('Board built from pinned submodules:',Object.keys(revisions));

@@ -3,7 +3,10 @@
   "private": true,
   "scripts": {
     "lint:firefox": "web-ext lint --source-dir src/firefox --self-hosted --no-config-discovery",
-    "build:board": "node scripts/build/build_board.mjs"
+    "build:board": "node scripts/build/build_board.mjs",
+    "test:js": "node --test tests/unit/test_*.cjs",
+    "test:py": "PYTHONPATH=src python3 -m unittest discover -s tests/unit -t .",
+    "check": "npm run build:board && npm run lint:firefox && npm run test:js && npm run test:py"
   },
   "devDependencies": {
     "bcp-47-match": "2.0.3",

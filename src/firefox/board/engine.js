@@ -2,6 +2,8 @@
  * No browser storage, networking, QOJ DOM or RankLand page state belongs here.
  */
 import {regenerateRanklistBySolutions, convertToStaticRanklist, formatTimeDuration} from '@algoux/standard-ranklist-utils';
+import {visibleElapsed} from './clock.js';
+export {canReplay, visibleElapsed} from './clock.js';
 const OWN = '__qoj_vp_local_team__';
 const verdicts = {'CORRECT':'AC','WRONG-ANSWER':'WA','TIMELIMIT':'TLE','RUN-ERROR':'RTE',
   'COMPILER-ERROR':'CE','NO-OUTPUT':'NOUT','OUTPUT-LIMIT':'OLE','MEMORY-LIMIT':'MLE','PRESENTATION-ERROR':'PE'};
@@ -53,6 +55,10 @@ function sourceFor(input, archive) {
   const extensions=source.sorter.config?.extendedAlgorithms || [];
   if (config.rule==='auto' && extensions.some(e=>e.algorithm!=='CCPC26')) fail('UNSUPPORTED_BOARD_RULE');
   source.sorter.config={...source.sorter.config};
+  // QOJ floors each accepted problem to whole minutes before summing.
+  // Keep original solution times; archive display precision must not change this rule.
+  source.sorter.config.timePrecision='min';
+  source.sorter.config.timeRounding='floor';
   if(config.rule==='ICPC') delete source.sorter.config.extendedAlgorithms;
   if(config.rule==='CCPC26') source.sorter.config.extendedAlgorithms=[{algorithm:'CCPC26',config:{
     problemRevealAcceptedThreshold:{count:config.revealCount,ratio:config.revealRatio/100}}}];
@@ -72,10 +78,11 @@ export function project(input, archive=null, elapsedMs=null) {
   const {session,contest,history}=input;
   if(elapsedMs!==null && (!Number.isFinite(elapsedMs) || elapsedMs<0)) fail('INVALID_BOARD_TIME');
   const {source,indexes,config}=sourceFor(input,archive);
-  const end=session.finishedAt!=null && session.startAt!=null ? Math.min(session.durationMs,session.finishedAt-session.startAt) : session.durationMs;
-  const elapsed=Math.max(0,Math.min(end,elapsedMs ?? session.elapsedMs ?? 0));
+  const end=session.finishedAt!=null && session.startAt!=null ? Math.max(0,Math.min(session.durationMs,session.finishedAt-session.startAt)) : session.durationMs;
+  const elapsed=visibleElapsed(session,elapsedMs);
   const timelines=[], eventTimes=[], ids=new Set();
   let freeze=source.contest.frozenDuration ? session.durationMs-milliseconds(source.contest.frozenDuration) : session.durationMs;
+  eventTimes.push(freeze,session.durationMs);
   let partial=false;
   source.rows.sort(compareRows);
   source.rows.forEach((row,i)=>{
@@ -86,7 +93,7 @@ export function project(input, archive=null, elapsedMs=null) {
       if (!status.solutions?.length && (status.result || status.tries)) fail('BOARD_HISTORY_INCOMPLETE');
       for(const solution of status.solutions || []) {
         const at=milliseconds(solution.time);
-        if(at>=end) continue;
+        if(at>=session.durationMs) continue;
         eventTimes.push(at);
         if(at>elapsed) continue;
         const result=elapsed<session.durationMs && at>=freeze ? '?' : solution.result;
@@ -153,7 +160,7 @@ export function project(input, archive=null, elapsedMs=null) {
 
 export function inputKey(input) {
   const s=input.session;
-  return JSON.stringify([s.sessionId,s.account,s.startAt,s.durationMs,s.finishedAt??null,s.ranklandUrl??null,s.board??null,
+  return JSON.stringify([s.sessionId,s.account,s.startAt,s.durationMs,s.finishedAt??null,s.state??null,s.ranklandUrl??null,s.board??null,
     input.contest?.problems?.map(p=>[String(p.id),p.label]),
     (input.history?.submissions||[]).map(r=>[r.id??null,r.operationId??null,String(r.problemId),r.state,r.elapsedMs,
       r.inSession,r.pending,r.verdict,r.timeSource]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))]);

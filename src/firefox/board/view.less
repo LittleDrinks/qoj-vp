@@ -88,12 +88,12 @@
 .qoj-button-outline:hover { background: hsl(var(--accent)); }
 .qoj-button:disabled, .qoj-board select:disabled { opacity: .5; cursor: not-allowed; }
 .qoj-speed { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.qoj-speed .srk-ranklist-org-select { width: auto; min-width: 66px; }
+.qoj-board .qoj-speed-select { width: auto; min-width: 66px; border: 1px solid hsl(var(--border)); border-radius: 6px; padding: 4px 8px; background: hsl(var(--background)); color: hsl(var(--foreground)); }
 .qoj-view-clock-note { color: hsl(var(--muted-foreground)); font-size: 12px; }
 .qoj-prepared-note { margin: -4px 0 10px; color: hsl(var(--muted-foreground)); text-align: center; }
-.qoj-title-wrap { position: relative; min-height: 40px; display: flex; align-items: center; justify-content: center; }
+.qoj-title-wrap { min-height: 40px; display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
 .qoj-board .srk-ranklist-title { margin: 0 0 4px; color: inherit; font-size: 28px; font-weight: 500; line-height: 1.5715; text-align: center; }
-.qoj-rankland-link { display: inline-flex; position: absolute; right: 4px; align-items: center; gap: 3px; font-size: 12px; white-space: nowrap; }
+.qoj-rankland-link { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; white-space: nowrap; }
 .qoj-rankland-link .qoj-icon { width: 13px; height: 13px; }
 .qoj-board .srk-ranklist-meta, .qoj-board .srk-ranklist-time { color: hsl(var(--muted-foreground)); font-size: 14px; line-height: 1.5715; text-align: center; }
 .qoj-board .srk-ranklist-meta { margin-top: 4px; }
@@ -177,7 +177,11 @@
 }
 .qoj-board[data-theme="dark"] .srk-main { --srk-table-head-bg: #191919bf; --srk-table-head-solid-bg: #191919; --srk-table-border: #3a3a3a; --srk-table-striped-bg: #d7d7d714; }
 .qoj-board .srk-main > table { width: 100%; font-size: 14px; }
-.qoj-board .srk-main thead > tr > th { top: 0; }
+.qoj-board .srk-main thead > tr > th { top: 0; text-align: center; }
+// Bootstrap gives th an explicit inherited alignment; preserve renderer intent.
+.qoj-board .srk-main .srk--text-center { text-align: center; }
+.qoj-board .srk-main .srk--text-right { text-align: right; }
+.qoj-board .srk-main .srk--text-left { text-align: left; }
 .qoj-board .srk-main .srk-user-secondary-text { line-height: 1.44; }
 .qoj-board .srk-main tbody > tr.qoj-own-row > td:first-child { box-shadow: inset 3px 0 0 rgb(var(--rankland-primary-rgb)); }
 .qoj-board .srk-main tbody > tr.qoj-own-row .srk-user-name-text { font-weight: 700; }

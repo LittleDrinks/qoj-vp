@@ -202,6 +202,9 @@ class HomeHarness(visual.VisualHarness):
             self.driver.find_element(By.ID, 'refresh-contest').click()
             self.wait(lambda: not self.driver.find_element(By.ID, 'problemset-status').is_displayed(), 'ordinary retry restores live contest data')
             self.driver.find_element(By.ID, 'nav-home').click()
+            self.wait(lambda: self.driver.find_element(By.ID, 'home-view').is_displayed() and
+                      self.driver.find_element(By.ID, 'refresh-submissions').is_enabled(),
+                      'Home history refresh ready after navigation')
             self.driver.find_element(By.ID, 'refresh-submissions').click()
             self.wait(lambda: self.driver.find_element(By.ID, 'refresh-submissions').is_enabled() and
                       self.driver.find_element(By.ID, 'refresh-status').text.startswith('更新于'), 'ordinary history retry completes')
