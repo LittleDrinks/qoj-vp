@@ -6,12 +6,12 @@ globalThis.VpBoard = (() => {
       const parsed=new URL(url);
       return parsed.origin+':'+parsed.searchParams.get('contest');
     }
-    async function project(sessionId,refresh,elapsedMs) {
+    async function project(sessionId,refresh,elapsedMs,localOnly) {
       const input=await readSnapshot(sessionId);
       if(input.session.sessionId!==sessionId) throw new Error('BOARD_SESSION_MISMATCH');
       let record=null,warning=null,cached=false;
       const url=input.session.ranklandUrl;
-      if(url) {
+      if(url && !localOnly) {
         const key=keyFor(url);
         record=archives.get(key) || await cache.get(key).catch(()=>null);
         if(record) archives.set(key,record);
@@ -35,11 +35,11 @@ globalThis.VpBoard = (() => {
       return {...result,inputKey:engine.inputKey(input),observedAt:clock(),warning,cached,
         source:record?{provider:'rankland',contestKey:record.contestKey,hash:record.hash,fetchedAt:record.fetchedAt}:null};
     }
-    function snapshot(sessionId,{refresh=false,elapsedMs=null}={}) {
+    function snapshot(sessionId,{refresh=false,elapsedMs=null,localOnly=false}={}) {
       if(elapsedMs!==null && (!Number.isFinite(elapsedMs) || elapsedMs<0)) return Promise.reject(new Error('INVALID_BOARD_TIME'));
       // Each display instant has its own read; identical seeks join one writer.
-      const key=sessionId+':'+(elapsedMs===null?'live':elapsedMs);
-      if(!pending.has(key)) pending.set(key,project(sessionId,refresh,elapsedMs).finally(()=>pending.delete(key)));
+      const key=sessionId+':'+(localOnly?'self:':'historical:')+(elapsedMs===null?'live':elapsedMs);
+      if(!pending.has(key)) pending.set(key,project(sessionId,refresh,elapsedMs,localOnly).finally(()=>pending.delete(key)));
       return pending.get(key);
     }
     return {snapshot};

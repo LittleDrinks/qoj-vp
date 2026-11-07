@@ -164,13 +164,7 @@
     return tab ? browser.tabs.update(tab.id, {url:url.href, active}) : browser.tabs.create({url:url.href, active});
   }
   const qojLifecycle = VpQojLifecycle.create({native:(...args) => native(...args), openSession:openBoundSession,
-    onStarted:async session => {
-      const key="rankland-auto-sync:"+session.sessionId;
-      // A repeated start observation must respect a later explicit Stop.
-      if((await browser.storage.local.get(key))[key]===false) return;
-      await browser.storage.local.set({[key]:true});
-      autoSync(session.sessionId).catch(()=>{});
-    }});
+    onStarted:session => { bindViewingBoard(session.sessionId).catch(()=>{}); }});
   const resourcePreparationJobs = new Map();
   function resourceRequestCid(message, sender) {
     const cid = String(message?.cid || ""), url = new URL(sender.url || "about:blank");
@@ -435,27 +429,6 @@
       [retryKey]:{attempts,suspended,nextAt:failed ? Date.now()+Math.min(300000,30000*2**Math.min(attempts-1,4)):0}});
     return result;
   }
-  async function autoSync(sessionId) {
-    if(syncUnavailable(sessionId)) return;
-    const key="rankland-auto-sync:"+sessionId;
-    if((await browser.storage.local.get(key))[key]!==true) return;
-    const retryKey="rankland-sync-retry:"+sessionId;
-    const retry=(await browser.storage.local.get(retryKey))[retryKey];
-    if(retry?.suspended || retry?.nextAt>Date.now()) return;
-    const session=await native("inspect_session",{sessionId});
-    if(!session.ranklandUrl && session.qojVirtual?.mode==="qoj-native" && session.state!=="archived") {
-      await scoreboardSource({sessionId});
-    }
-    await exclusiveSync(sessionId);
-  }
-  async function continueExports() {
-    // Separate from Judger polling: finished contests can still have an
-    // undelivered revision even after their final history pass succeeded.
-    const stored=await browser.storage.local.get(null);
-    const ids=Object.keys(stored).filter(key=>key.startsWith("rankland-auto-sync:") && stored[key]===true)
-      .map(key=>key.slice("rankland-auto-sync:".length));
-    await Promise.allSettled(ids.map(id=>autoSync(id)));
-  }
   async function syncStatus(sessionId) {
     const session=await native("inspect_session",{sessionId});
     let identity=null;
@@ -585,13 +558,41 @@
     }
     return resolvingScoreboards.get(args.sessionId);
   }
+  const viewingBoards = new Map();
+  function viewScoreboard(sessionId, active = true) {
+    if (viewingBoards.has(sessionId)) return viewingBoards.get(sessionId).then(result =>
+      active ? browser.tabs.update(result.tabId,{url:result.url,active:true}).then(()=>result) : result);
+    const task = (async () => {
+      const blocked=syncUnavailable(sessionId);
+      if(blocked) throw blocked;
+      const source=await scoreboardSource({sessionId});
+      if(syncUnavailable(sessionId)) throw syncUnavailable(sessionId);
+      const existing=(await browser.tabs.query({})).find(tab=>{
+        if(tab.url===source.url) return true;
+        try {return source.source==="rankland" && ranklandIdentity(tab.url)===ranklandIdentity(source.url);}
+        catch (_) {return false;}
+      });
+      const tab=existing ? (active ? await browser.tabs.update(existing.id,{url:source.url,active:true}) : existing) :
+        await browser.tabs.create({url:source.url,active});
+      return {...source,tabId:tab.id};
+    })().finally(()=>viewingBoards.delete(sessionId));
+    viewingBoards.set(sessionId,task);
+    return task;
+  }
+  async function bindViewingBoard(sessionId) {
+    // Matching is optional and must never delay QOJ's confirmed start.
+    // Open only a verified/configured RankLand board, without preparing a team or exporting records.
+    const source=await scoreboardSource({sessionId});
+    if(source.source==="rankland") return viewScoreboard(sessionId,false);
+    return source;
+  }
   const board = VpBoard.create({readSnapshot:sessionId=>native("session_snapshot",{sessionId}),
     sources:VpScoreboardSources,cache:VpBoardCache,engine:VpBoardEngine});
   async function dispatch(method, args) {
     if (method.startsWith("judger.")) {
       const action=method.slice(7);method=action==="prepare_resource"?action:"qoj_"+action;
     }
-    if (method === "board.snapshot") return board.snapshot(args.sessionId, {refresh:args.refresh === true,
+    if (method === "board.snapshot") return board.snapshot(args.sessionId, {localOnly:args.includeHistory!==true, refresh:args.refresh === true,
       elapsedMs:typeof args.elapsedMs === "number" ? args.elapsedMs : null});
     if (method === "qoj.virtual.open") {
       const session = await native("inspect_session", args);
@@ -601,6 +602,7 @@
       return existing ? browser.tabs.update(existing.id, {active:true}) : browser.tabs.create({url,active:true});
     }
     if (method === "scoreboard.resolve") return scoreboardSource(args);
+    if (method === "scoreboard.view") return viewScoreboard(args.sessionId);
     if (method === "scoreboard.open") {
       const url = new URL(browser.runtime.getURL("ui.html"));
       url.searchParams.set("session", args.sessionId); url.hash="scoreboard";
@@ -609,15 +611,7 @@
     }
     if (method === "rankland.snapshot") return ranklandScore(args.sessionId);
     if (method === "rankland.open") {
-      const blocked = syncUnavailable(args.sessionId);
-      if (blocked) throw blocked;
-      const session = await native("prepare_rankland", args);
-      const changed = syncUnavailable(args.sessionId);
-      if (changed) throw changed;
-      const tab = await ranklandTab(session, true);
-      await browser.storage.local.set({["rankland-auto-sync:"+args.sessionId]:true});
-      exclusiveSync(args.sessionId).catch(() => {});
-      return {tabId: tab.id, url: session.ranklandUrl};
+      return viewScoreboard(args.sessionId);
     }
     if (method === "rankland.sync") return exclusiveSync(args.sessionId, true);
     if (method === "rankland.status") return syncStatus(args.sessionId);
@@ -633,9 +627,7 @@
     if (["create_session", "start_session", "finish_session", "archive_session", "update_session"].includes(method)) {
       await browser.storage.local.set({sessions: (await native("list_sessions")).sessions});
     }
-    // Return judge results immediately; optional export has its own retries.
-    if(args.sessionId && (["qoj_submit","qoj_reconcile","update_session","finish_session"].includes(method) ||
-        method==="qoj_submissions" && args.refresh!==false)) autoSync(args.sessionId).catch(()=>{});
+    if(method==="start_session") bindViewingBoard(result.sessionId).catch(()=>{});
     return result;
   }
   browser.runtime.onMessage.addListener((message, sender) => {
@@ -685,6 +677,5 @@
       }
       catch (_) { /* The UI and durable queue expose failures on the next interaction. */ }
     }
-    await continueExports();
   });
 })();

@@ -64,9 +64,9 @@ jobs:
       - name: Backend regressions
         env:
           QOJ_VP_QOJ_PATH: ${{ github.workspace }}/vendor/qoj-submitter
-        run: python -m unittest discover -s tests/unit -t . -v 2>&1 | tee results/ci/python-tests.txt
+        run: npm run test:py 2>&1 | tee results/ci/python-tests.txt
       - name: Frontend regressions
-        run: node --test tests/unit/test_*.cjs 2>&1 | tee results/ci/node-tests.txt
+        run: npm run test:js 2>&1 | tee results/ci/node-tests.txt
       - name: Build extension, native helper and complete sources
         run: |
           python scripts/build/package_extension.py

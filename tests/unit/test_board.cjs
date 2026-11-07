@@ -4,6 +4,22 @@ const context={URL,console};vm.createContext(context);
 for(const file of ['board/generated/engine.js','board/service.js']) vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
 const engine=context.VpBoardEngine;
 const duration=18000000;
+test('QOJ Changchun rounds each accepted problem before summing the reported 776 minute penalty',()=>{
+ const labels='ABCDEFGHIJKLM'.split('');
+ const i=input();i.contest.problems=labels.map((label,index)=>({id:String(index+1),label}));
+ const acs={A:[0,23,30],C:[1,1,51],J:[0,14,14],K:[1,35,13],G:[3,50,23],M:[3,15,8],E:[2,18,29]};
+ const ms=([h,m,s])=>((h*60+m)*60+s)*1000;
+ i.history.submissions=Object.entries(acs).map(([label,time],index)=>submission(index+1,ms(time),'CORRECT',{problemId:String(labels.indexOf(label)+1)}));
+ i.history.submissions.push(submission(20,ms([2,9,42]),'WRONG-ANSWER',{problemId:'5'}),
+  submission(21,ms([0,23,30]),'COMPILER-ERROR',{problemId:'5'}),
+  submission(22,ms([3,0,37]),'RUN-ERROR',{problemId:'5'}));
+ const a=archive();a.problems=labels.map(alias=>({alias}));a.rows=[];
+ a.sorter.config.timePrecision='s';
+ const original=JSON.stringify(i.history);
+ const result=engine.project(i,a);
+ assert.equal(result.own.score,7);assert.equal(result.own.penaltyMinutes,776);
+ assert.equal(JSON.stringify(i.history),original,'Scoring must not rewrite original submission timestamps');
+});
 function input(records=[]) {return {session:{sessionId:'practice',contestId:'1',account:'me',startAt:1000000,
  durationMs:duration,elapsedMs:duration,state:'finished'},contest:{problems:[{id:'1',label:'A'},{id:'2',label:'B'}]},history:{submissions:records}};}
 function submission(id,elapsedMs,verdict='CORRECT',extra={}) {return {id:String(id),problemId:'1',state:'confirmed',inSession:true,elapsedMs,verdict,pending:false,timeSource:'provider-absolute',...extra};}
@@ -58,6 +74,31 @@ test('replay is pure; moving backwards excludes future submissions without chang
  assert.ok(projected.ranklist.contest.startAt.endsWith('+08:00'));
  assert.equal(Date.parse(projected.ranklist.contest.startAt),i.session.startAt);
 });
+test('running projections cannot reveal future or final history, including through the service',async()=>{
+ const i=input(),a=archive();Object.assign(i.session,{state:'running',elapsedMs:20*60000});
+ a.rows[0].statuses[1]={solutions:[{result:'AC',time:[250,'min']}]};
+ const before=JSON.stringify(i);
+ const future=engine.project(i,a,duration);
+ assert.equal(future.elapsedMs,20*60000);
+ assert.equal(future.ranklist.rows.find(r=>r.user.name==='Opponent').score.value,0);
+ i.session.ranklandUrl='https://vp.xcpc.link/?contest=fixture';
+ const board=context.VpBoard.create({readSnapshot:async()=>i,engine,cache:{get:async()=>({archive:a}),set:async()=>{}},sources:{}});
+ assert.equal((await board.snapshot('practice',{elapsedMs:duration})).elapsedMs,20*60000);
+ delete i.session.ranklandUrl;assert.equal(JSON.stringify(i),before);
+});
+test('prepared projections remain at zero even when a final instant is requested',()=>{
+ const i=input();Object.assign(i.session,{state:'prepared',startAt:null,elapsedMs:0});
+ assert.equal(engine.project(i,archive(),duration).elapsedMs,0);
+});
+test('early finish keeps own scoring cutoff but permits full historical replay',()=>{
+ const i=input([submission(1,10*60000),submission(2,40*60000,'CORRECT',{problemId:'2'})]),a=archive();
+ Object.assign(i.session,{finishedAt:i.session.startAt+20*60000,elapsedMs:20*60000});
+ a.rows[0].statuses[1]={solutions:[{result:'AC',time:[250,'min']}]};
+ const live=engine.project(i,a),final=engine.project(i,a,duration);
+ assert.equal(live.elapsedMs,20*60000);
+ assert.equal(final.elapsedMs,duration);assert.equal(final.own.score,1);
+ assert.equal(final.ranklist.rows.find(r=>r.user.name==='Opponent').score.value,2);
+});
 test('summarized-only history, mismatched duration/problem links and unknown algorithms fail explicitly',()=>{
  const i=input(),a=archive();delete a.rows[0].statuses[0].solutions;
  assert.throws(()=>engine.project(i,a),/HISTORY_INCOMPLETE/);
@@ -98,7 +139,7 @@ test('event scheduling and explicit projections preserve multi-series metadata a
  assert.equal(initial.own.score,0);assert.equal(initial.ranklist.rows.length,2);
  assert.equal(initial.ranklist.rows[0].user.id,initial.own.id,'Zero-score own row must follow the VP user-id tie order');
  assert.equal(engine.project(i,a,40*60000).nextEventMs,50*60000);
- assert.equal(engine.project(i,a,50*60000).nextEventMs,null);
+ assert.equal(engine.project(i,a,50*60000).nextEventMs,4*3600000);
  i.session.ranklandUrl='https://vp.xcpc.link/?contest=fixture';
  const board=context.VpBoard.create({readSnapshot:async()=>i,engine,cache:{get:async()=>({archive:a,hash:'hash'}),set:async()=>{}},
   sources:{loadArchive:async()=>{throw Error('unexpected network');}}});
@@ -107,4 +148,13 @@ test('event scheduling and explicit projections preserve multi-series metadata a
  const results=await Promise.all([original,zero,same,later]);
  assert.equal(results[1],results[2]);assert.notEqual(results[0],results[1]);assert.notEqual(results[1],results[3]);
  assert.equal(results[1].own.score,0);assert.equal(results[3].own.score,1);assert.equal(results[3].provisional,true);
+});
+
+test('view-only local score bypasses historical archives even when cached or refresh is requested',async()=>{
+ const i=input([submission(1,60000)]);i.session.ranklandUrl='https://vp.xcpc.link/?contest=fixture';
+ const fail=()=>{throw Error('Historical data must not be read for local score');};
+ const board=context.VpBoard.create({readSnapshot:async()=>i,engine,cache:{get:fail,set:fail},sources:{loadArchive:fail}});
+ const result=await board.snapshot('practice',{localOnly:true,refresh:true});
+ assert.equal(result.scope,'self');assert.equal(result.own.rank,null);assert.equal(result.own.score,1);
+ assert.equal(result.own.penaltyMinutes,1);
 });

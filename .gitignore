@@ -6,6 +6,7 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+/uv.lock
 
 # Build outputs (scripts/build contains source)
 /build/
@@ -18,12 +19,14 @@ __pycache__/
 /state/
 /results/
 /.scratch/
+/tests/.scratch/
 /preflight/
 /tests/browser/vendor_py/
 /tests/browser/tools/
 /infra/hydro/output/
 
 # Local configuration and editor/coverage leftovers
+/AGENTS.md
 .env
 .env.*
 !.env.example
@@ -33,3 +36,7 @@ __pycache__/
 .DS_Store
 *.swp
 *.swo
+.vscode/
+.agents/
+.codex/
+.aws/

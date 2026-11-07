@@ -11,18 +11,18 @@ function environment(initialUrl=null){
  const context={state,URL,location:{hash:"#home"},route(){},$:id=>{if(!nodes.has(id))nodes.set(id,{});return nodes.get(id);},
   current:(id,generation)=>state.session?.sessionId===id&&state.generation===generation,
   call:async(method,args)=>{calls.push({method,args});return handler(method,args);},
-  resetRanklandSnapshot:()=>snapshots.push("reset"),refreshBoard:async()=>snapshots.push("read"),adoptRanklandUrl:()=>{},
+  renderBoard:()=>{},resetBoard:()=>snapshots.push("reset"),refreshBoard:async()=>snapshots.push("read"),adoptRanklandUrl:()=>{},
   showMessage:(_,text)=>messages.push(text),message:e=>e.message,
  };
  vm.createContext(context);
  for(const [begin,end] of [["  function epoch(","  function formatDate("],["  function renderRanklandSyncControls(","  function ranklandViewIdentity("],
-  ["  function safeQojUrl(","  function problemUrl("],["  function ranklandViewIdentity(","  function validRanklandSnapshot("],
+  ["  function safeQojUrl(","  function problemUrl("],["  function ranklandViewIdentity(","  function resetBoard("],
   ["  function scoreboardFallback(","  async function syncScoreboard("]])vm.runInContext(source.slice(source.indexOf(begin),source.indexOf(end)),context);
  return {context,state,calls,messages,snapshots,nodes,setHandler:value=>handler=value};
 }
 test("Scoreboard opens the local view even without an external source",async()=>{
  const e=environment();await e.context.openScoreboard();
- assert.equal(e.context.location.hash,"#scoreboard");assert.equal(e.calls.length,0);
+ assert.equal(e.context.location.hash,"#scoreboard");assert.equal(e.calls.length,1);assert.equal(e.calls[0].method,"scoreboard.resolve");
  assert.equal(e.messages.length,0);assert.deepEqual(e.snapshots,["read"]);
 });
 test("a unique match adopts only the RankLand URL and preserves locally changed session lifecycle",async()=>{
