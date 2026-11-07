@@ -53,10 +53,10 @@ test("desktop and mobile use local score and penalty without an external page",(
  assert.deepEqual(byClass(e.target,"rank").map(x=>x.textContent),["—","—"]);
  assert.equal(byClass(e.target,"score_correct").length,1);
 });
-test("a matching board snapshot supplies rank and score from one calculation",()=>{
+test("a historical snapshot cannot introduce an external rank into the local score",()=>{
  const e=environment(),input=e.context.boardInput(),engine=e.context.VpBoardEngine;
  e.state.board={...engine.project(input),inputKey:engine.inputKey(input),scope:"historical"};e.state.board.own.rank=465;
- e.context.renderSummary();assert.deepEqual(byClass(e.target,"rank").map(x=>x.textContent),["465","465"]);
+ e.context.renderSummary();assert.deepEqual(byClass(e.target,"rank").map(x=>x.textContent),["—","—"]);
  assert.deepEqual(byClass(e.target,"scorenc").map(x=>x.textContent),["1","1"]);
 });
 test("changed verdicts immediately discard stale ranks and recompute self score",()=>{

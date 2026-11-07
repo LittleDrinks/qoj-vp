@@ -133,3 +133,12 @@ test('event scheduling and explicit projections preserve multi-series metadata a
  assert.equal(results[1],results[2]);assert.notEqual(results[0],results[1]);assert.notEqual(results[1],results[3]);
  assert.equal(results[1].own.score,0);assert.equal(results[3].own.score,1);assert.equal(results[3].provisional,true);
 });
+
+test('view-only local score bypasses historical archives even when cached or refresh is requested',async()=>{
+ const i=input([submission(1,60000)]);i.session.ranklandUrl='https://vp.xcpc.link/?contest=fixture';
+ const fail=()=>{throw Error('Historical data must not be read for local score');};
+ const board=context.VpBoard.create({readSnapshot:async()=>i,engine,cache:{get:fail,set:fail},sources:{loadArchive:fail}});
+ const result=await board.snapshot('practice',{localOnly:true,refresh:true});
+ assert.equal(result.scope,'self');assert.equal(result.own.rank,null);assert.equal(result.own.score,1);
+ assert.equal(result.own.penaltyMinutes,1);
+});

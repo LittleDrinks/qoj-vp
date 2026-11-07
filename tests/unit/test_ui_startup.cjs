@@ -247,7 +247,7 @@ function ranklandPage({sync, configured=true, nextSnapshot, syncStatus=()=>null}
   let imported=false;
   const view=page(stores(),{snapshot:data,hash:"#home",handler:async request=>{
     const {method,args}=request;
-    if(method==="rankland.sync") {const result=await sync?.(request);imported=true;return {ok:true,result:result||{state:"ready",synced:1,pending:0}};}
+    if(method==="scoreboard.view") {const result=await sync?.(request);return {ok:true,result:result||{state:"ready",synced:1,pending:0}};}
     const selected=nextSnapshot?.session.sessionId===args?.sessionId?nextSnapshot:data;
     if(method==="session_snapshot")return {ok:true,result:structuredClone(selected)};
     if(method==="qoj_contest")return {ok:true,result:structuredClone(selected.contest)};
@@ -258,68 +258,26 @@ function ranklandPage({sync, configured=true, nextSnapshot, syncStatus=()=>null}
   return {...view,data};
 }
 
-test("external export is hidden on Home; Jury retains the explicit export action",async()=>{
-  const view=ranklandPage();await ticks();
-  assert.equal(view.$("sync-rankland").hidden,true);
-  assert.equal(view.$("sync-rankland").disabled,false);
-  assert.equal(typeof view.$("sync-rankland").listeners.click,"function");
-  await view.$("sync-rankland").listeners.click();
-  assert.equal(view.calls.filter(item=>item.method==="rankland.sync").length,1);
-  assert.equal(view.context.location.hash,"#home");
-  const other=ranklandPage({configured:false});await ticks();
-  assert.equal(other.$("sync-rankland").hidden,true);
+test("Home hides exports and Jury opens a view-only historical board",async()=>{
+ const view=ranklandPage();await ticks();
+ assert.equal(view.$("sync-rankland").hidden,true);assert.equal(view.$("sync-rankland").disabled,true);
+ assert.equal(view.$("stop-rankland-sync").hidden,true);
+ view.context.location.hash="#jury/contest/"+sid;
+ await view.$("sync-scoreboard").listeners.click();
+ assert.equal(view.calls.filter(item=>item.method==="scoreboard.view").length,1);
+ assert.equal(view.calls.filter(item=>item.method==="rankland.sync").length,0);
+ assert.equal(view.state().submissions[0].verdict,"CORRECT");
 });
-
-test("participant and Jury sync clicks share one flight, then refresh saved history without fetching QOJ twice",async()=>{
-  const gate=deferred(),view=ranklandPage({sync:()=>gate.promise});await ticks();
-  const firstCard=view.$("problems-list").children[0],sourceInput=view.$("submit_problem_code"),language=view.$("submit_problem_language");
-  const selected=Object.freeze({name:"L.cpp",size:27});sourceInput.files=[selected];language.value="C++20";
-  view.context.document.activeElement=language;view.context.window.scrollY=340;
-  const before=view.calls.filter(item=>item.method==="qoj_submissions").length;
-  assert.equal(typeof view.$("sync-rankland").listeners.click,"function");
-  const first=view.$("sync-rankland").listeners.click();
-  assert.equal(view.$("sync-rankland").disabled,true);assert.equal(view.$("sync-scoreboard").disabled,true);
-  const repeated=view.$("sync-rankland").listeners.click();
-  view.context.location.hash="#jury/contest/"+sid;
-  const jury=view.$("sync-scoreboard").listeners.click();
-  await ticks();assert.equal(view.calls.filter(item=>item.method==="rankland.sync").length,1);
-  view.context.location.hash="#home";
-  gate.resolve({state:"waiting",synced:2,pending:1});await Promise.all([first,repeated,jury]);await ticks();
-  const following=view.calls.filter(item=>item.method==="qoj_submissions").slice(before);
-  assert.deepEqual(following.map(item=>item.args.refresh),[false],"rankland.sync owns the provider refresh; UI reads its saved result");
-  assert.equal(view.state().submissions[0].verdict,"TIMELIMIT");
-  assert.match(view.$("rankland-sync-status").textContent,/2.*1.*待判.*自动/);
-  assert.equal(view.$("rankland-sync-status").textContent,view.$("rankland-status").textContent);
-  assert.equal(view.$("sync-rankland").disabled,false);assert.equal(view.$("sync-scoreboard").disabled,false);
-  assert.equal(sourceInput.files[0],selected);assert.equal(language.value,"C++20");
-  assert.equal(view.$("problems-list").children[0],firstCard);assert.equal(view.context.document.activeElement,language);
-  assert.equal(view.context.window.scrollY,340);assert.equal(view.context.location.hash,"#home");
-});
-
-test("sync failure leaves existing records available and releases both actions for a retry",async()=>{
-  const view=ranklandPage({sync:()=>{throw new Error("RankLand unavailable");}});await ticks();
-  assert.equal(typeof view.$("sync-rankland").listeners.click,"function");
-  await view.$("sync-rankland").listeners.click();
-  assert.equal(view.state().submissions[0].verdict,"CORRECT");
-  assert.match(view.$("rankland-sync-status").textContent,/RankLand unavailable/);
-  assert.equal(view.$("sync-rankland").disabled,false);assert.equal(view.$("sync-scoreboard").disabled,false);
-});
-
-test("a reply for the old contest cannot change the newly selected contest or its sync status",async()=>{
-  const other="00000000-0000-4000-8000-000000000002",nextSnapshot=fixture();
-  nextSnapshot.session.sessionId=other;
-  nextSnapshot.session.ranklandUrl="https://vp.xcpc.link/?contest=another&run="+other;
-  const gate=deferred(),view=ranklandPage({sync:()=>gate.promise,nextSnapshot});await ticks();
-  const syncing=view.$("sync-rankland").listeners.click();
-  await view.context.window.qojVpUi.selectSession(other);await ticks();
-  const reads=view.calls.filter(item=>item.method==="qoj_submissions").length;
-  assert.equal(view.$("rankland-sync-status").hidden,true);
-  gate.resolve({state:"ready",synced:12,pending:0,message:"OLD-CONTEST-RESULT"});await syncing;
-  assert.equal(view.state().session.sessionId,other);
-  assert.equal(view.$("rankland-sync-status").hidden,true);
-  assert.doesNotMatch(view.$("rankland-status").textContent,/OLD-CONTEST/);
-  assert.equal(view.calls.filter(item=>item.method==="qoj_submissions").length,reads);
-  assert.equal(view.$("sync-rankland").disabled,false);
+test("opening a board coalesces clicks and leaves pending submissions and the editor untouched",async()=>{
+ const gate=deferred(),view=ranklandPage({sync:()=>gate.promise});await ticks();
+ const input=view.$("submit_problem_code"),file=Object.freeze({name:"L.cpp",size:27});input.files=[file];
+ const first=view.$("sync-scoreboard").listeners.click();await ticks();
+ assert.equal(view.$("sync-scoreboard").disabled,true);
+ const second=view.$("sync-scoreboard").listeners.click();gate.resolve({source:"rankland"});await Promise.all([first,second]);
+ assert.equal(view.calls.filter(item=>item.method==="scoreboard.view").length,1);
+ assert.equal(view.calls.some(item=>item.method==="rankland.sync"),false);
+ assert.equal(input.files[0],file);assert.equal(view.state().submissions[0].verdict,"CORRECT");
+ assert.equal(view.$("sync-scoreboard").disabled,false);
 });
 
 test("Jury rule controls only require reveal settings for CCPC26",async()=>{
@@ -329,21 +287,6 @@ test("Jury rule controls only require reveal settings for CCPC26",async()=>{
    assert.equal(p.$("board-reveal-settings").hidden,rule!=="CCPC26");
    assert.equal(p.$("board-reveal-settings").disabled,rule!=="CCPC26");
  }
-});
-
-test("a canonical timestamp-based export reply is adopted and its automatic status is shown",async()=>{
- const canonical="https://vp.xcpc.link/?contest=synthetic&at=2026-11-01T00%3A00%3A00Z&rule=ICPC";
- const identity=require('../../src/firefox/rankland-protocol.js').identity(canonical);
- // Use the actual page state restored from the same session, not a parallel mock identity.
- const snapshot=fixture();snapshot.session.ranklandUrl=canonical;
- const p=page(stores(),{snapshot,hash:"#jury",handler:async request=>{
-   if(request.method==="rankland.sync")return {ok:true,result:{enabled:true,url:canonical,identity,message:"automatic delivery confirmed"}};
-   if(request.method==="qoj_submissions")return {ok:true,result:snapshot.history};
-   if(request.method==="qoj_contest")return {ok:true,result:snapshot.contest};
- }});
- await ticks();await p.$("sync-scoreboard").listeners.click();await ticks();
- assert.match(p.$("rankland-status").textContent,/automatic delivery confirmed/);
- assert.equal(p.$("stop-rankland-sync").hidden,false);
 });
 
 test("changing the rule updates the draft RankLand URL without saving the session",async()=>{

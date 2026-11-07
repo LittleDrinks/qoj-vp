@@ -27,9 +27,9 @@ function harness(cache = {}) {
     }},
     browser:{runtime:{id:'test',getURL:p=>'moz-extension://test/'+p,onMessage:listen,onInstalled:listen},
       action:{onClicked:listen}, alarms:{create(){},onAlarm:{addListener:f=>{events.alarm=f;}}},
-      tabs:{query:async()=>env.tabOpen?[{id:7,url:session.ranklandUrl}]:[],get:async id=>id===17?{id,url:'https://qoj.ac/contest/7/virtual/register'}:({id:7,url:session.ranklandUrl}),
-        sendMessage:async()=>({ready:true}), update:async()=>{},create:async args=>{
-          calls.push(['tab.create',args]);env.tabOpen=true;return {id:7,url:session.ranklandUrl};}},
+      tabs:{query:async()=>env.tabOpen?[{id:7,url:env.tabUrl||session.ranklandUrl}]:[],get:async id=>id===17?{id,url:'https://qoj.ac/contest/7/virtual/register'}:({id:7,url:session.ranklandUrl}),
+        sendMessage:async()=>({ready:true}), update:async(id,args)=>({id,url:session.ranklandUrl,...args}),create:async args=>{
+          calls.push(['tab.create',args]);if(args.url.startsWith('https://vp.xcpc.link'))env.tabOpen=true;return {id:7,...args};}},
       scripting:{executeScript:async()=>[{result:null}]},
       storage:{local:{get:async k=>k===null?{...cache}:({[k]:cache[k]}),set:async v=>Object.assign(cache,v),remove:async k=>{delete cache[k];}}}}};
   vm.createContext(context);
@@ -95,82 +95,50 @@ test('cached history is independent; explicit exports coalesce and reopen a clos
   assert.equal(h.cache['rankland-auto-sync:'+h.session.sessionId],true,'the click must enable later automatic reopening');
 });
 
-test('opting in once delivers a delayed verdict on the next alarm without another click',async()=>{
-  const h=harness();
-  h.plan={items:[],allItems:[],pendingCount:1,waiting:[{}],planToken:'a'.repeat(64)};
-  await h.sync();h.calls.length=0;
-  h.plan={items:[],allItems:[],pendingCount:0,waiting:[],planToken:'b'.repeat(64)};
-  await h.events.alarm({name:'vp-refresh'});
-  assert.equal(h.calls.filter(c=>c[0]==='transfer').length,1,'a late verdict must reach the opted-in external board');
-});
 
-test('unchanged projections do not touch tabs, and restart retains delivery identity',async()=>{
-  const h=harness();h.plan={items:[],allItems:[],pendingCount:0,waiting:[],planToken:'c'.repeat(64)};
-  await h.sync();h.calls.length=0;h.tabOpen=false;
-  await h.events.alarm({name:'vp-refresh'});
-  assert.equal(h.calls.filter(c=>c[0]==='transfer'||c[0]==='tab.create').length,0);
-  const restarted=harness(h.cache);restarted.session.ranklandSyncedPlanToken=h.session.ranklandSyncedPlanToken;restarted.plan=h.plan;restarted.tabOpen=false;restarted.settled=true;
-  await restarted.events.alarm({name:'vp-refresh'});
-  assert.equal(restarted.calls.filter(c=>c[0]==='transfer'||c[0]==='tab.create').length,0);
-  restarted.plan={...h.plan,planToken:'d'.repeat(64)};
-  await restarted.events.alarm({name:'vp-refresh'});
-  assert.equal(restarted.calls.filter(c=>c[0]==='transfer').length,1,'finished ledger still delivers an outstanding revision');
+const settleBackground=async()=>{for(let i=0;i<12;i++)await new Promise(setImmediate);};
+test('verified Start binds and opens a view-only board without preparing or exporting a team',async()=>{
+ const h=harness();h.tabOpen=false;
+ assert.equal((await h.start()).state,'started');await settleBackground();
+ const boards=h.calls.filter(c=>c[0]==='tab.create' && c[1].url.startsWith('https://vp.xcpc.link'));
+ assert.equal(boards.length,1);assert.equal(boards[0][1].active,false);
+ assert.equal(h.calls.some(c=>['prepare_rankland','rankland_plan','transfer'].includes(c[0])),false);
+ assert.notEqual(h.cache['rankland-auto-sync:'+h.session.sessionId],true);
+ await h.start();await settleBackground();
+ assert.equal(h.calls.filter(c=>c[0]==='tab.create' && c[1].url.startsWith('https://vp.xcpc.link')).length,1);
 });
-test('automatic failures back off and stopping disables persisted background delivery',async()=>{
-  const h=harness();await h.sync();h.calls.length=0;
-  h.transferError=Object.assign(new Error('offline'),{code:'RANKLAND_LOAD_TIMEOUT'});
-  await h.events.alarm({name:'vp-refresh'});
-  assert.equal(h.calls.filter(c=>c[0]==='transfer').length,1);
-  const retry=h.cache['rankland-sync-retry:'+h.session.sessionId];assert.ok(retry.nextAt>Date.now());
-  await h.events.alarm({name:'vp-refresh'});
-  assert.equal(h.calls.filter(c=>c[0]==='transfer').length,1,'no rapid retries');
-  retry.nextAt=0;h.transferError=null;
-  await h.events.alarm({name:'vp-refresh'});
-  assert.equal(h.calls.filter(c=>c[0]==='transfer').length,2);
-  assert.equal((await h.stop()).enabled,false);
-  const restarted=harness(h.cache);await restarted.events.alarm({name:'vp-refresh'});
-  assert.equal(restarted.calls.filter(c=>c[0]==='transfer').length,0);
+test('a start with no configured board saves a verified match, while an unmatched contest stays local',async()=>{
+ const h=harness(),target=h.session.ranklandUrl;h.session.ranklandUrl=null;h.tabOpen=false;
+ h.resolveResult={source:'rankland',state:'matched',ranklandUrl:target};
+ await h.start();await settleBackground();assert.equal(h.session.ranklandUrl,target);
+ assert.equal(h.calls.some(c=>c[0]==='transfer'),false);
+ assert.equal(h.calls.filter(c=>c[0]==='tab.create' && c[1].url===target).length,1);
+ const other=harness();other.session.ranklandUrl=null;await other.start();await settleBackground();
+ assert.equal(other.session.ranklandUrl,null);
+ assert.equal(other.calls.some(c=>c[0]==='tab.create' && c[1].url.startsWith('https://vp.xcpc.link')),false);
 });
-test('ownership conflicts require an explicit retry rather than overwriting manual records',async()=>{
-  const h=harness();await h.sync();h.calls.length=0;
-  h.transferError=Object.assign(new Error('conflict'),{code:'RANKLAND_OWNERSHIP_CONFLICT'});
-  await h.events.alarm({name:'vp-refresh'});
-  assert.equal(h.cache['rankland-sync-retry:'+h.session.sessionId].suspended,true);
-  h.transferError=null;h.cache['rankland-sync-retry:'+h.session.sessionId].nextAt=0;
-  await h.events.alarm({name:'vp-refresh'});
-  assert.equal(h.calls.filter(c=>c[0]==='transfer').length,1);
-  await h.sync();assert.equal(h.calls.filter(c=>c[0]==='transfer').length,2);
-});
-
-const settleBackground=async()=>{for(let i=0;i<8;i++)await new Promise(setImmediate);};
-test('verified QOJ Start binds and syncs its board without a separate sync click',async()=>{
- const h=harness();const result=await h.start();await settleBackground();
- assert.equal(result.state,'started');
- assert.equal(h.cache['rankland-auto-sync:'+h.session.sessionId],true);
- const transfers=h.calls.filter(c=>c[0]==='transfer');assert.equal(transfers.length,1);
- assert.equal(transfers[0][1].session.startAt,h.session.startAt);
- assert.equal(transfers[0][1].session.account,'me');
-});
-test('unconfirmed Start never enables exports; a stopped export stays stopped on repeated start observation',async()=>{
+test('unconfirmed Start never opens a historical board',async()=>{
  const h=harness();h.startUnconfirmed=true;
  assert.equal((await h.start()).state,'waiting');await settleBackground();
- assert.equal(h.calls.some(c=>c[0]==='transfer'),false);
+ assert.equal(h.calls.some(c=>c[0]==='tab.create'),false);
+});
+test('old auto-sync settings cannot export on alarms or a new QOJ verdict',async()=>{
+ const h=harness({'rankland-auto-sync:practice':true});
+ await h.events.alarm({name:'vp-refresh'});
+ await h.dispatch('qoj_submissions',{sessionId:h.session.sessionId,refresh:true});await settleBackground();
+ assert.ok(h.calls.some(c=>c[0]==='qoj_submissions'));
+ assert.equal(h.calls.some(c=>['prepare_rankland','rankland_plan','transfer','tab.create'].includes(c[0])),false);
+});
+test('opening a configured board reuses its tab and never sends submission records',async()=>{
+ const h=harness();await h.dispatch('rankland.open',{sessionId:h.session.sessionId});
+ assert.equal(h.calls.some(c=>['prepare_rankland','rankland_plan','transfer'].includes(c[0])),false);
  assert.notEqual(h.cache['rankland-auto-sync:'+h.session.sessionId],true);
- h.startUnconfirmed=false;await h.start();await settleBackground();await h.stop();h.calls.length=0;
- await h.start();await settleBackground();
- assert.equal(h.cache['rankland-auto-sync:'+h.session.sessionId],false);
- assert.equal(h.calls.some(c=>c[0]==='transfer'),false);
 });
 
-test('native Start matches an unconfigured historical board before exporting and leaves unmatched contests local',async()=>{
- const matched=harness();const target=matched.session.ranklandUrl;matched.session.ranklandUrl=null;
- matched.resolveResult={source:'rankland',state:'matched',ranklandUrl:target};
- await matched.start();await settleBackground();
- assert.equal(matched.session.ranklandUrl,target);
- assert.equal(matched.calls.filter(c=>c[0]==='transfer').length,1);
- const unmatched=harness();unmatched.session.ranklandUrl=null;
- await unmatched.start();await settleBackground();
- assert.equal(unmatched.session.ranklandUrl,null);
- assert.equal(unmatched.calls.filter(c=>c[0]==='transfer').length,0);
- assert.equal(unmatched.calls.filter(c=>c[0]==='tab.create' && c[1].url.startsWith('https://vp.xcpc.link')).length,0);
+test('RankLand canonical timezone and default parameters do not create a second tab',async()=>{
+ const h=harness();h.session.ranklandUrl='https://vp.xcpc.link/?contest=test&at=2026-11-01T00%3A00%3A00Z&from=0&play=1&speed=1';
+ const canonical=new URL(h.session.ranklandUrl);canonical.searchParams.set('at','2026-11-01T08:00:00+08:00');canonical.searchParams.set('rule','auto');canonical.searchParams.set('feed','1');h.tabUrl=canonical.href;
+ await h.dispatch('scoreboard.view',{sessionId:h.session.sessionId});
+ assert.equal(h.calls.some(c=>c[0]==='tab.create'),false);
+ assert.equal(h.calls.some(c=>c[0]==='transfer'),false);
 });

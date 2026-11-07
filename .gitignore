@@ -26,6 +26,7 @@ __pycache__/
 /infra/hydro/output/
 
 # Local configuration and editor/coverage leftovers
+/AGENTS.md
 .env
 .env.*
 !.env.example

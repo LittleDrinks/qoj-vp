@@ -287,20 +287,14 @@
     renderClock();
   }
   function renderRanklandSyncControls() {
-    const configured = Boolean(state.session?.ranklandUrl);
-    const started = epoch(state.session?.startAt);
-    const disabled = !configured || !state.connected || state.submitting || started === null || started > Date.now() || Boolean(state.ranklandSyncRequest);
-    $("sync-rankland").hidden = true;
-    $("sync-rankland").disabled = disabled;
-    $("sync-scoreboard").disabled = disabled;
-    $("stop-rankland-sync").hidden = !state.ranklandAutoSync;
-    $("stop-rankland-sync").disabled = Boolean(state.ranklandSyncRequest);
-    const status = state.ranklandSyncStatus && state.ranklandSyncStatus.sessionId === state.session?.sessionId &&
-      state.ranklandSyncStatus.identity === ranklandViewIdentity(state.session?.ranklandUrl) ? state.ranklandSyncStatus.text : "";
-    $("rankland-sync-status").textContent = status;
-    $("rankland-sync-status").hidden = !configured || !status;
-    $("rankland-status").textContent = status;
+    $("sync-rankland").hidden=true;
+    $("sync-rankland").disabled=true;
+    $("sync-scoreboard").disabled=!state.session || !state.connected || state.submitting || Boolean(state.ranklandSyncRequest);
+    $("stop-rankland-sync").hidden=true;
+    $("rankland-sync-status").hidden=true;
+    $("rankland-status").textContent="历史榜单仅供查看，本队成绩在本地计算后手动对照。";
   }
+
   function applyRanklandSyncStatus(result, explicit = false) {
     const sessionId = state.session?.sessionId, identity = ranklandViewIdentity(state.session?.ranklandUrl);
     if (!result || !sessionId || !identity || !explicit && state.ranklandSyncRequest) return;
@@ -375,7 +369,7 @@
   function currentBoard() {
     if (!state.session || !state.contest?.problems?.length) return null;
     const input=boardInput();
-    if (state.board?.inputKey===VpBoardEngine.inputKey(input)) return state.board;
+    if (state.board?.scope==="self" && state.board.inputKey===VpBoardEngine.inputKey(input)) return state.board;
     try {
       const elapsed=input.session.startAt==null ? 0 : Math.max(0,Date.now()-input.session.startAt);
       const projected=VpBoardEngine.project(input,null,elapsed);
@@ -395,18 +389,25 @@
     return result;
   }
   function renderBoard() {
-    const result=currentBoard(), target=$("board-table"), status=$("board-status");
-    if (!result) { VpBoardView.clear?.(target); status.textContent="题表尚未准备完成。";status.hidden=false;return; }
-    const notes=[];
-    if(result.provisional)notes.push("部分判定待确认");
-    if(result.warning)notes.push(result.cached ? "历史榜单更新暂不可用，正在显示已缓存内容" : "历史榜单暂不可用，当前仅显示本队成绩");
-    status.textContent=notes.join(" · ");status.hidden=!notes.length;
-    if (location.hash==="#scoreboard") {
-      let contestKey="scoreboard";
-      try {contestKey=new URL(state.session.ranklandUrl).searchParams.get("contest") || contestKey;} catch (_) {}
-      VpBoardView.render(target,result,{session:state.session,externalUrl:ranklandBoardUrl,contestKey,onProject:projectBoard});
-    }
+    if(location.hash!=="#scoreboard") return;
+    const result=currentBoard(),target=$("board-table"),status=$("board-status");
+    target.replaceChildren();
+    if(!state.session) return;
+    const source=state.scoreboardSource || scoreboardFallback();
+    target.append(node("h1","mt-4","Scoreboard"),node("p","text-muted","历史榜单仅供查看。本队提交不会同步到 RankLand，请按本地成绩手动对照。"));
+    const link=node("a","btn btn-primary",source.source==="rankland"?"打开 RankLand 历史榜单":"打开 QOJ 原站榜单");
+    link.href=source.source==="rankland" ? ranklandBoardUrl() : source.url;
+    link.target="_blank";link.rel="noopener noreferrer";link.dataset.id="board-open-rankland";
+    const retry=node("button","btn btn-outline-secondary ms-2","重新匹配榜单");
+    retry.type="button";retry.disabled=Boolean(state.scoreboardRequest) || !state.connected;
+    retry.addEventListener("click",()=>resolveScoreboardSource(true));
+    const actions=node("div","mb-4");actions.append(link,retry);target.append(actions);
+    target.append(node("h2","h5","本队成绩"),node("p","fs-4",result ? `${result.own.score} 题 · ${result.own.penaltyMinutes} 分钟罚时` : "题表尚未准备完成。"));
+    target.append(node("p","text-muted","罚时按原始提交时间计算，评测延迟不增加罚时。"));
+    status.textContent=state.scoreboardRequest ? "正在匹配历史榜单…" : source.source!=="rankland" ? "未自动匹配到 RankLand，可在 Jury 的榜单设置中填写比赛链接。" : result?.provisional ? "本队部分判定待确认。" : "";
+    status.hidden=!status.textContent;
   }
+
   function refreshBoard(refreshSource = false) {
     const sessionId=state.session?.sessionId,generation=state.generation;
     if (!sessionId || !state.contest?.problems?.length) return Promise.resolve(null);
@@ -1563,7 +1564,7 @@
         return null;
       } finally {
         if (state.scoreboardRequest === request) state.scoreboardRequest = null;
-        if (current(sessionId, generation)) renderScoreboardSource();
+        if (current(sessionId, generation)) {renderScoreboardSource();renderBoard();}
       }
     })();
     return request.promise;
@@ -1595,13 +1596,9 @@
     $("rankland-url").value=url.href;
   }
   async function refreshSyncStatus() {
-    if (!state.session || !isJuryRoute()) return;
-    const sessionId=state.session.sessionId, generation=state.generation;
-    try {
-      const result=await call("rankland.status",{sessionId});
-      if(current(sessionId,generation)) applyRanklandSyncStatus(result,true);
-    } catch (_) { /* Local sync status must never block the workbench. */ }
+    renderRanklandSyncControls();
   }
+
   function openRanklandSettings() {
     if (!state.session || !isJuryRoute()) return;
     const config=VpBoardEngine.configuration(state.session);
@@ -1612,34 +1609,21 @@
   async function openScoreboard() {
     if (!state.session) return;
     location.hash="#scoreboard"; route();
-    await refreshBoard();
+    await Promise.all([refreshBoard(),resolveScoreboardSource()]);
   }
   async function syncScoreboard() {
-    if (!state.session?.ranklandUrl || !state.connected || state.submitting || state.ranklandSyncRequest) return;
-    const started = epoch(state.session.startAt);
-    if (started === null || started > Date.now()) return;
-    const sessionId = state.session.sessionId, generation = state.generation;
-    const request = {sessionId, generation};
-    state.ranklandSyncRequest = request;
-    state.ranklandSyncStatus = {sessionId, identity: ranklandViewIdentity(state.session.ranklandUrl), observedAt: Date.now(), text: "正在同步到 RankLand…"};
+    if(!state.session || !state.connected || state.submitting || state.ranklandSyncRequest) return;
+    const sessionId=state.session.sessionId,generation=state.generation,request={sessionId};
+    state.ranklandSyncRequest=request;
     renderRanklandSyncControls();
-    try {
-      const result = await call("rankland.sync", {sessionId});
-      if (!current(sessionId, generation)) return;
-      if (result?.url && !adoptRanklandUrl(result.url) && state.session.ranklandUrl !== result.url) return;
-      applyRanklandSyncStatus(result, true);
-      // The background sync already refreshed QOJ. Read the resulting local
-      // facts without issuing a second network refresh or resetting the view.
-      await refresh(false);
-      refreshBoard();
-    } catch (error) {
-      if (current(sessionId, generation)) state.ranklandSyncStatus = {sessionId,
-        identity: ranklandViewIdentity(state.session.ranklandUrl), observedAt: Date.now(), text: message(error)};
-    } finally {
-      if (state.ranklandSyncRequest === request) state.ranklandSyncRequest = null;
+    try {await call("scoreboard.view",{sessionId});}
+    catch(error) {if(current(sessionId,generation)) fail(error);}
+    finally {
+      if(state.ranklandSyncRequest===request) state.ranklandSyncRequest=null;
       renderRanklandSyncControls();
     }
   }
+
   function openReconcile(submission) {
     state.reconcileOperation = submission.operationId;
     $("reconcile-form").reset(); hideMessage($("reconcile-error"));

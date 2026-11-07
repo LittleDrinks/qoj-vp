@@ -84,14 +84,8 @@ def main():
                 report['checks'].append(check)
                 print(check['name'] + ': ' + check['status'], flush=True)
                 save()
-        # Timing-sensitive original controls and the large-board comparison are CPU-isolated.
-        for case in [('rankland-export', ['tests/browser/guest_rankland_sync.py']),
-                     ('board-lifecycle', ['tests/browser/guest_board_lifecycle.py']),
-                     ('board-parity', ['tests/browser/guest_board_parity.py'])]:
-            check = run_case(case)
-            report['checks'].append(check)
-            print(check['name'] + ': ' + check['status'], flush=True)
-            save()
+        # The current scoreboard contract is covered by local-board:
+        # view the historical page and calculate only the local team's score.
         report['status'] = 'passed' if all(check['status'] == 'passed' for check in report['checks']) else 'failed'
     except Exception as error:
         report.update(status='failed', errorType=type(error).__name__, error=str(error))
