@@ -4,6 +4,20 @@ const context={console,URL,TextEncoder,TextDecoder,setTimeout,clearTimeout,setIn
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('src/firefox/board/generated/view.js','utf8'),context);
 const view=context.VpBoardView;
+test('CCPC26 reveals every problem exactly at freeze, without requiring another accepted submission',()=>{
+ const start=Date.parse('2026-11-07T00:00:00Z');
+ const source={version:'0.3.14',type:'general',contest:{title:'Freeze boundary',startAt:new Date(start).toISOString(),duration:[5,'h'],frozenDuration:[1,'h']},
+  problems:[{alias:'A'},{alias:'B'},{alias:'C'}],series:[{title:'#',rule:{preset:'Normal'}}],
+  sorter:{algorithm:'ICPC',config:{penalty:[20,'min'],extendedAlgorithms:[{algorithm:'CCPC26',config:{problemRevealAcceptedThreshold:{count:50,ratio:1}}}]}},
+  rows:[{user:{id:'team',name:'Team'},score:{value:0},rankValues:[{rank:1}],statuses:[{},{},{}]}]};
+ const filter={organizations:[],officialOnly:false,marker:''},settings=view.normalizeSettings();
+ source.time=new Date(start+4*3600000-1).toISOString();
+ assert.equal(view.presentRanklist(source,filter,settings).ccpc26Layout.hiddenProblemIndexes.length,3);
+ for(const elapsed of [4*3600000,4*3600000+1,5*3600000]){
+  source.time=new Date(start+elapsed).toISOString();
+  assert.equal(view.presentRanklist(source,filter,settings).ccpc26Layout,undefined);
+ }
+});
 
 test('display settings use the upstream defaults and reject unknown or stale values',()=>{
  const settings=view.normalizeSettings({statusCellPreset:'compact',emptyStatusPlaceholder:'dot',userAvatarPlacement:'name',theme:'dark',rowStriped:false});

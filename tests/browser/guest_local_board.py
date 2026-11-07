@@ -99,7 +99,7 @@ def main():
             require(b['own']['penaltyMinutes']==40 and b['own']['rank'] is None,'Late verdict did not recompute original time')
             h.driver.get(h.ui_url.split('?')[0].split('#')[0]+'?session='+sid+'#scoreboard')
             def rendered():
-                return h.driver.execute_script('''return document.querySelector('#board-table')?.textContent.includes('40 分钟罚时') && !!document.querySelector('[data-id="board-open-rankland"]');''')
+                return h.driver.execute_script('''return document.querySelector('#board-table')?.textContent.includes('Historical opponent') && document.querySelector('#board-table')?.textContent.includes('SyntheticSyncTeam');''')
             h.wait(rendered,'view-only board link and local score')
             urls=[]
             for handle in h.driver.window_handles:
@@ -111,7 +111,7 @@ def main():
         h.step('late_wa_and_real_renderer',late)
         def reload():
             h.driver.refresh()
-            h.wait(lambda:h.driver.execute_script("return document.querySelector('#board-table')?.textContent.includes('40 分钟罚时');"),'board after page reload')
+            h.wait(lambda:h.driver.execute_script("return document.querySelector('#board-table')?.textContent.includes('Historical opponent');"),'board after page reload')
             b=h.call('board.snapshot',{'sessionId':sid})
             require(b['own']['rank'] is None and b['own']['penaltyMinutes']==40,'Reload changed rank or penalty')
             return {'rank':b['own']['rank'],'penalty':b['own']['penaltyMinutes']}

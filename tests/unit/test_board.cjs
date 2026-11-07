@@ -4,6 +4,22 @@ const context={URL,console};vm.createContext(context);
 for(const file of ['board/generated/engine.js','board/service.js']) vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
 const engine=context.VpBoardEngine;
 const duration=18000000;
+test('QOJ Changchun rounds each accepted problem before summing the reported 776 minute penalty',()=>{
+ const labels='ABCDEFGHIJKLM'.split('');
+ const i=input();i.contest.problems=labels.map((label,index)=>({id:String(index+1),label}));
+ const acs={A:[0,23,30],C:[1,1,51],J:[0,14,14],K:[1,35,13],G:[3,50,23],M:[3,15,8],E:[2,18,29]};
+ const ms=([h,m,s])=>((h*60+m)*60+s)*1000;
+ i.history.submissions=Object.entries(acs).map(([label,time],index)=>submission(index+1,ms(time),'CORRECT',{problemId:String(labels.indexOf(label)+1)}));
+ i.history.submissions.push(submission(20,ms([2,9,42]),'WRONG-ANSWER',{problemId:'5'}),
+  submission(21,ms([0,23,30]),'COMPILER-ERROR',{problemId:'5'}),
+  submission(22,ms([3,0,37]),'RUN-ERROR',{problemId:'5'}));
+ const a=archive();a.problems=labels.map(alias=>({alias}));a.rows=[];
+ a.sorter.config.timePrecision='s';
+ const original=JSON.stringify(i.history);
+ const result=engine.project(i,a);
+ assert.equal(result.own.score,7);assert.equal(result.own.penaltyMinutes,776);
+ assert.equal(JSON.stringify(i.history),original,'Scoring must not rewrite original submission timestamps');
+});
 function input(records=[]) {return {session:{sessionId:'practice',contestId:'1',account:'me',startAt:1000000,
  durationMs:duration,elapsedMs:duration,state:'finished'},contest:{problems:[{id:'1',label:'A'},{id:'2',label:'B'}]},history:{submissions:records}};}
 function submission(id,elapsedMs,verdict='CORRECT',extra={}) {return {id:String(id),problemId:'1',state:'confirmed',inSession:true,elapsedMs,verdict,pending:false,timeSource:'provider-absolute',...extra};}
@@ -123,7 +139,7 @@ test('event scheduling and explicit projections preserve multi-series metadata a
  assert.equal(initial.own.score,0);assert.equal(initial.ranklist.rows.length,2);
  assert.equal(initial.ranklist.rows[0].user.id,initial.own.id,'Zero-score own row must follow the VP user-id tie order');
  assert.equal(engine.project(i,a,40*60000).nextEventMs,50*60000);
- assert.equal(engine.project(i,a,50*60000).nextEventMs,null);
+ assert.equal(engine.project(i,a,50*60000).nextEventMs,4*3600000);
  i.session.ranklandUrl='https://vp.xcpc.link/?contest=fixture';
  const board=context.VpBoard.create({readSnapshot:async()=>i,engine,cache:{get:async()=>({archive:a,hash:'hash'}),set:async()=>{}},
   sources:{loadArchive:async()=>{throw Error('unexpected network');}}});

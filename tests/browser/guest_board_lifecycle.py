@@ -51,7 +51,7 @@ def main():
         h.wait(lambda: 'Historical opponent' in h.driver.find_element('tag name', 'body').text, 'live board')
         for selector in ['input[aria-label="Time Travel"]', '[data-id="board-play-toggle"]', '[aria-label="虚拟参赛倍速"]']:
             require(not h.driver.find_element('css selector', '.qoj-board '+selector).is_enabled(), 'Live replay control enabled: '+selector)
-        result = h.call('board.snapshot', {'sessionId': sid, 'elapsedMs': 18000000})
+        result = h.call('board.snapshot', {'sessionId': sid, 'elapsedMs': 18000000, 'includeHistory': True})
         require(20*60000 <= result['elapsedMs'] < 22*60000, 'API exposed future time')
         opponent = next(row for row in result['ranklist']['rows'] if row['user']['name'] == 'Historical opponent')
         require(opponent['score']['value'] == 0, 'API exposed future results')
@@ -73,7 +73,7 @@ def main():
         h.wait(lambda: h.driver.find_element('css selector', 'input[aria-label="Time Travel"]').is_enabled(), 'replay enabled')
         seek(h.driver, 300)
         require(not h.driver.find_elements('css selector', '.qoj-board [role="alert"]'), 'Early finish replay error')
-        final = h.call('board.snapshot', {'sessionId': sid, 'elapsedMs': 18000000})
+        final = h.call('board.snapshot', {'sessionId': sid, 'elapsedMs': 18000000, 'includeHistory': True})
         require(final['elapsedMs'] == 18000000, 'History replay truncated')
         require(next(row for row in final['ranklist']['rows'] if row['user']['name'] == 'Historical opponent')['score']['value'] == 2, 'Full history missing')
         after = h.call('inspect_session', {'sessionId': sid})
@@ -87,6 +87,19 @@ def main():
         h.driver.save_screenshot(str(output/'external-replay.png'))
         h.driver.close(); h.focus_ui()
         report['checks'].append({'name': 'early_finish_full_replay_and_external_position', 'finishedAt': finished['finishedAt'], 'elapsedMs': final['elapsedMs']})
+        h.call('update_session', {'sessionId': sid, 'board': {'rule': 'CCPC26', 'revealCount': 1000, 'revealRatio': 100}})
+        h.driver.refresh()
+        h.wait(lambda: bool(h.driver.find_elements('css selector', '.qoj-ccpc26-note')), 'CCPC26 view')
+        def aliases():
+            return [e.text.split('\n')[0] if e.text else '' for e in h.driver.find_elements('css selector', '.qoj-board .srk-main thead .srk-problem-header')]
+        seek(h.driver, 239.9)
+        h.wait(lambda: aliases() == ['', ''], 'anonymous columns before freeze')
+        seek(h.driver, 240)
+        h.wait(lambda: aliases() == ['A', 'B'], 'all problem aliases at freeze')
+        h.driver.save_screenshot(str(output/'ccpc26-freeze-reveals-all.png'))
+        seek(h.driver, 239.9)
+        h.wait(lambda: aliases() == ['', ''], 'reverse playback restores anonymous columns')
+        report['checks'].append({'name': 'ccpc26_freeze_boundary_and_reverse_playback', 'freezeMinutes': 240, 'revealed': ['A', 'B']})
         report['status'] = 'passed'
     except Exception as error:
         report.update(status='failed', error={'type': type(error).__name__, 'message': str(error)})

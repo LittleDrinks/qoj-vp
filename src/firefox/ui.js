@@ -380,7 +380,7 @@
     const sessionId=state.session?.sessionId,generation=state.generation,input=boardInput();
     if (!sessionId || !state.contest?.problems?.length || !Number.isFinite(elapsedMs) || elapsedMs<0) throw new Error("榜单显示时刻无效。");
     let result;
-    if (state.connected) result=await call("board.snapshot",{sessionId,elapsedMs});
+    if (state.connected) result=await call("board.snapshot",{sessionId,elapsedMs,includeHistory:true});
     else {
       const projected=VpBoardEngine.project(input,null,elapsedMs);
       result={...projected,inputKey:VpBoardEngine.inputKey(input),observedAt:Date.now()};
@@ -411,12 +411,13 @@
   function refreshBoard(refreshSource = false) {
     const sessionId=state.session?.sessionId,generation=state.generation;
     if (!sessionId || !state.contest?.problems?.length) return Promise.resolve(null);
-    if (state.boardRequest?.sessionId===sessionId) return state.boardRequest.promise;
-    const request={sessionId,promise:null};
+    const includeHistory=location.hash==="#scoreboard";
+    if (state.boardRequest?.sessionId===sessionId && state.boardRequest.includeHistory===includeHistory) return state.boardRequest.promise;
+    const request={sessionId,includeHistory,promise:null};
     request.promise=(async()=>{
       try {
-        const result=await call("board.snapshot",{sessionId,refresh:refreshSource});
-        if (!current(sessionId,generation) || result.sessionId!==sessionId || result.inputKey!==VpBoardEngine.inputKey(boardInput())) return null;
+        const result=await call("board.snapshot",{sessionId,refresh:refreshSource,includeHistory});
+        if (!current(sessionId,generation) || result.sessionId!==sessionId || result.inputKey!==VpBoardEngine.inputKey(boardInput()) || includeHistory!==(location.hash==="#scoreboard")) return null;
         state.board=result; renderSummary(); renderBoard(); return result;
       } catch (_) { if(current(sessionId,generation)) renderBoard(); return null; }
       finally {if(state.boardRequest===request)state.boardRequest=null;}
@@ -430,7 +431,7 @@
     const account = state.session.account || state.contest.account || "—";
     const snapshot=currentBoard();
     const rankNote=snapshot?.scope==="historical"?"与历史对手在同一比赛时刻比较。":"未配置可回放的历史对手数据。";
-    const penaltyNote="按原始提交时间计算；评测延迟不增加罚时。";
+    const penaltyNote="每题 AC 的原始提交时间先向下取整到分钟，再累计罚时；评测延迟不增加罚时。";
     const progress=state.contest.problems.map(problem=>{
       const item=snapshot?.own.progress.find(p=>p.problemId===String(problem.id));
       return {problem,accepted:item?.acceptedMs!=null?{elapsedMs:item.acceptedMs}:null,judged:item?.judged||0,pending:item?.pending||0};
@@ -903,7 +904,7 @@
     catch (error) {
       if (current(sessionId, generation)) {
         $("refresh-status").textContent = "同步未完成；保留已保存记录";
-        $("refresh-status").title = message(error);
+        $("refresh-status").title = (error.code ? error.code + ": " : "") + message(error);
       }
       throw error;
     } finally {

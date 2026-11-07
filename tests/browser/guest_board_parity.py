@@ -406,7 +406,7 @@ def main():
         require(h.step('real_replay_clock_and_ccpc26_icpc',replay_and_rules) is not None,'Replay/rules failed')
         def offline_cache():
             reference.source_offline=True
-            result=h.call('board.snapshot',{'sessionId':session['sessionId'],'refresh':True})
+            result=h.call('board.snapshot',{'sessionId':session['sessionId'],'refresh':True,'includeHistory':True})
             require(result['scope']=='historical' and result['cached'],'Cached source did not survive source outage')
             require(h.driver.find_element('css selector','.qoj-board .srk-main').is_displayed(),'Board blank after source outage')
             return {'cached':True,'scope':result['scope'],'warning':result.get('warning')}

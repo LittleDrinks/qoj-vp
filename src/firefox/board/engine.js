@@ -55,6 +55,10 @@ function sourceFor(input, archive) {
   const extensions=source.sorter.config?.extendedAlgorithms || [];
   if (config.rule==='auto' && extensions.some(e=>e.algorithm!=='CCPC26')) fail('UNSUPPORTED_BOARD_RULE');
   source.sorter.config={...source.sorter.config};
+  // QOJ floors each accepted problem to whole minutes before summing.
+  // Keep original solution times; archive display precision must not change this rule.
+  source.sorter.config.timePrecision='min';
+  source.sorter.config.timeRounding='floor';
   if(config.rule==='ICPC') delete source.sorter.config.extendedAlgorithms;
   if(config.rule==='CCPC26') source.sorter.config.extendedAlgorithms=[{algorithm:'CCPC26',config:{
     problemRevealAcceptedThreshold:{count:config.revealCount,ratio:config.revealRatio/100}}}];
@@ -78,6 +82,7 @@ export function project(input, archive=null, elapsedMs=null) {
   const elapsed=visibleElapsed(session,elapsedMs);
   const timelines=[], eventTimes=[], ids=new Set();
   let freeze=source.contest.frozenDuration ? session.durationMs-milliseconds(source.contest.frozenDuration) : session.durationMs;
+  eventTimes.push(freeze,session.durationMs);
   let partial=false;
   source.rows.sort(compareRows);
   source.rows.forEach((row,i)=>{

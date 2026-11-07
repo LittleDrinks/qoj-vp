@@ -10,6 +10,7 @@ import {
   normalizeStyledRanklistSettings,
 } from '../../../vendor/rankland-web/src/client/components/ranklist/styled-ranklist-settings.ts';
 import {canReplay} from './clock.js';
+import {shouldEnableCCPC26} from '../../../vendor/rankland-web/src/client/utils/ccpc26.util.ts';
 export {canReplay} from './clock.js';
 
 export {
@@ -91,7 +92,10 @@ export function actualRule(data) {
 }
 
 export function presentRanklist(source, filter, settings) {
-  const ccpc26Layout = settings.preferCCPC26 ? getCCPC26ProblemLayout(source) : undefined;
+  const stamp=Date.parse(source.time),start=Date.parse(source.contest.startAt);
+  const elapsed=Number.isFinite(stamp) && Number.isFinite(start) ? stamp-start : null;
+  const ccpc26Layout = settings.preferCCPC26 && shouldEnableCCPC26(source,
+    {isLive:false,timeTravelTime:elapsed,now:Date.now()}) ? getCCPC26ProblemLayout(source) : undefined;
   const seriesIndexes = source.series.map((_, index) => index).filter(index => {
     const rule = source.series[index].rule;
     return !filter.marker || rule?.preset !== 'ICPC' || !rule.options?.filter?.byMarker || rule.options.filter.byMarker === filter.marker;
