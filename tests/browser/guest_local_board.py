@@ -100,7 +100,7 @@ def main():
             h.driver.get(h.ui_url.split('?')[0].split('#')[0]+'?session='+sid+'#scoreboard')
             def rendered():
                 return h.driver.execute_script('''return document.querySelector('#board-table')?.textContent.includes('Historical opponent') && document.querySelector('#board-table')?.textContent.includes('SyntheticSyncTeam');''')
-            h.wait(rendered,'view-only board link and local score')
+            h.wait(rendered,'local board with historical opponents')
             urls=[]
             for handle in h.driver.window_handles:
                 h.driver.switch_to.window(handle);urls.append(h.driver.current_url)

@@ -92,12 +92,12 @@ def main():
         h.wait(lambda: bool(h.driver.find_elements('css selector', '.qoj-ccpc26-note')), 'CCPC26 view')
         def aliases():
             return [e.text.split('\n')[0] if e.text else '' for e in h.driver.find_elements('css selector', '.qoj-board .srk-main thead .srk-problem-header')]
-        seek(h.driver, 239.9)
+        seek(h.driver, 239)
         h.wait(lambda: aliases() == ['', ''], 'anonymous columns before freeze')
         seek(h.driver, 240)
         h.wait(lambda: aliases() == ['A', 'B'], 'all problem aliases at freeze')
         h.driver.save_screenshot(str(output/'ccpc26-freeze-reveals-all.png'))
-        seek(h.driver, 239.9)
+        seek(h.driver, 239)
         h.wait(lambda: aliases() == ['', ''], 'reverse playback restores anonymous columns')
         report['checks'].append({'name': 'ccpc26_freeze_boundary_and_reverse_playback', 'freezeMinutes': 240, 'revealed': ['A', 'B']})
         report['status'] = 'passed'

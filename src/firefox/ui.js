@@ -366,10 +366,10 @@
       return url.href;
     } catch (_) { return null; }
   }
-  function currentBoard() {
+  function currentBoard(includeHistory=false) {
     if (!state.session || !state.contest?.problems?.length) return null;
     const input=boardInput();
-    if (state.board?.scope==="self" && state.board.inputKey===VpBoardEngine.inputKey(input)) return state.board;
+    if ((includeHistory || state.board?.scope==="self") && state.board?.inputKey===VpBoardEngine.inputKey(input)) return state.board;
     try {
       const elapsed=input.session.startAt==null ? 0 : Math.max(0,Date.now()-input.session.startAt);
       const projected=VpBoardEngine.project(input,null,elapsed);
@@ -389,23 +389,16 @@
     return result;
   }
   function renderBoard() {
-    if(location.hash!=="#scoreboard") return;
-    const result=currentBoard(),target=$("board-table"),status=$("board-status");
-    target.replaceChildren();
-    if(!state.session) return;
-    const source=state.scoreboardSource || scoreboardFallback();
-    target.append(node("h1","mt-4","Scoreboard"),node("p","text-muted","历史榜单仅供查看。本队提交不会同步到 RankLand，请按本地成绩手动对照。"));
-    const link=node("a","btn btn-primary",source.source==="rankland"?"打开 RankLand 历史榜单":"打开 QOJ 原站榜单");
-    link.href=source.source==="rankland" ? ranklandBoardUrl() : source.url;
-    link.target="_blank";link.rel="noopener noreferrer";link.dataset.id="board-open-rankland";
-    const retry=node("button","btn btn-outline-secondary ms-2","重新匹配榜单");
-    retry.type="button";retry.disabled=Boolean(state.scoreboardRequest) || !state.connected;
-    retry.addEventListener("click",()=>resolveScoreboardSource(true));
-    const actions=node("div","mb-4");actions.append(link,retry);target.append(actions);
-    target.append(node("h2","h5","本队成绩"),node("p","fs-4",result ? `${result.own.score} 题 · ${result.own.penaltyMinutes} 分钟罚时` : "题表尚未准备完成。"));
-    target.append(node("p","text-muted","罚时按原始提交时间计算，评测延迟不增加罚时。"));
-    status.textContent=state.scoreboardRequest ? "正在匹配历史榜单…" : source.source!=="rankland" ? "未自动匹配到 RankLand，可在 Jury 的榜单设置中填写比赛链接。" : result?.provisional ? "本队部分判定待确认。" : "";
-    status.hidden=!status.textContent;
+    if (location.hash!=="#scoreboard") return;
+    const result=currentBoard(true), target=$("board-table"), status=$("board-status");
+    if (!result) { VpBoardView.clear?.(target); status.textContent="题表尚未准备完成。";status.hidden=false;return; }
+    const notes=[];
+    if(result.provisional)notes.push("部分判定待确认");
+    if(result.warning)notes.push(result.cached ? "历史榜单更新暂不可用，正在显示已缓存内容" : "历史榜单暂不可用，当前仅显示本队成绩");
+    status.textContent=notes.join(" · ");status.hidden=!notes.length;
+    let contestKey="scoreboard";
+    try {contestKey=new URL(state.session.ranklandUrl).searchParams.get("contest") || contestKey;} catch (_) {}
+    VpBoardView.render(target,result,{session:state.session,externalUrl:ranklandBoardUrl,contestKey,onProject:projectBoard});
   }
 
   function refreshBoard(refreshSource = false) {
