@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "QOJ VP Workbench",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "DOMjudge team pages for QOJ practice, with samples, submissions and local historical scoreboard replay.",
   "browser_specific_settings": {
     "gecko": {
