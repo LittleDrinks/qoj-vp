@@ -72,6 +72,13 @@ def main():
             return {'name': name, 'status': 'passed' if result.returncode == 0 else 'failed',
                     'exitCode': result.returncode, 'seconds': round(time.time() - started, 2)}
 
+        package_check = run_case(('submit-package', ['tests/browser/guest_submit_package.py']))
+        print((OUTPUT / 'submit-package.txt').read_text(), end='', flush=True)
+        report['checks'].append(package_check)
+        save()
+        if package_check['status'] != 'passed':
+            raise RuntimeError('Installed submit package regression failed')
+
         # Separate processes, profiles, fixture ports and native-host identities.
         # Only the coordinator writes the combined report.
         report['workers'] = args.workers

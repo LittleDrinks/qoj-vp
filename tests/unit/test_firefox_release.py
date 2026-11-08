@@ -32,6 +32,7 @@ class FirefoxReleaseTests(unittest.TestCase):
         shutil.copyfile(ROOT / 'LICENSE', self.root / 'LICENSE')
         (self.root / 'vendor/qoj-submitter/qoj_submitter').mkdir(parents=True)
         (self.root / 'vendor/qoj-submitter/qoj_submitter/client.py').write_text('# fixture')
+        shutil.copyfile(ROOT / 'vendor/qoj-submitter/pyproject.toml', self.root / 'vendor/qoj-submitter/pyproject.toml')
         (self.ext / 'icons').mkdir()
         (self.ext / 'icons/domjudge-32.png').write_bytes(b'fixture-icon')
         self.manifest = {'version': '1.2.3', 'browser_specific_settings': {'gecko': {'id': 'fixture@example'}}}

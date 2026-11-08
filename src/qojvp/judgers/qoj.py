@@ -439,7 +439,8 @@ class QojJudger:
             return self.operation_result(record)
         self.ledger.save_operation(record, 'submitting')
         try:
-            url = client.submit(form, filename, contents, language, contest['id'])
+            # The durable operation ledger below owns receipt recovery.
+            url = client.submit(form, filename, contents, language, contest['id'], recover_receipt=False)
         except modules[0].UnknownSubmission:
             record.update(state='unknown', rawVerdict='Receipt unknown; check QOJ before retrying')
             self.ledger.save_operation(record, 'unknown')

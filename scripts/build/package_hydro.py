@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import sys
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -46,6 +47,19 @@ def package_hydro(root, output, *, xpi=None, development=False, source_archive=N
         def put(path, data, mode=0o644):
             target=stage/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_text(data);target.chmod(mode)
         put('usr/bin/qoj-vp',(root/'infra/linux/qoj-vp').read_text(),0o755)
+        entries = tomllib.loads((root/'vendor/qoj-submitter/pyproject.toml').read_text())['project']['scripts']
+        for command in ('qoj', 'qoj-submit', 'submit'):
+            module, function = entries[command].split(':')
+            put('usr/lib/qoj-vp/bin/' + command, f'''#!/usr/bin/python3 -I
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'vendor/qoj-submitter'))
+from {module} import {function}
+raise SystemExit({function}())
+''', 0o755)
+            if command != 'submit':
+                (stage / 'usr/bin' / command).symlink_to('../lib/qoj-vp/bin/' + command)
+        put('etc/profile.d/qoj-vp.sh',(root/'infra/linux/qoj-vp.sh').read_text())
         put('usr/share/applications/qoj-vp.desktop',(root/'infra/linux/qoj-vp.desktop').read_text())
         icon=stage/'usr/share/icons/hicolor/32x32/apps/qoj-vp.png';icon.parent.mkdir(parents=True,exist_ok=True)
         shutil.copyfile(root/'src/firefox/icons/domjudge-32.png',icon)
