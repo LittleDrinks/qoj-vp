@@ -2,7 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
 function setup({fixture=false,ranklandUrl=null}={}){
  const session={sessionId:'local-practice',account:'me',contestId:'4569',durationMs:18000000,ranklandUrl};
- const contest={id:'4569',title:'Dolgoprudny',problems:[{id:'23137',label:'L'}],scoreboardUrl:'https://qoj.ac/results/QOJ4569?mode=pc2'};
+ const contest={id:'4569',title:'Dolgoprudny',titles:[],problems:[{id:'23137',label:'L'}],scoreboardUrl:'https://qoj.ac/results/QOJ4569?mode=pc2'};
  const calls=[],tabs=[],cache={},matches=[];const listener={addListener(){}};
  const env={session,contest,calls,tabs,cache,matches,fixture,now:Date.now(),result:{source:'qoj',state:'unmatched',reason:'NO_MATCH'}};
  const context={URL,Map,Set,Date:class extends Date {static now(){return env.now;}},Promise,setTimeout,clearTimeout,crypto:require('node:crypto').webcrypto,
@@ -11,7 +11,7 @@ function setup({fixture=false,ranklandUrl=null}={}){
   __native:async(method,args={})=>{calls.push({method,args});switch(method){
    case 'hello':return {fixture:env.fixture};
    case 'session_snapshot':return {session:{...session},contest:{...contest}};
-   case 'qoj_contest':return {...contest};
+   case 'qoj_contest':return {...contest,...env.refreshedContest};
    case 'inspect_session':return {...session};
    case 'list_sessions':return {sessions:[{...session}]};
    case 'update_session':if(session.ranklandUrl===args.expectedRanklandUrl && session.durationMs===args.expectedDurationMs)session.ranklandUrl=args.ranklandUrl+'&run=local-practice';return {...session};
@@ -66,4 +66,11 @@ test('temporary detail failure retries after 30 seconds and explicit refresh byp
 });
 test('a changed CLI contest name invalidates the negative match cache',async()=>{
  const f=setup();f.contest.name='Old title';await f.run('scoreboard.resolve');f.contest.name='New title';await f.run('scoreboard.resolve');assert.equal(f.matches.length,2);
+});
+test('older saved contests refresh their QOJ aliases before discovering a board',async()=>{
+ const f=setup();delete f.contest.titles;
+ f.refreshedContest={titles:['CCPC 2025 Jinan Site']};
+ await f.run('scoreboard.resolve');
+ assert.equal(f.calls.filter(c=>c.method==='qoj_contest').length,1);
+ assert.deepEqual(f.matches[0][0].titles,f.refreshedContest.titles);
 });

@@ -150,6 +150,23 @@ def main():
             return {'rules':['ICPC','auto','CCPC26'],'conditionalRevealControls':True,'draftUrlFollowsRule':True,'savedUrlSurvivesReload':True}
         h.step('rule_specific_settings_in_real_firefox',rule_controls)
 
+        def manual_source_navigation():
+            from selenium.webdriver.common.by import By
+            h.driver.find_element(By.ID,'rankland-settings').click()
+            h.wait(lambda:h.driver.execute_script("return document.activeElement?.id==='rankland-modal';"),'manual source dialog')
+            field=h.driver.find_element(By.ID,'rankland-url')
+            field.clear();field.send_keys('https://rl.algoux.cn/ranklist/board-fixture')
+            h.driver.find_element(By.CSS_SELECTOR,'#rankland-form button[type="submit"]').click()
+            h.wait(lambda:'已加载 1 支历史队伍' in h.driver.find_element(By.ID,'board-source-status').text,'manual source loaded from archive')
+            saved=h.call('inspect_session',{'sessionId':sid})
+            require(saved['ranklandUrl'].startswith('https://vp.xcpc.link/?'),'Main-site source was not normalized')
+            h.driver.execute_script("location.hash='#home';")
+            link=h.wait(lambda:h.driver.find_element(By.ID,'nav-rankland') if h.driver.find_element(By.ID,'nav-rankland').is_displayed() else None,'Home RankLand link')
+            require('contest=board-fixture' in link.get_attribute('href'),'Home link selected a different source')
+            h.driver.save_screenshot(str(h.results/'manual-source-home.png'))
+            return {'source':saved['ranklandUrl'],'historicalTeams':1,'homeNavigation':True}
+        h.step('manual_source_and_home_navigation',manual_source_navigation)
+
         def rejudge():
             # Stop page polling and join reads started before changing the judge
             # fixture. Otherwise a coalesced read may legitimately return the

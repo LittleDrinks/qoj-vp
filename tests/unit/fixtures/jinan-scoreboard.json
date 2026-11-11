@@ -1,0 +1,230 @@
+{
+  "qoj": {
+    "id": "2693",
+    "name": "The 4th Universal Cup. Stage 9: Grand Prix of Jinan",
+    "problems": [
+      {
+        "id": "15032",
+        "label": "A"
+      },
+      {
+        "id": "15033",
+        "label": "B"
+      },
+      {
+        "id": "15034",
+        "label": "C"
+      },
+      {
+        "id": "15035",
+        "label": "D"
+      },
+      {
+        "id": "15036",
+        "label": "E"
+      },
+      {
+        "id": "15037",
+        "label": "F"
+      },
+      {
+        "id": "15038",
+        "label": "G"
+      },
+      {
+        "id": "15039",
+        "label": "H"
+      },
+      {
+        "id": "15040",
+        "label": "I"
+      },
+      {
+        "id": "15041",
+        "label": "J"
+      },
+      {
+        "id": "15042",
+        "label": "K"
+      },
+      {
+        "id": "15043",
+        "label": "L"
+      },
+      {
+        "id": "15044",
+        "label": "M"
+      }
+    ],
+    "titles": [
+      "第十一届中国大学生程序设计竞赛 济南站（CCPC 2025 Jinan Site）"
+    ]
+  },
+  "catalog": [
+    {
+      "uk": "ccpc2025jinan",
+      "name": "第 11 届 CCPC 中国大学生程序设计竞赛济南站",
+      "title": {
+        "zh-CN": "第 11 届 CCPC 中国大学生程序设计竞赛济南站",
+        "fallback": "第 11 届 CCPC 中国大学生程序设计竞赛济南站"
+      },
+      "startAt": "2025-11-16T09:00:00+08:00",
+      "srkFileID": "94030821857513472"
+    },
+    {
+      "uk": "ccpc2024jinan",
+      "name": "第 10 届 CCPC 中国大学生程序设计竞赛 济南站",
+      "title": {
+        "en": "2024 China Collegiate Programming Contest Jinan Site",
+        "zh-CN": "第 10 届 CCPC 中国大学生程序设计竞赛 济南站",
+        "fallback": "2024 China Collegiate Programming Contest Jinan Site"
+      },
+      "startAt": "2024-10-27T09:00:00+08:00",
+      "srkFileID": "94030610850467840"
+    },
+    {
+      "uk": "ccpc2024invitational-jinan",
+      "name": "“齐鲁软件园杯”2024年中国大学生程序设计竞赛全国邀请赛（山东）暨CCPC山东省大学生程序设计竞赛",
+      "title": {
+        "fallback": "“齐鲁软件园杯”2024年中国大学生程序设计竞赛全国邀请赛（山东）暨CCPC山东省大学生程序设计竞赛"
+      },
+      "startAt": "2024-05-26T09:30:00+08:00",
+      "srkFileID": "94038364528922624"
+    },
+    {
+      "uk": "icpc2023jinan",
+      "name": "第 48 届国际大学生程序设计竞赛亚洲区域赛济南站",
+      "title": {
+        "en": "The 2023 ICPC Asia Jinan Regional Contest",
+        "zh-CN": "第 48 届国际大学生程序设计竞赛亚洲区域赛济南站",
+        "fallback": "The 2023 ICPC Asia Jinan Regional Contest"
+      },
+      "startAt": "2023-12-03T09:30:00+08:00",
+      "srkFileID": "94031293259534336"
+    },
+    {
+      "uk": "sdcpc10th",
+      "name": "“浪潮杯”第十届山东省大学生ACM程序设计竞赛（济南大学）",
+      "title": {
+        "zh-CN": "“浪潮杯”第十届山东省大学生ACM程序设计竞赛（济南大学）",
+        "fallback": "The 10th Shandong Provincial Collegiate Programming Contest (University of Jinan)"
+      },
+      "startAt": "2019-05-12T09:00:00+08:00",
+      "srkFileID": "70792707387166720"
+    },
+    {
+      "uk": "icpc2020jinan",
+      "name": "第 45 届国际大学生程序设计竞赛（ICPC）亚洲区域赛（济南） （线上赛）",
+      "title": {
+        "en": "The 2020 ICPC Asia Jinan Regional Contest (Online)",
+        "zh-CN": "第 45 届国际大学生程序设计竞赛（ICPC）亚洲区域赛（济南） （线上赛）",
+        "fallback": "The 2020 ICPC Asia Jinan Regional Contest (Online)"
+      },
+      "startAt": "2020-12-27T11:00:00+08:00",
+      "srkFileID": "70792644564881408"
+    },
+    {
+      "uk": "icpc2022jinan",
+      "name": "第 47 届国际大学生程序设计竞赛亚洲区域赛济南站",
+      "title": {
+        "en": "The 2022 ICPC Asia Jinan Regional Contest",
+        "zh-CN": "第 47 届国际大学生程序设计竞赛亚洲区域赛济南站",
+        "fallback": "The 2022 ICPC Asia Jinan Regional Contest"
+      },
+      "startAt": "2022-11-27T12:00:00+08:00",
+      "srkFileID": "94038380903485440"
+    },
+    {
+      "uk": "icpc2021jinan",
+      "name": "第 46 届 ICPC 国际大学生程序设计竞赛亚洲区域赛 济南站",
+      "title": {
+        "en": "The 2021 ICPC Asia Jinan Regional Contest",
+        "zh-CN": "第 46 届 ICPC 国际大学生程序设计竞赛亚洲区域赛 济南站",
+        "fallback": "The 2021 ICPC Asia Jinan Regional Contest"
+      },
+      "startAt": "2021-11-14T11:00:00+08:00",
+      "srkFileID": "70792635010256896"
+    }
+  ],
+  "detail": {
+    "uk": "ccpc2025jinan",
+    "duration": [
+      18000,
+      "s"
+    ],
+    "sorter": {
+      "config": {
+        "penalty": [
+          20,
+          "min"
+        ],
+        "timeRounding": "floor",
+        "timePrecision": "min",
+        "noPenaltyResults": [
+          "FB",
+          "AC",
+          "?",
+          "CE",
+          "UKE",
+          null
+        ]
+      },
+      "algorithm": "ICPC"
+    },
+    "srkFileID": "94030821857513472",
+    "problems": [
+      {
+        "alias": "A",
+        "link": "https://qoj.ac/problem/15032"
+      },
+      {
+        "alias": "B",
+        "link": "https://qoj.ac/problem/15033"
+      },
+      {
+        "alias": "C",
+        "link": "https://qoj.ac/problem/15034"
+      },
+      {
+        "alias": "D",
+        "link": "https://qoj.ac/problem/15035"
+      },
+      {
+        "alias": "E",
+        "link": "https://qoj.ac/problem/15036"
+      },
+      {
+        "alias": "F",
+        "link": "https://qoj.ac/problem/15037"
+      },
+      {
+        "alias": "G",
+        "link": "https://qoj.ac/problem/15038"
+      },
+      {
+        "alias": "H",
+        "link": "https://qoj.ac/problem/15039"
+      },
+      {
+        "alias": "I",
+        "link": "https://qoj.ac/problem/15040"
+      },
+      {
+        "alias": "J",
+        "link": "https://qoj.ac/problem/15041"
+      },
+      {
+        "alias": "K",
+        "link": "https://qoj.ac/problem/15042"
+      },
+      {
+        "alias": "L",
+        "link": "https://qoj.ac/problem/15043"
+      },
+      {
+        "alias": "M",
+        "link": "https://qoj.ac/problem/15044"
+      }
+    ]
+  }
+}

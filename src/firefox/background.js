@@ -521,7 +521,7 @@
     // Isolated guest suites never contact public providers implicitly.
     if (!helperInfo) helperInfo = native("hello").catch(error => { helperInfo = null; throw error; });
     if ((await helperInfo).fixture) return {...fallback("FIXTURE"), state: "unmatched"};
-    if (!contest?.scoreboardUrl) {
+    if (refresh || !contest?.scoreboardUrl || !Array.isArray(contest?.titles)) {
       try { contest = await providerRead("qoj_contest", {contestId: session.contestId, sessionId}); }
       catch (_) { /* Cached title/problems and the original contest link remain usable. */ }
     }

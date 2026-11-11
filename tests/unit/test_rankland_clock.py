@@ -75,6 +75,16 @@ class RanklandWallClockTests(unittest.TestCase):
         self.assertEqual(query(started)['play'], ['1'])
         self.assertEqual(replay_elapsed(started, self.now), 0)
 
+    def test_main_site_link_selects_the_same_data_and_local_clock_as_a_vp_link(self):
+        session = self.create(ranklandUrl='https://rl.algoux.cn/ranklist/ccpc2025jinan')
+        self.assertEqual(urlsplit(session['ranklandUrl']).netloc, 'vp.xcpc.link')
+        self.assertEqual(query(session)['contest'], ['ccpc2025jinan'])
+        self.assertNotIn('at', query(session))
+        started = self.action('start_session', session)
+        saved = self.action('update_session', started,
+            ranklandUrl='https://vp.xcpc.link/?contest=ccpc2025jinan&at=2020-01-01T00:00:00Z&from=60')
+        self.assertEqual(saved['ranklandUrl'], started['ranklandUrl'])
+
     def test_equivalent_timezone_link_preserves_saved_target_and_clock(self):
         session = self.create(startAt='2026-11-04T12:00:00+08:00')
         self.now = session['startAt'] + 60000

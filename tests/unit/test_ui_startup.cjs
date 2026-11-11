@@ -268,6 +268,21 @@ test("Home hides exports and Jury opens a view-only historical board",async()=>{
  assert.equal(view.calls.filter(item=>item.method==="rankland.sync").length,0);
  assert.equal(view.state().submissions[0].verdict,"CORRECT");
 });
+test("Home navigation opens the configured RankLand board at the local VP time",async()=>{
+ const snapshot=fixture(),start=snapshot.session.startAt;
+ snapshot.session.ranklandUrl='https://vp.xcpc.link/?contest=ccpc2025jinan&at=2020-01-01T00:00:00Z&from=90&speed=5';
+ const view=page(stores(),{snapshot,hash:'#home'});await ticks();
+ const link=view.$('nav-rankland');
+ assert.equal(view.$('nav-rankland-item').hidden,false);
+ assert.ok(link.href,'the Home navigation provides a direct external link');
+ const url=new URL(link.href);
+ assert.equal(url.searchParams.get('contest'),'ccpc2025jinan');
+ assert.equal(Date.parse(url.searchParams.get('at')),start);
+ assert.equal(url.searchParams.get('from'),'0');assert.equal(url.searchParams.get('speed'),'1');
+ assert.equal(view.calls.some(c=>c.method==='rankland.sync'),false);
+ const unconfigured=page(stores(),{hash:'#home'});await ticks();
+ assert.equal(unconfigured.$('nav-rankland-item').hidden,true);
+});
 test("opening a board coalesces clicks and leaves pending submissions and the editor untouched",async()=>{
  const gate=deferred(),view=ranklandPage({sync:()=>gate.promise});await ticks();
  const input=view.$("submit_problem_code"),file=Object.freeze({name:"L.cpp",size:27});input.files=[file];

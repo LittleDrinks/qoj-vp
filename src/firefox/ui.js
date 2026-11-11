@@ -22,7 +22,7 @@
     "ACCOUNT_UNKNOWN", "ACCOUNT_MISMATCH", "SESSION_NOT_RUNNING",
   ]);
   const state = {
-    board: null, boardRequest: null,
+    board: null, boardRequest: null, boardSource: null,
     connected: false, sessions: [], session: null, contest: null, submissions: [],
     forms: new Map(), generation: 0, refreshPromise: null, refreshSession: null, refreshGeneration: null, refreshMode: null,
     sessionRequest: null, contestRequests: new Map(), historyRequests: new Map(),
@@ -326,7 +326,7 @@
     } catch (_) { return null; }
   }
   function resetBoard() {
-    state.board=null; state.boardRequest=null; state.ranklandAutoSync=false;
+    state.board=null; state.boardRequest=null; state.boardSource=null; state.ranklandAutoSync=false;
   }
   function adoptRanklandUrl(raw) {
     const previous = ranklandViewIdentity(state.session?.ranklandUrl), incoming = ranklandViewIdentity(raw);
@@ -401,21 +401,23 @@
     VpBoardView.render(target,result,{session:state.session,externalUrl:ranklandBoardUrl,contestKey,onProject:projectBoard});
   }
 
-  function refreshBoard(refreshSource = false) {
+  function refreshBoard(refreshSource = false, includeHistory = location.hash === "#scoreboard") {
     const sessionId=state.session?.sessionId,generation=state.generation;
     if (!sessionId || !state.contest?.problems?.length) return Promise.resolve(null);
-    const includeHistory=location.hash==="#scoreboard";
-    if (state.boardRequest?.sessionId===sessionId && state.boardRequest.includeHistory===includeHistory) return state.boardRequest.promise;
+    if (state.boardRequest?.sessionId===sessionId && (!includeHistory || state.boardRequest.includeHistory)) return state.boardRequest.promise;
     const request={sessionId,includeHistory,promise:null};
     request.promise=(async()=>{
       try {
         const result=await call("board.snapshot",{sessionId,refresh:refreshSource,includeHistory});
-        if (!current(sessionId,generation) || result.sessionId!==sessionId || result.inputKey!==VpBoardEngine.inputKey(boardInput()) || includeHistory!==(location.hash==="#scoreboard")) return null;
-        state.board=result; renderSummary(); renderBoard(); return result;
+        if (!current(sessionId,generation) || state.boardRequest!==request || result.sessionId!==sessionId || result.inputKey!==VpBoardEngine.inputKey(boardInput())) return null;
+        state.board=result;
+        if (includeHistory) state.boardSource={url:state.session.ranklandUrl,warning:result.warning,
+          ready:result.scope==="historical",teams:result.ranklist.rows.length-1,problems:result.ranklist.problems.length};
+        renderSummary(); renderBoard(); return result;
       } catch (_) { if(current(sessionId,generation)) renderBoard(); return null; }
-      finally {if(state.boardRequest===request)state.boardRequest=null;}
+      finally {if(state.boardRequest===request)state.boardRequest=null;renderScoreboardSource();}
     })();
-    state.boardRequest=request;return request.promise;
+    state.boardRequest=request;renderScoreboardSource();return request.promise;
   }
   function renderSummary() {
     const target = $("teamscoresummary");
@@ -1514,6 +1516,18 @@
   }
   function renderScoreboardSource() {
     renderRanklandSyncControls();
+    const externalUrl = ranklandBoardUrl();
+    $("nav-rankland-item").hidden = !externalUrl;
+    if (externalUrl) $("nav-rankland").href = externalUrl;
+    else $("nav-rankland").removeAttribute("href");
+    const status = $("board-source-status");
+    const board = state.boardSource?.url === state.session?.ranklandUrl ? state.boardSource : null;
+    status.hidden = !state.session?.ranklandUrl;
+    status.textContent = state.boardRequest?.includeHistory ? "正在读取 RankLand 历史数据…" :
+      board?.ready ? `已加载 ${board.teams} 支历史队伍、${board.problems} 道题。${board.warning ? "当前使用已缓存数据。" : ""}` :
+      board?.warning ? ({BOARD_PROBLEM_MAPPING_MISMATCH:"榜单题目与这场 QOJ 比赛不一致。",
+        BOARD_HISTORY_INCOMPLETE:"这份榜单缺少用于回放的完整提交记录。"}[board.warning] || "历史数据暂时读取失败，可通过 RankLand 链接查看原榜。") :
+      "已设置数据来源，打开 Scoreboard 加载历史榜单。";
     const source = state.scoreboardSource || scoreboardFallback();
     const link = $("scoreboard-source-link"); link.textContent = source.source === "rankland" ? "RankLand" : "QOJ";
     link.href = source.url;
@@ -1710,7 +1724,8 @@
         const index = state.sessions.findIndex(item => item.sessionId === state.session.sessionId);
         if (index >= 0) state.sessions[index] = state.session;
         renderSession(); renderSummary(); modals.rankland.hide();
-        refreshBoard(true); resolveScoreboardSource(true);
+        resolveScoreboardSource(true);
+        await refreshBoard(true, Boolean(state.session.ranklandUrl));
       } catch (error) { if (current(sessionId, generation)) showMessage($("rankland-error"), message(error)); }
       finally { control.disabled = false; }
     });

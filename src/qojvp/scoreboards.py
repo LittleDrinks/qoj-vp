@@ -9,6 +9,16 @@ def contest_navigation(html, cid):
     if not re.fullmatch(r'\d{1,20}', cid):
         return {}
     page = BeautifulSoup(html, 'html.parser')
+    titles = []
+    for anchor in page.select('a[href]'):
+        url = urlsplit(urljoin('https://qoj.ac/', anchor['href']))
+        query = parse_qsl(url.query, keep_blank_values=True)
+        if (url.scheme == 'https' and url.netloc == 'qoj.ac' and not url.fragment
+                and url.path.rstrip('/') == f'/contest/{cid}' and len(query) == 1
+                and query[0][0] == 'v' and re.fullmatch(r'\d{1,10}', query[0][1])):
+            title = anchor.get_text(' ', strip=True)
+            if title and len(title) <= 2048 and title not in titles:
+                titles.append(title)
     standings, discussions = [], []
     for anchor in page.select('.nav a[href]'):
         raw = anchor.get('href', '')
@@ -27,7 +37,7 @@ def contest_navigation(html, cid):
             continue
         if url.path.rstrip('/') == f'/contest/{cid}/standings' or re.fullmatch(rf'/results/QOJ{cid}/?', url.path):
             standings.append(safe)
-    result = {}
+    result = {'titles': titles}
     if len(set(standings)) == 1:
         result['scoreboardUrl'] = standings[0]
     if len(set(discussions)) == 1:

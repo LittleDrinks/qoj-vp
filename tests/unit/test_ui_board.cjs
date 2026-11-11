@@ -31,7 +31,7 @@ function environment() {
   let handler = async () => {throw new Error('Unexpected background call');};
   const context = {URL, Date, state, location:{hash:"#home"},VpBoardView:{render(){}}, document: {createElement: tag => new Element(tag)}, $: () => target,
     current: (expected, generation) => state.session?.sessionId === expected && state.generation === generation,
-    formatDate: value => new Date(value).toISOString(),
+    formatDate: value => new Date(value).toISOString(), renderScoreboardSource(){},
     call: async (method, args) => { calls.push({method, args}); return handler(method, args); }};
   vm.createContext(context);
   vm.runInContext(fs.readFileSync("src/firefox/board/generated/engine.js","utf8"),context);
@@ -72,6 +72,15 @@ test("board reads coalesce, and replies for another session cannot change displa
  const a=e.context.refreshBoard(),b=e.context.refreshBoard();assert.equal(e.calls.length,1);
  assert.equal(e.calls[0].method,"board.snapshot");e.state.generation++;
  release({sessionId,inputKey:"wrong"});await Promise.all([a,b]);assert.equal(e.state.board,undefined);
+});
+test("Home polling preserves the historical load requested by manual source settings",async()=>{
+ const e=environment();let release;e.setHandler(()=>new Promise(resolve=>release=resolve));
+ const manual=e.context.refreshBoard(true,true),poll=e.context.refreshBoard();
+ assert.equal(e.calls.length,1);assert.equal(e.calls[0].args.includeHistory,true);
+ const input=e.context.boardInput(),engine=e.context.VpBoardEngine;
+ const result={...engine.project(input),inputKey:engine.inputKey(input),scope:"historical"};
+ release(result);await Promise.all([manual,poll]);
+ assert.equal(e.state.boardSource.ready,true);assert.equal(e.state.boardSource.url,ranklandUrl);
 });
 test("early finish excludes later AC without changing the immutable submission time",()=>{
  const e=environment();e.state.session.finishedAt=60000;e.context.renderSummary();

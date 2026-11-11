@@ -26,6 +26,15 @@ function submission(id,elapsedMs,verdict='CORRECT',extra={}) {return {id:String(
 function archive() {return {version:'0.3.14',type:'general',contest:{title:'test',startAt:'2020-01-01T00:00:00Z',duration:[5,'h'],frozenDuration:[1,'h']},
  problems:[{alias:'A'},{alias:'B'}],series:[{title:'Rank',rule:{preset:'Normal'}}],sorter:{algorithm:'ICPC',config:{penalty:[20,'min'],timePrecision:'min'}},
  rows:[{user:{id:'opponent',name:'Opponent'},score:{value:1,time:[30,'min']},statuses:[{result:'AC',tries:1,time:[30,'min'],solutions:[{result:'AC',time:[30,'min']}]},{solutions:[]}]}]};}
+test('Jinan untouched cells with zero time and no solutions remain valid empty history',()=>{
+ const a=archive();a.rows[0].statuses[1]={result:null,time:[0,'s'],tries:0};
+ const b=engine.project(input(),a);
+ assert.equal(b.scope,'historical');assert.equal(b.ranklist.rows.find(r=>r.user.name==='Opponent').score.value,1);
+ for(const change of [{tries:1},{result:'AC'},{time:[1,'s']}]) {
+  const invalid=structuredClone(a);Object.assign(invalid.rows[0].statuses[1],change);
+  assert.throws(()=>engine.project(input(),invalid),/BOARD_HISTORY_INCOMPLETE/);
+ }
+});
 test('delayed AC scores the original minute; rejudge replaces the submission without duplication',()=>{
  const i=input([submission(1,20*60000)]);i.session.elapsedMs=25*60000;
  let result=engine.project(i,archive());assert.equal(result.own.penaltyMinutes,20);assert.equal(result.own.rank,1);

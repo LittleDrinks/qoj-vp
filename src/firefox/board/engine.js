@@ -89,7 +89,7 @@ export function project(input, archive=null, elapsedMs=null) {
     const id='historical:'+i; row.user={...row.user,id};
     if (!Array.isArray(row.statuses) || row.statuses.length!==source.problems.length) fail('INVALID_BOARD_HISTORY');
     row.statuses.forEach((status,index)=>{
-      if (!Array.isArray(status.solutions) && (status.result || status.tries || status.time)) fail('BOARD_HISTORY_INCOMPLETE');
+      if (!Array.isArray(status.solutions) && (status.result || status.tries || status.time && milliseconds(status.time)!==0)) fail('BOARD_HISTORY_INCOMPLETE');
       if (!status.solutions?.length && (status.result || status.tries)) fail('BOARD_HISTORY_INCOMPLETE');
       for(const solution of status.solutions || []) {
         const at=milliseconds(solution.time);

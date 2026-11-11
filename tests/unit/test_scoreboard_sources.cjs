@@ -73,6 +73,13 @@ test("an available Ucup contest is eligible and alternate titles can discover it
   env = setup();
   assert.equal((await env.resolve({...qoj, name: "The Universal Cup. Stage 4", titles: [title]})).source, "rankland");
 });
+test("captured Jinan metadata selects CCPC 2025 through the QOJ alternate title", async () => {
+  const data = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/jinan-scoreboard.json')));
+  const env = setup({entries:data.catalog, details:{ccpc2025jinan:data.detail}});
+  const result = await env.resolve(data.qoj);
+  assert.equal(result.contestKey, 'ccpc2025jinan'); assert.equal(result.state, 'matched');
+  assert.equal(result.checkedCandidates, 1); assert.equal(env.requests.length, 2);
+});
 test("a same-city contest in a different year is not fetched or selected", async () => {
   const env = setup({entries: [entry("icpc2026xi_an", {name: title.replace("2022", "2026"), title: {fallback: title.replace("2022", "2026")}})]});
   assert.equal((await env.resolve()).state, "unmatched"); assert.equal(env.requests.length, 1);
@@ -105,12 +112,35 @@ test("two complete matches remain ambiguous instead of choosing by title order",
   assert.equal(result.source, "qoj"); assert.equal(result.state, "ambiguous"); assert.equal(result.reason, "MULTIPLE_MATCHES");
   assert.equal(result.checkedCandidates, 2);
 });
-test("more candidates than the configured limit stays unverified without an unbounded detail crawl", async () => {
-  const env = setup({entries: Array.from({length: 9}, (_, index) => entry("copy" + index))});
+test("a match beyond the first batch is discovered with at most six concurrent detail reads", async () => {
+  const entries = Array.from({length: 9}, (_, index) => entry("copy" + index));
+  let active = 0, peak = 0;
+  const env = setup({handler: async url => {
+    if (url === API) return envelope({contests: entries});
+    const uk = url.slice(API.length + 1);
+    peak = Math.max(peak, ++active);
+    await new Promise(setImmediate);
+    active--;
+    return envelope(detail(uk, uk === 'copy8' ? {} : {problems: []}));
+  }});
   const result = await env.resolve();
-  assert.equal(result.state, "unverified"); assert.equal(result.reason, "CANDIDATE_LIMIT");
-  assert.equal(result.candidateCount, 9); assert.equal(result.candidates.length, 6); assert.equal(result.checkedCandidates, 0);
-  assert.equal(env.requests.length, 1);
+  assert.equal(result.state, "matched"); assert.equal(result.contestKey, 'copy8');
+  assert.equal(result.candidateCount, 9); assert.equal(result.checkedCandidates, 9);
+  assert.equal(env.requests.length, 10); assert.equal(peak, 6);
+});
+test("matches and unreadable candidates in later batches preserve ambiguity checks", async () => {
+  const entries = Array.from({length: 7}, (_, index) => entry("copy" + index));
+  for (const unreadable of [false, true]) {
+    const env = setup({entries, handler: async url => {
+      if (url === API) return envelope({contests: entries});
+      const uk = url.slice(API.length + 1);
+      if (unreadable && uk === 'copy6') throw Error('offline');
+      return envelope(detail(uk, ['copy0', 'copy6'].includes(uk) ? {} : {problems: []}));
+    }});
+    const result = await env.resolve();
+    assert.equal(result.state, unreadable ? 'unverified' : 'ambiguous');
+    assert.equal(result.ranklandUrl, null); assert.equal(result.checkedCandidates, 7);
+  }
 });
 test("a verified candidate plus a failed competing lookup cannot claim uniqueness", async () => {
   const env = setup({handler: async url => {
