@@ -147,6 +147,7 @@ def main():
             require(query.get('rule')==['ICPC'] and 'count' not in query and 'ratio' not in query,'Saved URL differs from saved rule')
             h.driver.find_element(By.CSS_SELECTOR,'#rankland-modal [data-bs-dismiss="modal"]').click()
             h.wait(lambda:not h.driver.find_element(By.ID,'rankland-modal').is_displayed(),'settings close after reload')
+            h.wait(lambda:not h.driver.find_elements(By.CSS_SELECTOR,'.modal-backdrop'),'settings backdrop removed')
             return {'rules':['ICPC','auto','CCPC26'],'conditionalRevealControls':True,'draftUrlFollowsRule':True,'savedUrlSurvivesReload':True}
         h.step('rule_specific_settings_in_real_firefox',rule_controls)
 
