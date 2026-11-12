@@ -2,6 +2,7 @@
   "name": "qoj-vp-release-tools",
   "private": true,
   "scripts": {
+    "preview:ready": "python3 scripts/dev/preview_ready.py",
     "lint:firefox": "web-ext lint --source-dir src/firefox --self-hosted --no-config-discovery",
     "build:board": "node scripts/build/build_board.mjs",
     "test:js": "node --test tests/unit/test_*.cjs",
