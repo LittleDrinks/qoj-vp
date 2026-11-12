@@ -3,7 +3,7 @@
   const HOST = "org.littledrinks.qoj_vp";
   const methods = new Set(["hello", "create_session", "start_session", "list_sessions", "inspect_session", "archive_session", "update_session",
     "qoj_contest", "qoj_bind_virtual", "qoj_confirm_virtual_start", "qoj_problem_form", "qoj_samples", "qoj_submit", "qoj_submissions", "qoj_reconcile", "rankland_queue", "rankland_ack", "rankland_ack_batch", "rankland_plan", "refresh_sessions", "prepare_rankland",
-    "resource_manifest", "prepare_resource", "resource_chunk", "import_samples", "delete_session", "finish_session", "session_snapshot"]);
+    "resource_manifest", "prepare_resource", "resource_chunk", "import_samples", "delete_session", "finish_session", "session_snapshot", "submitter_check", "submitter_bind"]);
   const ranklandIdentity = raw => VpRanklandProtocol.identity(raw);
   async function rememberRanklandUrl(raw) {
     const identity = ranklandIdentity(raw);
@@ -630,7 +630,11 @@
     if(method==="start_session") bindViewingBoard(result.sessionId).catch(()=>{});
     return result;
   }
+  const readiness = VpReadinessBridge.create({lifecycle:qojLifecycle, dispatch});
   browser.runtime.onMessage.addListener((message, sender) => {
+    if (["vp.ready.open", "vp.ready.task"].includes(message?.type)) {
+      return readiness.handle(message, sender).then(result => ({ok:true,result}), error => ({ok:false,error:{message:error.message}}));
+    }
     if (["vp.qoj.registration", "vp.qoj.prepare", "vp.qoj.startIntent", "vp.qoj.checkStart"].includes(message?.type)) {
       const action = {"vp.qoj.registration":"registration", "vp.qoj.prepare":"prepare", "vp.qoj.startIntent":"startIntent", "vp.qoj.checkStart":"check"}[message.type];
       return qojLifecycle[action](message, sender).then(result => ({ok:true,result}), error => ({ok:false,error:{code:error.code || "QOJ_VIRTUAL_FAILED",message:error.message}}));
@@ -655,6 +659,7 @@
       } catch (_) { return Promise.resolve({allowed: false, code: "IDENTITY_UNAVAILABLE"}); }
     }
     if (sender.id !== browser.runtime.id || !sender.url?.startsWith(browser.runtime.getURL(""))) return undefined;
+    if (sender.frameId > 0) return undefined;
     if (message?.type === "vp.diagnostics") return Promise.resolve({ok: true, result: {http: VpTransport.diagnostics(), ranklandGuards: ranklandGuardEvents.slice(-30)}});
     if (message?.type !== "vp.task") return undefined;
     return dispatch(message.method, message.args || {}).then(result => ({ok: true, result}), error => ({ok: false, error: {code: error.code || "BROWSER_ERROR", message: error.message}}));

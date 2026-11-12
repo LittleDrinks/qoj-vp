@@ -19,7 +19,7 @@ function setup({fixture=false,ranklandUrl=null}={}){
   }},browser:{runtime:{id:'test',getURL:n=>'moz-extension://test/'+n,onMessage:listener,onInstalled:listener},action:{onClicked:listener},alarms:{create(){},onAlarm:listener},
    tabs:{create:async o=>{tabs.push(o);return {id:5,...o};}},storage:{local:{get:async k=>({[k]:cache[k]}),set:async o=>Object.assign(cache,o)}}}};
  vm.createContext(context);
- for (const file of ['board/generated/engine.js','board/cache.js','board/service.js'])
+ for (const file of ['readiness-bridge.js','board/generated/engine.js','board/cache.js','board/service.js'])
   vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
  if (!context.VpScoreboardSources) context.VpScoreboardSources={};
   vm.runInContext(fs.readFileSync('src/firefox/rankland-protocol.js','utf8'),context);

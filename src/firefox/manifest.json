@@ -43,6 +43,7 @@
       "board/generated/engine.js",
       "board/cache.js",
       "board/service.js",
+      "readiness-bridge.js",
       "background.js"
     ],
     "persistent": false
@@ -64,6 +65,7 @@
         "https://qoj.ac/contest/*"
       ],
       "js": [
+        "ready-panel.js",
         "qoj-prepare-content.js"
       ],
       "run_at": "document_idle"
@@ -92,5 +94,15 @@
   "icons": {
     "16": "icons/domjudge-16.png",
     "32": "icons/domjudge-32.png"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "ui.html"
+      ],
+      "matches": [
+        "https://qoj.ac/*"
+      ]
+    }
+  ]
 }

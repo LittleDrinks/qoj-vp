@@ -19,7 +19,7 @@ function environment(cache = {}) {
       scripting: {executeScript: async () => [{result: null}]},
       storage: {local: {get: async key => ({[key]: cache[key]}), set: async values => Object.assign(cache, values)}}}};
   vm.createContext(context);
- for (const file of ['board/generated/engine.js','board/cache.js','board/service.js'])
+ for (const file of ['readiness-bridge.js','board/generated/engine.js','board/cache.js','board/service.js'])
   vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
  if (!context.VpScoreboardSources) context.VpScoreboardSources={};
   vm.runInContext(fs.readFileSync('src/firefox/rankland-protocol.js','utf8'),context);

@@ -27,8 +27,8 @@ globalThis.VpQojLifecycle = (() => {
           binding.account?.toLowerCase() !== session.account.toLowerCase()) throw new Error("QOJ 账号或比赛绑定未确认。");
       return session;
     }
-    async function prepare(message, sender) {
-      const {cid} = source(message, sender, true), key = sender.tab.id + ":" + cid;
+    async function bind(message, sender, open = false) {
+      const {cid} = source(message, sender, true), key = sender.tab.id + ":" + cid + ":" + open;
       if (!preparing.has(key)) preparing.set(key, (async () => {
         const registrationPage = await registrationEvidence(message, sender);
         const result = await native("qoj_bind_virtual", {contestId:cid, httpTabId:sender.tab.id, ...(registrationPage ? {registrationPage} : {})});
@@ -37,11 +37,12 @@ globalThis.VpQojLifecycle = (() => {
         // A preparation read can finish after native Start has been verified.
         // Reopening its old preparation URL would reload an active workbench
         // and interrupt the resource job already running there.
-        if (!confirmedStarts.has(session.sessionId)) await openSession(session, {prepare:true, active:true});
+        if (open && !confirmedStarts.has(session.sessionId)) await openSession(session, {prepare:true, active:true});
         return {sessionId:session.sessionId, cid};
       })().finally(() => preparing.delete(key)));
       return preparing.get(key);
     }
+    const prepare = (message, sender) => bind(message, sender, true);
     async function attempt(key, tabId) {
       let intent = (await storage.get(key))[key];
       if (!intent || clock() - intent.observedAt > MAX_AGE || clock() < intent.observedAt) return {state:"expired"};
@@ -172,7 +173,7 @@ globalThis.VpQojLifecycle = (() => {
       const opened = await tabs.query({url:"https://qoj.ac/contest/*"});
       for (const tab of opened) await checkTab(tab.id, tab.url).catch(() => {});
     }
-    return {registration, prepare, startIntent, submitted, check, completed, resume};
+    return {registration, prepare, bind, startIntent, submitted, check, completed, resume};
   }
   return {create};
 })();

@@ -13,9 +13,32 @@
   <link rel="stylesheet" href="board/generated/view.css">
   <script src="board/generated/engine.js" defer></script>
   <script src="board/generated/view.js" defer></script>
+  <script src="ready-ui.js" defer></script>
   <script src="ui.js" defer></script>
 </head>
 <body>
+  <div id="ready-judger-modal" class="modal fade" tabindex="-1" aria-labelledby="ready-judger-title" aria-hidden="true">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h2 id="ready-judger-title" class="modal-title fs-5">Judger · 提交准备</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body">
+        <p class="form-text">用 qoj-submitter 的登录配置执行 dry-run，检查提交准备。</p>
+        <dl class="row"><dt class="col-3">QOJ 账号</dt><dd id="ready-account" class="col-9"></dd><dt class="col-3">比赛</dt><dd id="ready-contest" class="col-9"></dd></dl>
+        <div class="row mb-3"><div class="col"><label for="ready-problem" class="form-label">题号</label><select id="ready-problem" class="form-select"></select></div>
+        <div class="col"><label for="ready-language" class="form-label">语言</label><select id="ready-language" class="form-select"><option value="cpp">C++20</option><option value="c">C11</option><option value="py">Python 3</option><option value="java">Java 21</option><option value="rs">Rust</option><option value="kt">Kotlin</option></select></div></div>
+        <div id="ready-judger-status" class="alert alert-info" role="status">正在检查…</div>
+        <pre id="ready-judger-output" class="small"></pre>
+        <p class="form-text">在终端通过 <code>qoj login</code> 登录提交工具。绑定本场后，可直接使用 <code>submit A.cpp</code> 提交。</p>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button id="ready-judger-bind" type="button" class="btn btn-outline-primary">绑定本场并检查</button><button id="ready-judger-check" type="button" class="btn btn-success">运行 dry-run</button></div>
+    </div></div>
+  </div>
+  <div id="ready-warning-modal" class="modal fade" tabindex="-1" aria-labelledby="ready-warning-title" aria-hidden="true">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h2 id="ready-warning-title" class="modal-title fs-5">确认比赛准备</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body"><p>以下项目需要处理：</p><ul id="ready-warning-list"></ul><p class="mb-0">选择“仍然开始”后，QOJ 将开始本场 VP。</p></div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">返回设置</button><button id="ready-continue" type="button" class="btn btn-primary">仍然开始</button></div>
+    </div></div>
+  </div>
   <nav class="navbar navbar-expand-md navbar-dark bg-dark fixed-top" aria-label="Main navigation">
     <div class="container-fluid">
       <a id="navbar-brand" class="navbar-brand hidden-sm-down" href="#home">DOMjudge</a>

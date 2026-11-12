@@ -13,7 +13,7 @@ function fixture() {
    action:{onClicked:listener},alarms:{create(){},onAlarm:{addListener:f=>listeners.alarm=f}},
    storage:{local:{get:async k=>({[k]:storage[k]}),set:async v=>Object.assign(storage,v)}}}};
  vm.createContext(context);
- for (const file of ['board/generated/engine.js','board/cache.js','board/service.js'])
+ for (const file of ['readiness-bridge.js','board/generated/engine.js','board/cache.js','board/service.js'])
   vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
  if (!context.VpScoreboardSources) context.VpScoreboardSources={};
   vm.runInContext(fs.readFileSync('src/firefox/rankland-protocol.js','utf8'),context);

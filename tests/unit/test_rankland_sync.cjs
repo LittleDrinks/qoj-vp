@@ -33,7 +33,7 @@ function harness(cache = {}) {
       scripting:{executeScript:async()=>[{result:null}]},
       storage:{local:{get:async k=>k===null?{...cache}:({[k]:cache[k]}),set:async v=>Object.assign(cache,v),remove:async k=>{delete cache[k];}}}}};
   vm.createContext(context);
- for (const file of ['board/generated/engine.js','board/cache.js','board/service.js'])
+ for (const file of ['readiness-bridge.js','board/generated/engine.js','board/cache.js','board/service.js'])
   vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
  if (!context.VpScoreboardSources) context.VpScoreboardSources={resolve:async()=>env.resolveResult};
   vm.runInContext(fs.readFileSync('src/firefox/rankland-protocol.js','utf8'),context);

@@ -119,7 +119,7 @@ function harness() {
   vm.runInContext(fs.readFileSync(path.join(__dirname, "../../src/firefox/qoj-lifecycle.js"), "utf8"), context,
     {filename: "src/firefox/qoj-lifecycle.js"});
   vm.runInContext(fs.readFileSync("src/firefox/rankland-protocol.js", "utf8"), context);
-  for (const file of ['board/generated/engine.js','board/cache.js','board/service.js']) vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
+  for (const file of ['readiness-bridge.js','board/generated/engine.js','board/cache.js','board/service.js']) vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
   context.VpScoreboardSources={};
   vm.runInContext(source, context, {filename: "src/firefox/background.js"});
   return {

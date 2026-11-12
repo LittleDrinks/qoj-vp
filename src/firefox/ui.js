@@ -38,6 +38,8 @@
     juryRequest: null, adminBusy: false, manualProblem: null, manualSessionId: null, manualBusy: false, deleteSessionId: null,
   };
   const modals = {};
+  const readinessToken = new URLSearchParams(location.search).get("ready");
+  let readiness;
 
   function node(tag, className, text) {
     const result = document.createElement(tag);
@@ -85,12 +87,20 @@
     return state.session?.sessionId === sessionId && state.generation === generation;
   }
   async function call(method, args = {}) {
-    const response = await browser.runtime.sendMessage({type: "vp.task", method, args});
+    const section = ["prepare_resource", "import_samples"].includes(method) ? "resources" : method === "update_session" ? "board" : null;
+    if (section) readiness?.invalidate(section, method);
+    const response = await browser.runtime.sendMessage(readinessToken ?
+      {type:"vp.ready.task", token:readinessToken, method, args} : {type: "vp.task", method, args}).catch(error => {
+        if (section) readiness?.failed(section, error);
+        throw error;
+      });
     if (!response || response.ok !== true) {
       const error = new Error(response?.error?.message || "未连接到配套助手。请检查助手安装后重新打开页面。");
       error.code = response?.error?.code || "HELPER_UNAVAILABLE";
+      if (section) readiness?.failed(section, error);
       throw error;
     }
+    if (section) readiness?.changed(section, method);
     return response.result;
   }
   async function localGet(key) {
@@ -642,7 +652,7 @@
     retry.hidden = !state.contestError; retry.disabled = state.contestRefreshing;
   }
   function isProblemsRoute() { return location.hash === "#problems" || location.hash === "#problemset"; }
-  function isJuryRoute() { return location.hash === "#jury" || location.hash.startsWith("#jury/"); }
+  function isJuryRoute() { return Boolean(readinessToken) || location.hash === "#jury" || location.hash.startsWith("#jury/"); }
   function juryTarget() {
     const match = location.hash.match(/^#jury\/contest\/([a-f0-9-]{36})$/i);
     return match ? match[1] : null;
@@ -1643,7 +1653,53 @@
     modals.reconcile.show();
   }
 
+  function bindSharedSettings() {
+    $("manual-samples-mode").addEventListener("change", renderManualMode);
+    $("manual-samples-form").addEventListener("submit", importManualSamples);
+    $("manual-samples-modal").addEventListener("hide.bs.modal", event => { if (state.manualBusy) event.preventDefault(); });
+    $("manual-samples-modal").addEventListener("hidden.bs.modal", () => { if (isJuryRoute() && state.session?.sessionId === state.manualSessionId) modals.resources.show(); });
+    $("prepare-resources").addEventListener("click", () => prepareResources());
+    $("refresh-resources").addEventListener("click", () => prepareResources(undefined, true));
+    $("board-rule").addEventListener("change", () => {renderBoardRuleSettings();updateRanklandDraftUrl();});
+    $("board-count").addEventListener("input", updateRanklandDraftUrl);
+    $("board-ratio").addEventListener("input", updateRanklandDraftUrl);
+    $("rankland-url").addEventListener("change", updateRanklandDraftUrl);
+    $("rankland-form").addEventListener("submit", async event => {
+      event.preventDefault(); const control = event.submitter; control.disabled = true;
+      const sessionId = state.session.sessionId, generation = state.generation;
+      try {
+        updateRanklandDraftUrl();
+        const updated = await call("update_session", {sessionId, ranklandUrl: $("rankland-url").value.trim(),
+          board:$("board-rule").value==="CCPC26" ?
+            {rule:"CCPC26",revealCount:Number($("board-count").value),revealRatio:Number($("board-ratio").value)} :
+            {rule:$("board-rule").value}});
+        if (!current(sessionId, generation)) return;
+        state.session = preserveNativeStart(updated);
+        resetBoard(); resetScoreboardSource();
+        const index = state.sessions.findIndex(item => item.sessionId === state.session.sessionId);
+        if (index >= 0) state.sessions[index] = state.session;
+        renderSession(); renderSummary(); modals.rankland.hide();
+        if (!readinessToken) {
+          resolveScoreboardSource(true);
+          await refreshBoard(true, Boolean(state.session.ranklandUrl));
+        }
+      } catch (error) { if (current(sessionId, generation)) showMessage($("rankland-error"), message(error)); }
+      finally { control.disabled = false; }
+    });
+  }
+
   async function initialize() {
+    if (window.parent && window.parent !== window && !readinessToken) return;
+    if (readinessToken) {
+      document.documentElement.classList.add("vp-ready-dialogs");
+      for (const id of ["resources", "manual-samples", "rankland", "ready-judger", "ready-warning"]) modals[id] = new bootstrap.Modal($(id + "-modal"));
+      bindSharedSettings();
+      readiness = VpReadyUi.create({token:readinessToken, state, modals, call, openResources, openRanklandSettings,
+        loadResourceManifest, prepareResources, readyResource});
+      await readiness.initialize();
+      return;
+    }
+    bindSharedSettings();
     browser.runtime.onMessage.addListener((message, sender) => {
       if (sender.id !== browser.runtime.id || message?.type !== "vp.qoj.started" || message.sessionId !== state.session?.sessionId || state.submitting) return undefined;
       return (async () => {
@@ -1665,17 +1721,11 @@
     $("finish-session").addEventListener("click", finishSession);
     $("delete-session").addEventListener("click", openDeleteSession);
     $("delete-contest-form").addEventListener("submit", deleteSession);
-    $("manual-samples-mode").addEventListener("change", renderManualMode);
-    $("manual-samples-form").addEventListener("submit", importManualSamples);
-    $("manual-samples-modal").addEventListener("hide.bs.modal", event => { if (state.manualBusy) event.preventDefault(); });
-    $("manual-samples-modal").addEventListener("hidden.bs.modal", () => { if (isJuryRoute() && state.session?.sessionId === state.manualSessionId) modals.resources.show(); });
     $("load-contest").addEventListener("click", loadSetupContest);
     $("contest-input").addEventListener("input", () => { state.setupContest = null; $("prepare-session").disabled = true; hideMessage($("contest-preview")); });
     $("session-form").addEventListener("submit", prepareSession);
     $("start-session").addEventListener("click", startSession);
     $("open-resources").addEventListener("click", () => openResources().catch(fail));
-    $("prepare-resources").addEventListener("click", () => prepareResources());
-    $("refresh-resources").addEventListener("click", () => prepareResources(undefined, true));
     $("refresh-contest").addEventListener("click", () => refreshContest().catch(() => {}));
     $("refresh-submissions").addEventListener("click", () => {
       refresh(true).catch(() => {});
@@ -1695,10 +1745,6 @@
       if ($("nav-scoreboard").getAttribute("aria-disabled") !== "true") openScoreboard();
     });
     $("rankland-settings").addEventListener("click", openRanklandSettings);
-    $("board-rule").addEventListener("change", () => {renderBoardRuleSettings();updateRanklandDraftUrl();});
-    $("board-count").addEventListener("input", updateRanklandDraftUrl);
-    $("board-ratio").addEventListener("input", updateRanklandDraftUrl);
-    $("rankland-url").addEventListener("change", updateRanklandDraftUrl);
     $("stop-rankland-sync").addEventListener("click", async () => {
       if(!state.session) return;
       const sessionId=state.session.sessionId,generation=state.generation;
@@ -1709,26 +1755,6 @@
     });
     $("sync-scoreboard").addEventListener("click", syncScoreboard);
     $("sync-rankland").addEventListener("click", syncScoreboard);
-    $("rankland-form").addEventListener("submit", async event => {
-      event.preventDefault(); const control = event.submitter; control.disabled = true;
-      const sessionId = state.session.sessionId, generation = state.generation;
-      try {
-        updateRanklandDraftUrl();
-        const updated = await call("update_session", {sessionId, ranklandUrl: $("rankland-url").value.trim(),
-          board:$("board-rule").value==="CCPC26" ?
-            {rule:"CCPC26",revealCount:Number($("board-count").value),revealRatio:Number($("board-ratio").value)} :
-            {rule:$("board-rule").value}});
-        if (!current(sessionId, generation)) return;
-        state.session = preserveNativeStart(updated);
-        resetBoard(); resetScoreboardSource();
-        const index = state.sessions.findIndex(item => item.sessionId === state.session.sessionId);
-        if (index >= 0) state.sessions[index] = state.session;
-        renderSession(); renderSummary(); modals.rankland.hide();
-        resolveScoreboardSource(true);
-        await refreshBoard(true, Boolean(state.session.ranklandUrl));
-      } catch (error) { if (current(sessionId, generation)) showMessage($("rankland-error"), message(error)); }
-      finally { control.disabled = false; }
-    });
     $("reconcile-form").addEventListener("submit", async event => {
       event.preventDefault(); const control = event.submitter; control.disabled = true;
       try {

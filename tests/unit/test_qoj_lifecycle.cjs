@@ -59,6 +59,16 @@ test("register preparation shares a binding and opens that exact prepared sessio
   assert.equal(env.opened[1].session.sessionId, sid);
 });
 
+test("readiness binds the QOJ account without opening a tab or starting its clock", async () => {
+  const env = environment();
+  const result = await env.flow.bind({cid, registrationPage}, sender());
+  assert.equal(result.sessionId, sid);
+  assert.equal(env.opened.length, 0);
+  assert.equal(env.calls.some(call => call.method === "qoj_confirm_virtual_start"), false);
+  assert.equal(env.data[intentKey], undefined);
+  await assert.rejects(env.flow.bind({cid}, sender(7, dashboard)));
+});
+
 test("invalid account, contest or native binding never opens a prepared session", async () => {
   for (const session of [null, {...bound(), contestId:"999"}, {...bound(), account:"someone-else"},
     {...bound(), qojVirtual:{...bound().qojVirtual, mode:"local"}},
