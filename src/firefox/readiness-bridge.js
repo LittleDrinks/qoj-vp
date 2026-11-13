@@ -1,7 +1,7 @@
 "use strict";
 globalThis.VpReadinessBridge = (() => {
   const allowed = new Set(["inspect_session", "resource_manifest", "resource_chunk", "prepare_resource", "import_samples",
-    "qoj_problem_form", "update_session", "board.snapshot", "scoreboard.resolve", "submitter_check", "submitter_bind"]);
+    "qoj_problem_form", "update_session", "board.snapshot", "board.prepare", "scoreboard.resolve", "submitter_check", "submitter_bind"]);
   function create({lifecycle, dispatch, runtime = browser.runtime, tabs = browser.tabs, storage = browser.storage.local}) {
     const key = id => "vp-ready-page:" + id;
     function registration(url, cid) {

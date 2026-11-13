@@ -56,9 +56,9 @@ globalThis.VpReadyUi = (() => {
         await call("scoreboard.resolve",{sessionId});
         state.session = await call("inspect_session",{sessionId});
         const result = await call("board.snapshot",{sessionId,includeHistory:true,refresh:true,elapsedMs:0});
-        if (result.scope !== "historical") throw new Error("请设置本场 RankLand 数据来源，并核对题目对应关系。");
+        if (result.scope !== "historical" || !result.stored) throw new Error("请抓取并保存本场 RankLand 数据，核对题目对应关系。");
         state.board = result;
-        report("ready","历史榜单与本场题表已确认" + (result.cached ? " · 已缓存" : ""));
+        report("ready","历史榜单已保存，题目对应关系已确认" + (result.cached ? " · 使用缓存" : ""));
       });
     }
     function judger(bind=false) {

@@ -10,7 +10,7 @@ function page() {
   };
   const session={sessionId:"session",contestId:"4686",account:"User",state:"prepared",startAt:null};
   const contest={name:"Contest",problems:[{id:"1",label:"A"},{id:"2",label:"B"}]};
-  const model={history:false,missing:true,cli:false,hold:null},state={generation:0};
+  const model={history:false,stored:true,missing:true,cli:false,hold:null},state={generation:0};
   const parent={postMessage:message=>messages.push(structuredClone(message))};
   const context={setTimeout,clearTimeout,Option:class{constructor(label,value){this.label=label;this.value=value;}},
     document:{getElementById:element,createElement:()=>({}),querySelector:()=>null},
@@ -21,7 +21,7 @@ function page() {
     if(method==="connect")return {session,contest};
     if(method==="inspect_session")return session;
     if(method==="qoj_problem_form"&&model.missing&&args.problemId==="2")throw Error("offline");
-    if(method==="board.snapshot") {if(model.hold)return model.hold;return {scope:model.history?"historical":"local"};}
+    if(method==="board.snapshot") {if(model.hold)return model.hold;return {scope:model.history?"historical":"local",stored:model.stored};}
     if(method==="submitter_check"&&!model.cli)throw Error("请运行 qoj login");
     if(method==="submitter_check"||method==="submitter_bind")return {ready:true,account:"User",language:"C++20",output:"Dry run: no submission sent."};
     return {};
@@ -49,6 +49,12 @@ test("editing the board while its old request completes keeps the new setting un
   const job=p.ui.initialize();await tick();
   p.element("rankland-form").listeners.input();release({scope:"historical"});await job;
   assert.equal(p.latest().board.state,"attention");assert.match(p.latest().board.detail,/保存/);
+});
+test("board readiness requires the downloaded archive to be saved locally", async()=>{
+  const p=page();p.model.history=true;p.model.stored=false;await p.ui.initialize();
+  assert.equal(p.latest().board.state,"attention");
+  p.model.stored=true;p.check();await tick();await tick();
+  assert.equal(p.latest().board.state,"ready");
 });
 test("switching from resources to manual samples keeps the frame visible through backdrop animation", async()=>{
   const p=page();

@@ -15,6 +15,7 @@ class Element {
   append(...values){this.children.push(...values);} replaceChildren(...values){this.children=values;}
   setAttribute(k,v){this.attributes[k]=String(v);} getAttribute(k){return this.attributes[k]??null;} removeAttribute(k){delete this.attributes[k];}
   addEventListener(k,v){this.listeners[k]=v;} querySelector(){return null;} querySelectorAll(){return [];}
+  reportValidity(){return true;}
   get firstChild(){return this.children[0];} get options(){return this.children;} reset(){}
 }
 function fixture() {

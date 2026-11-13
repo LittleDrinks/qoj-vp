@@ -47,7 +47,19 @@ def main():
     file = {'id': '2', 'contestId': '1', 'category': 'RankMain', 'name': 'ready.srk.json', 'path': '2/ready.srk.json',
             'hashType': 'sha256', 'hashValue': hashlib.sha256(data).hexdigest(), 'size': len(data),
             'url': 'https://cdn.algoux.cn/rankland/file/2/ready.srk.json'}
+    alternatives = {}
+    for file_id, key in enumerate(['replacement', 'wrong-problems'], 3):
+        file_id = str(file_id)
+        value = json.loads(json.dumps(archive))
+        value['contest']['title'] = 'Replacement history'
+        value['rows'][0]['user']['name'] = 'Replacement opponent'
+        if key == 'wrong-problems': value['problems'][0]['alias'] = 'C'
+        payload = json.dumps(value).encode()
+        alternatives[key] = (payload, dict(detail, uk=key, name=value['contest']['title'], srkFileID=file_id),
+            dict(file, id=file_id, name='ready.srk.json', path=file_id+'/ready.srk.json', url='https://cdn.algoux.cn/rankland/file/'+file_id+'/ready.srk.json',
+                 hashValue=hashlib.sha256(payload).hexdigest(), size=len(payload)))
     traffic, starts = [], []
+    board_offline = False
     form = '<form id="form-register_vp" method="post" action="/contest/3387/virtual/register"><input type="hidden" name="_token" value="fixture"><p>Click the button below to start your virtual participation immediately.</p><button class="btn btn-primary w-100" id="button-submit-register_vp" name="submit-register_vp" type="submit">Start</button></form>'
     register = account_menu('FixtureUser', body='<div class="container my-4"><h1>VP Ready · 隔离比赛</h1><p class="text-muted">VMware Firefox · QOJ、历史榜单与 CLI 使用隔离测试数据</p><div class="row mt-4"><section class="col-8"><div class="card"><h4 class="card-header">Virtual Contest Rules</h4><div class="card-body"><p>Prepare your contest before starting virtual participation.</p><ul><li>The contest is 300 minutes long.</li><li>Each wrong submission adds 20 minutes of penalty.</li></ul></div></div></section><aside class="col-4"><div class="card border-primary"><h4 class="card-header bg-primary text-white">Start virtual participation</h4><div class="card-body"><p>Ruleset &nbsp; ICPC &emsp; Duration &nbsp; 5:00</p>' + form + '</div></div></aside></div></div>')
     register = register.replace('//qoj.ac/', '/')
@@ -71,12 +83,22 @@ def main():
                 return self.emit(account_menu('FixtureUser', body=body))
             if path.startswith('/contest/3387/problem/'):
                 return self.emit((fixtures / ('problem-' + path.split('/')[4] + '.html')).read_text())
-            if path == '/contest/3387/submissions': return self.emit((fixtures / 'submissions-empty.html').read_bytes())
+            if path == '/contest/3387/submissions':
+                if not starts: return self.emit((fixtures / 'submissions-empty.html').read_bytes())
+                stamp = datetime.fromtimestamp(starts[0]+1, timezone.utc).isoformat(timespec='milliseconds')
+                return self.emit('<table><thead><tr><th>ID</th><th>Submitter</th><th>Problem</th><th>Result</th><th>Language</th><th>Submit time</th></tr></thead><tbody><tr><td><a href="/submission/1000001">1000001</a></td><td><a href="/user/profile/FixtureUser">FixtureUser</a></td><td><a href="/contest/3387/problem/15419">A</a></td><td>AC</td><td>C++20</td><td><time datetime="'+stamp+'">'+stamp+'</time></td></tr></tbody></table>')
+            if path.startswith('/api/') or path.startswith('/rankland/'):
+                if board_offline or path.endswith('/offline'): return self.emit('temporarily unavailable', code=503)
             if path.startswith('/api/v2/public/contests'):
-                result = {'contests': []} if path.endswith('contests') else detail
+                key = path.rsplit('/', 1)[-1]
+                result = {'contests': []} if key == 'contests' else alternatives[key][1] if key in alternatives else detail
                 return self.emit(json.dumps({'success': True, 'code': 0, 'data': result}), 'application/json')
             if path.startswith('/api/v2/public/files/'):
-                return self.emit(json.dumps({'success': True, 'code': 0, 'data': file}), 'application/json')
+                return self.emit(json.dumps({'success': True, 'code': 0, 'data': next((item[2] for item in alternatives.values() if item[2]['id'] == path.rsplit('/',1)[-1]), file)}), 'application/json')
+            key = path.split('/')[-2] if '/' in path else ''
+            if path.startswith('/rankland/file/'):
+                payload = next((item[0] for item in alternatives.values() if item[2]['id'] == key), None)
+                if payload is not None: return self.emit(payload, 'application/json')
             if path == '/rankland/file/2/ready.srk.json': return self.emit(data, 'application/json')
             return self.emit('missing fixture', code=404)
         def do_POST(self):
@@ -171,7 +193,12 @@ def main():
             modal_ready('resources-modal')
             close();wait.until(lambda _:'ready' in settled()[0]['state'] if settled() else False)
             enter(1);field=driver.find_element(By.ID,'rankland-url');field.clear();field.send_keys('https://rl.algoux.cn/ranklist/ready-fixture')
-            capture('03-board-settings.png');driver.find_element(By.CSS_SELECTOR,'#rankland-form button[type=submit]').click()
+            extension_url = driver.execute_script('return location.href.split("?")[0];')
+            driver.find_element(By.ID,'rankland-check').click()
+            wait.until(lambda _:'已保存 1 支队伍、2 道题、1 条历史提交' in driver.find_element(By.ID,'rankland-check-status').text)
+            capture('03-board-settings.png')
+            assert not saved_session()['ranklandUrl'], 'Preview must preserve the active source'
+            driver.find_element(By.CSS_SELECTOR,'#rankland-form button[type=submit]').click()
             driver.switch_to.default_content();wait.until(lambda _:'ready' in settled()[1]['state'] if settled() else False)
             enter(2);driver.find_element(By.ID,'ready-judger-bind').click()
             wait.until(lambda _:'dry-run 通过' in driver.find_element(By.ID,'ready-judger-status').text)
@@ -182,7 +209,9 @@ def main():
             enter(2);Select(driver.find_element(By.ID,'ready-language')).select_by_value('py');close()
             driver.find_element(By.ID,'button-submit-register_vp').click()
             driver.switch_to.frame(driver.find_element(By.CSS_SELECTOR,'iframe[title="QOJ VP 准备设置"]'))
-            modal_ready('ready-warning-modal');capture('06-start-warning.png')
+            modal_ready('ready-warning-modal')
+            assert 'btn-success' in driver.find_element(By.ID,'ready-continue').get_attribute('class')
+            capture('06-start-warning.png')
             assert not starts
             driver.find_element(By.CSS_SELECTOR,'#ready-warning-modal .btn-secondary').click();driver.switch_to.default_content()
             wait.until(lambda _:not driver.find_element(By.CSS_SELECTOR,'iframe[title="QOJ VP 准备设置"]').is_displayed());assert not starts
@@ -193,7 +222,62 @@ def main():
             assert session['startAt']==session['qojVirtual']['startAt']
             assert abs(session['startAt']/1000-starts[0])<5
             assert [path for method,path in traffic if method=='POST']==['/contest/3387/virtual/register']
-            report.update(status='passed',nativeStartPosts=len(starts),submissionPosts=0,clock='QOJ server time')
+            # Jury uses the same draft download and activation flow during the contest.
+            sid = session['sessionId']
+            driver.get(extension_url+'?session='+sid+'#jury/contest/'+sid)
+            wait.until(lambda _:driver.execute_script('return window.qojVpUi?.getState().session?.sessionId;') == sid)
+            def call(method, **params):
+                reply = driver.execute_async_script('const done=arguments[arguments.length-1];browser.runtime.sendMessage({type:"vp.task",method:arguments[0],args:arguments[1]}).then(done);', method, dict(sessionId=sid, **params))
+                assert reply.get('ok'), reply.get('error')
+                return reply['result']
+            active_session = call('inspect_session')
+            submissions = call('qoj_submissions', refresh=True)['submissions']
+            assert len(submissions) == 1, submissions
+            def settings(key):
+                driver.execute_script('location.hash="#jury/contest/"+arguments[0];', sid)
+                wait.until(lambda _:driver.find_element(By.ID,'rankland-settings').is_displayed())
+                wait.until(lambda _:not driver.find_elements(By.CSS_SELECTOR,'.modal-backdrop'))
+                driver.find_element(By.ID,'rankland-settings').click();modal_ready('rankland-modal')
+                field = driver.find_element(By.ID,'rankland-url');field.clear();field.send_keys('https://rl.algoux.cn/ranklist/'+key)
+            def dismiss():
+                driver.find_element(By.CSS_SELECTOR,'#rankland-modal .btn-close').click()
+                wait.until(lambda _:not driver.find_elements(By.CSS_SELECTOR,'.modal-backdrop'))
+            for key in ['wrong-problems', 'offline']:
+                settings(key)
+                driver.find_element(By.CSS_SELECTOR,'#rankland-form button[type=submit]').click()
+                wait.until(lambda _:'检查未通过' in driver.find_element(By.ID,'rankland-check-status').text)
+                unchanged = call('inspect_session')
+                if key == 'wrong-problems': assert '题目与本场 QOJ 比赛不一致' in driver.find_element(By.ID,'rankland-error').text
+                assert unchanged['ranklandUrl'] == active_session['ranklandUrl']
+                assert unchanged['startAt'] == active_session['startAt']
+                assert call('board.snapshot', includeHistory=True)['scope'] == 'historical'
+                capture('08-jury-'+key+'.png');dismiss()
+            settings('replacement')
+            driver.find_element(By.ID,'rankland-check').click()
+            def downloaded(_):
+                status = driver.find_element(By.ID,'rankland-check-status')
+                text = status.text
+                return status.is_displayed() and all(part in text for part in ['Replacement history','1 支队伍','2 道题','1 条历史'])
+            wait.until(downloaded)
+            assert call('inspect_session')['ranklandUrl'] == active_session['ranklandUrl']
+            capture('09-jury-downloaded.png')
+            driver.find_element(By.CSS_SELECTOR,'#rankland-form button[type=submit]').click()
+            wait.until(lambda _:not driver.find_elements(By.CSS_SELECTOR,'.modal-backdrop'))
+            after = call('inspect_session')
+            assert 'contest=replacement' in after['ranklandUrl']
+            assert after['startAt'] == active_session['startAt'] and after['state'] == active_session['state']
+            assert call('qoj_submissions')['submissions'] == submissions
+            snapshot = call('board.snapshot', includeHistory=True)
+            assert snapshot['stored'] and snapshot['own']['score'] == 1
+            board_offline = True
+            driver.execute_script('location.hash="#scoreboard";')
+            driver.refresh()
+            wait.until(lambda _:'Replacement opponent' in driver.find_element(By.ID,'board-table').text)
+            capture('10-jury-replaced-board.png')
+            assert call('inspect_session')['startAt'] == active_session['startAt']
+            assert call('board.snapshot', includeHistory=True)['own']['score'] == 1
+            report.update(status='passed',nativeStartPosts=len(starts),submissionPosts=0,clock='QOJ server time',
+                draftDownload=True,failedReplacementPreservesBoard=True,runningReplacementPreservesClockAndSubmission=True,offlineReload=True)
     except Exception as error:
         report.update(status='failed',error=repr(error))
         report['traffic']=traffic

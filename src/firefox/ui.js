@@ -33,7 +33,7 @@
     resources: new Map(), resourceActivity: new Map(), resourceInteractive: new Map(),
     resourceDownloads: new Set(), resourceJob: null, resourcesLoaded: false, resourceReading: false,
     resourceManifestError: "", resourceSummary: "", resourceReadSequence: 0, resourceMutation: 0,
-    ranklandSyncRequest: null, ranklandSyncStatus: null, ranklandAutoSync: false,
+    ranklandSyncRequest: null, ranklandSyncStatus: null, ranklandAutoSync: false, ranklandBusy: false,
     scoreboardSource: null, scoreboardRequestSequence: 0, scoreboardRequest: null,
     juryRequest: null, adminBusy: false, manualProblem: null, manualSessionId: null, manualBusy: false, deleteSessionId: null,
   };
@@ -1622,7 +1622,53 @@
     const config=VpBoardEngine.configuration(state.session);
     $("board-rule").value=config.rule;$("board-count").value=config.revealCount;$("board-ratio").value=config.revealRatio;
     renderBoardRuleSettings();
+    showMessage($("rankland-check-status"), "点击“抓取并检查”，下载榜单并核对题目。", "secondary");
     $("rankland-url").value = state.session.ranklandUrl || ""; hideMessage($("rankland-error")); modals.rankland.show();
+  }
+  async function prepareRankland(save) {
+    if (state.ranklandBusy || !state.session || !$("rankland-form").reportValidity()) return;
+    const sessionId = state.session.sessionId, generation = state.generation;
+    updateRanklandDraftUrl();
+    const ranklandUrl = $("rankland-url").value.trim(), board = $("board-rule").value === "CCPC26" ?
+      {rule:"CCPC26",revealCount:Number($("board-count").value),revealRatio:Number($("board-ratio").value)} : {rule:$("board-rule").value};
+    state.ranklandBusy = true;
+    const controls = [...$("rankland-form").querySelectorAll("input, select, button")].filter(control => !control.disabled);
+    controls.forEach(control => {control.disabled = true;});
+    hideMessage($("rankland-error"));
+    showMessage($("rankland-check-status"), "正在读取并保存历史榜单…", "info");
+    try {
+      if (!ranklandUrl && !save) throw new Error("请填写本场 RankLand 主站榜单或 VP 链接。");
+      if (ranklandUrl) {
+        const result = await call("board.prepare", {sessionId,url:ranklandUrl,board,refresh:!save});
+        if (!current(sessionId,generation)) return;
+        showMessage($("rankland-check-status"), `${result.title}：已保存 ${result.teams} 支队伍、${result.problems} 道题、${result.submissions} 条历史提交。题目对应关系已确认，可保存使用。`, "success");
+      }
+      if (!save || !current(sessionId,generation)) return;
+      const updated = await call("update_session", {sessionId,ranklandUrl,board});
+      if (!current(sessionId,generation)) return;
+      state.session = preserveNativeStart(updated);
+      resetBoard(); resetScoreboardSource();
+      const index = state.sessions.findIndex(item => item.sessionId === sessionId);
+      if (index >= 0) state.sessions[index] = state.session;
+      renderSession(); renderSummary();
+      state.ranklandBusy = false; modals.rankland.hide();
+      if (!readinessToken) {
+        resolveScoreboardSource(true);
+        await refreshBoard(false, Boolean(state.session.ranklandUrl));
+      }
+    } catch (error) {
+      if (current(sessionId,generation)) {
+        const detail = {BOARD_CACHE_FAILED:"本地保存失败，请检查浏览器存储空间后重试。", BOARD_PROBLEM_MAPPING_MISMATCH:"题目与本场 QOJ 比赛不一致，请选择对应榜单。",
+          BOARD_HISTORY_INCOMPLETE:"榜单缺少完整提交记录，请选择可回放的榜单。", BOARD_CONTEST_MISMATCH:"榜单赛时与本场比赛不一致，请选择对应榜单。",
+          INVALID_BOARD_SOURCE:"请填写有效的 RankLand 主站榜单或 VP 链接。", NETWORK_ERROR:"连接 RankLand 失败，请检查网络后重试。",
+          TIMEOUT:"抓取榜单超时，请重试。", HTTP_ERROR:"RankLand 暂时无法提供榜单，请检查链接后重试。",
+          MALFORMED_FILE:"榜单文件信息不完整，请检查数据来源。", SRK_INTEGRITY_MISMATCH:"榜单下载校验失败，请重新抓取。"}[error.message] || message(error);
+        showMessage($("rankland-error"), detail);
+        showMessage($("rankland-check-status"), "检查未通过。当前使用的榜单保持原样，可修改链接后重试。", "warning");
+      }
+    } finally {
+      state.ranklandBusy = false; controls.forEach(control => {control.disabled = false;});
+    }
   }
   async function openScoreboard() {
     if (!state.session) return;
@@ -1664,28 +1710,10 @@
     $("board-count").addEventListener("input", updateRanklandDraftUrl);
     $("board-ratio").addEventListener("input", updateRanklandDraftUrl);
     $("rankland-url").addEventListener("change", updateRanklandDraftUrl);
-    $("rankland-form").addEventListener("submit", async event => {
-      event.preventDefault(); const control = event.submitter; control.disabled = true;
-      const sessionId = state.session.sessionId, generation = state.generation;
-      try {
-        updateRanklandDraftUrl();
-        const updated = await call("update_session", {sessionId, ranklandUrl: $("rankland-url").value.trim(),
-          board:$("board-rule").value==="CCPC26" ?
-            {rule:"CCPC26",revealCount:Number($("board-count").value),revealRatio:Number($("board-ratio").value)} :
-            {rule:$("board-rule").value}});
-        if (!current(sessionId, generation)) return;
-        state.session = preserveNativeStart(updated);
-        resetBoard(); resetScoreboardSource();
-        const index = state.sessions.findIndex(item => item.sessionId === state.session.sessionId);
-        if (index >= 0) state.sessions[index] = state.session;
-        renderSession(); renderSummary(); modals.rankland.hide();
-        if (!readinessToken) {
-          resolveScoreboardSource(true);
-          await refreshBoard(true, Boolean(state.session.ranklandUrl));
-        }
-      } catch (error) { if (current(sessionId, generation)) showMessage($("rankland-error"), message(error)); }
-      finally { control.disabled = false; }
-    });
+    $("rankland-form").addEventListener("input", () => {hideMessage($("rankland-error"));showMessage($("rankland-check-status"), "设置已更新，请抓取并检查。", "secondary");});
+    $("rankland-modal").addEventListener("hide.bs.modal", event => {if(state.ranklandBusy) event.preventDefault();});
+    $("rankland-check").addEventListener("click", () => prepareRankland(false));
+    $("rankland-form").addEventListener("submit", event => {event.preventDefault();return prepareRankland(true);});
   }
 
   async function initialize() {

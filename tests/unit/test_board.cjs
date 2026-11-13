@@ -133,6 +133,42 @@ test('data adapter cache survives service restart; no external tab or source fet
  assert.equal((await board.snapshot('practice')).own.rank,1);
  assert.equal((await board.snapshot('practice',{refresh:true})).own.rank,1);
 });
+test('preparing a new board downloads and persists it before use, preserving the active contest',async()=>{
+ const i=input([submission(1,60000)]);i.session.ranklandUrl='https://vp.xcpc.link/?contest=old';
+ const before=JSON.stringify(i),saved=new Map();let downloads=0;
+ const options={readSnapshot:async()=>i,engine,cache:{get:async k=>saved.get(k),set:async(k,v)=>saved.set(k,v)},
+  sources:{loadArchive:async()=>{downloads++;return {archive:archive(),contestKey:'new',fetchedAt:1234};}}};
+ const service=context.VpBoard.create(options);
+ const preview=await service.prepare('practice',{url:'https://rl.algoux.cn/ranklist/new',board:{rule:'ICPC'}});
+ assert.equal(preview.teams,1);assert.equal(preview.problems,2);assert.equal(preview.submissions,1);
+ assert.equal(preview.stored,true);assert.equal(downloads,1);assert.equal(JSON.stringify(i),before);
+ i.session.ranklandUrl='https://vp.xcpc.link/?contest=new';
+ const restarted=context.VpBoard.create({...options,sources:{loadArchive:async()=>{throw Error('offline');}}});
+ const result=await restarted.snapshot('practice');assert.equal(result.scope,'historical');assert.equal(result.stored,true);
+ assert.equal(result.own.score,1);assert.equal(result.own.penaltyMinutes,1);
+});
+test('failed downloads or storage cannot confirm a new board or replace the current data',async()=>{
+ const i=input();i.session.ranklandUrl='https://vp.xcpc.link/?contest=old';
+ for(const fault of ['download','storage']) {
+  const service=context.VpBoard.create({readSnapshot:async()=>i,engine,cache:{get:async()=>null,set:async()=>{throw Error('disk full');}},
+   sources:{loadArchive:async()=>{if(fault==='download')throw Error('offline');return {archive:archive(),contestKey:'new'};}}});
+  await assert.rejects(service.prepare('practice',{url:'https://vp.xcpc.link/?contest=new'}),fault==='download'?/offline/:/BOARD_CACHE_FAILED/);
+  const result=await service.snapshot('practice');assert.equal(result.scope,'self');assert.equal(result.stored,false);
+ }
+});
+test('a mismatched replacement leaves the last downloaded board usable offline',async()=>{
+ const i=input([submission(1,60000)]);i.session.ranklandUrl='https://vp.xcpc.link/?contest=fixture';
+ const saved=new Map(),original=JSON.stringify(i);let broken=false;
+ const service=context.VpBoard.create({readSnapshot:async()=>i,engine,
+  cache:{get:async k=>saved.get(k),set:async(k,v)=>saved.set(k,v)},sources:{loadArchive:async()=>{
+   const a=archive();if(broken)a.problems[0].alias='C';return {archive:a,contestKey:'fixture'};
+  }}});
+ await service.prepare('practice',{url:i.session.ranklandUrl});broken=true;
+ await assert.rejects(service.prepare('practice',{url:i.session.ranklandUrl}),/MAPPING_MISMATCH/);
+ const current=await service.snapshot('practice');
+ assert.equal(current.scope,'historical');assert.equal(current.own.score,1);assert.equal(current.own.penaltyMinutes,1);
+ assert.equal(current.ranklist.problems[0].alias,'A');assert.equal(JSON.stringify(i),original);
+});
 test('unavailable source degrades to own score and is backed off; cached invalid source cannot supply a rank',async()=>{
  const i=input([submission(1,60000)]);i.session.ranklandUrl='https://vp.xcpc.link/?contest=fixture';let reads=0;
  const board=context.VpBoard.create({readSnapshot:async()=>i,engine,cache:{get:async()=>null,set:async()=>{}},clock:()=>10000,

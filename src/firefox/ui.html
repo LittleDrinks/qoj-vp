@@ -29,14 +29,14 @@
         <pre id="ready-judger-output" class="small"></pre>
         <p class="form-text">在终端通过 <code>qoj login</code> 登录提交工具。绑定本场后，可直接使用 <code>submit A.cpp</code> 提交。</p>
       </div>
-      <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button id="ready-judger-bind" type="button" class="btn btn-outline-primary">绑定本场并检查</button><button id="ready-judger-check" type="button" class="btn btn-success">运行 dry-run</button></div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button id="ready-judger-bind" type="button" class="btn btn-outline-success">绑定本场并检查</button><button id="ready-judger-check" type="button" class="btn btn-success">运行 dry-run</button></div>
     </div></div>
   </div>
   <div id="ready-warning-modal" class="modal fade" tabindex="-1" aria-labelledby="ready-warning-title" aria-hidden="true">
     <div class="modal-dialog"><div class="modal-content">
       <div class="modal-header"><h2 id="ready-warning-title" class="modal-title fs-5">确认比赛准备</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
       <div class="modal-body"><p>以下项目需要处理：</p><ul id="ready-warning-list"></ul><p class="mb-0">选择“仍然开始”后，QOJ 将开始本场 VP。</p></div>
-      <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">返回设置</button><button id="ready-continue" type="button" class="btn btn-primary">仍然开始</button></div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">返回设置</button><button id="ready-continue" type="button" class="btn btn-success">仍然开始</button></div>
     </div></div>
   </div>
   <nav class="navbar navbar-expand-md navbar-dark bg-dark fixed-top" aria-label="Main navigation">
@@ -219,10 +219,12 @@
   <div id="rankland-modal" class="modal fade" tabindex="-1" aria-labelledby="rankland-title" aria-hidden="true">
     <div class="modal-dialog"><div class="modal-content">
       <div class="modal-header"><h2 id="rankland-title" class="modal-title fs-5">榜单设置</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
-      <form id="rankland-form"><div class="modal-body"><div id="rankland-error" class="alert alert-danger d-none" role="alert"></div><label for="rankland-url" class="form-label">RankLand 数据来源</label><input id="rankland-url" class="form-control" type="url" autocomplete="off" placeholder="https://rl.algoux.cn/ranklist/… 或 https://vp.xcpc.link/?contest=…"><p class="form-text">粘贴 RankLand 主站榜单或 VP 链接，保存后直接加载这场历史榜单。外部看榜时间与本场 VP 同步；留空时可自动匹配。</p>
+      <form id="rankland-form"><div class="modal-body"><div id="rankland-error" class="alert alert-danger d-none" role="alert"></div><label for="rankland-url" class="form-label">RankLand 数据来源</label><input id="rankland-url" class="form-control" type="url" autocomplete="off" placeholder="https://rl.algoux.cn/ranklist/… 或 https://vp.xcpc.link/?contest=…"><p class="form-text">粘贴 RankLand 主站榜单或 VP 链接，抓取并检查后保存。赛中可在 Jury 更换来源；外部看榜时间与本场 VP 同步。留空时自动匹配。</p>
 <label for="board-rule" class="form-label">赛制</label>
 <select id="board-rule" class="form-select"><option value="auto">采用历史榜单赛制</option><option value="ICPC">ICPC</option><option value="CCPC26">CCPC26</option></select>
 <p id="board-rule-hint" class="form-text"></p>
+<div id="rankland-check-status" class="alert alert-secondary" role="status" aria-live="polite">点击“抓取并检查”，下载榜单并核对题目。</div>
+<button id="rankland-check" type="button" class="btn btn-outline-success">抓取并检查</button>
 <fieldset id="board-reveal-settings" class="row mt-2" hidden disabled><div class="col"><label for="board-count" class="form-label">CCPC26 揭题队数</label><input id="board-count" class="form-control" type="number" min="0" max="100000" value="50" required></div><div class="col"><label for="board-ratio" class="form-label">揭题比例 %</label><input id="board-ratio" class="form-control" type="number" min="0" max="100" value="20" required></div></fieldset></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">保存</button></div></form>
     </div></div>
   </div>
@@ -238,7 +240,7 @@
         <div id="manual-samples-text-group" hidden><div class="mb-3"><label for="manual-sample-input" class="form-label">Sample input</label><textarea id="manual-sample-input" class="form-control" rows="6" spellcheck="false"></textarea></div><div class="mb-3"><label for="manual-sample-output" class="form-label">Sample output</label><textarea id="manual-sample-output" class="form-control" rows="6" spellcheck="false"></textarea></div></div>
         <div id="manual-samples-replace-group" class="form-check" hidden><input id="manual-samples-replace" class="form-check-input" type="checkbox"><label for="manual-samples-replace" class="form-check-label">替换这道题已有的样例；保留附件。</label></div>
         <p class="form-text mb-0 mt-3">保存后可在选手 Problemset 下载。手动样例会保留，不会被自动准备覆盖。</p>
-      </div><div class="modal-footer"><button class="btn btn-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button id="manual-samples-save" class="btn btn-primary" type="submit">保存样例</button></div></form>
+      </div><div class="modal-footer"><button class="btn btn-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button id="manual-samples-save" class="btn btn-success" type="submit">保存样例</button></div></form>
     </div></div>
   </div>
 
