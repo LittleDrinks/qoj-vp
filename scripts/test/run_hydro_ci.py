@@ -59,6 +59,7 @@ def main():
             ('home-refresh', ['tests/browser/guest_home_parity.py', '--reference-snapshot',
                               'tests/browser/visual-reference/rendered']),
             ('local-board', ['tests/browser/guest_local_board.py']),
+            ('board-updates', ['tests/browser/guest_board_updates.py']),
             ('submission-flow', ['tests/browser/guest_submission_flow.py']),
             ('receipts', ['tests/browser/guest_transport_diagnostics.py']),
         ]

@@ -75,6 +75,30 @@ test('freeze masks opponents but not own submissions; final replay reveals oppon
  let b=engine.project(i,a);assert.equal(b.ranklist.rows.find(r=>r.user.name==='Opponent').score.value,1);assert.equal(b.own.score,1);
  i.session.elapsedMs=duration;b=engine.project(i,a);assert.equal(b.ranklist.rows.find(r=>r.user.name==='Opponent').score.value,2);
 });
+test('own rank is unknown throughout the freeze and returns at unfreeze, including backwards replay',()=>{
+ for(const rule of ['ICPC','CCPC26']) {
+  const i=input([submission(1,245*60000)]),a=archive();i.session.board={rule};
+  a.rows[0].statuses[1]={solutions:[{result:'AC',time:[250,'min']}]};
+  for(const minute of [239.999,240,240.001,245,299.999,300,260,239]) {
+   const b=engine.project(i,a,minute*60000),frozen=minute>=240&&minute<300;
+   assert.equal(b.own.rankHidden,frozen,`${rule} at ${minute} min`);
+   assert.equal(b.own.rank,frozen?null:2);
+   assert.equal(b.own.score,minute>=245?1:0);
+   assert.equal(b.own.penaltyMinutes,minute>=245?245:0);
+   assert.equal(b.ranklist.rows.find(r=>r.user.id===b.own.id).rankValues[0].rank,2,'Ordering retains numeric ranks');
+  }
+ }
+});
+test('rank masking follows the source freeze duration rather than assuming four hours',()=>{
+ const i=input(),a=archive();a.contest.frozenDuration=[30,'min'];
+ assert.equal(engine.project(i,a,269*60000).own.rankHidden,false);
+ assert.equal(engine.project(i,a,270*60000).own.rankHidden,true);
+ for(const frozenDuration of [undefined,[0,'min']]) {
+  a.contest.frozenDuration=frozenDuration;
+  const b=engine.project(i,a,299*60000);assert.equal(b.own.rankHidden,false);assert.equal(b.own.rank,2);
+ }
+ const self=engine.project(i,null,260*60000);assert.equal(self.own.rankHidden,false);assert.equal(self.own.rank,null);
+});
 test('replay is pure; moving backwards excludes future submissions without changing input',()=>{
  const i=input([submission(1,40*60000)]),a=archive(),before=JSON.stringify([i,a]);
  assert.equal(engine.project(i,a,20*60000).own.score,0);

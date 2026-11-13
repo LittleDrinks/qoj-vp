@@ -149,11 +149,12 @@ export function project(input, archive=null, elapsedMs=null) {
   ranklist.time=new Date((session.startAt??0)+elapsed).toISOString();
   ranklist=convertToStaticRanklist(ranklist);
   const self=ranklist.rows.find(row=>row.user.id===OWN);
+  const rankHidden=Boolean(archive) && elapsed>=freeze && elapsed<session.durationMs;
   const next=eventTimes.filter(at=>at>elapsed).reduce((value,at)=>Math.min(value,at),Infinity);
   const nextEventMs=Number.isFinite(next)?next:null;
   return {version:1,sessionId:session.sessionId,elapsedMs:elapsed,rule:config.rule,ranklist,nextEventMs,
     own:{id:OWN,score:self.score.value,penaltyMinutes:Math.floor(milliseconds(self.score.time)/60000),
-      rank:archive?self.rankValues[0]?.rank??null:null,progress},
+      rank:archive && !rankHidden?self.rankValues[0]?.rank??null:null,rankHidden,progress},
     provisional:partial || ownPending.some(Boolean) || unverified>0,unverified,
     scope:archive?'historical':'self'};
 }

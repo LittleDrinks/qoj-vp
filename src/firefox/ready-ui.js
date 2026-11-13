@@ -1,12 +1,15 @@
 "use strict";
 globalThis.VpReadyUi = (() => {
-  const names = {resources:"题面与样例",board:"Board 数据",judger:"Judger"};
+  const names = {resources:"题面与样例",board:"榜单数据",judger:"提交工具"};
   function create({token,state,modals,call,openResources,openRanklandSettings,loadResourceManifest,prepareResources,readyResource}) {
     const $ = id => document.getElementById(id), states = {}, jobs = {}, changes = {}, revisions = {}, repeat = {};
-    let connectionError = "正在连接助手…";
+    let connectionError = "正在连接助手…", connectionSection, initialization;
+    const connectionHints = {resources:"连接后检查题面与样例",board:"连接后设置并抓取榜单",judger:"连接后检查提交配置"};
+    const connectionMessage = () => /403/.test(connectionError) ? "QOJ 拒绝读取比赛（403），请在原站完成验证后重新连接。"
+      : /network|connection|timeout|timed out|fetch/i.test(connectionError) ? "连接中断，请检查网络后重新连接。" : connectionError;
     const post = (action, extra={}) => window.parent.postMessage({type:"vp.ready.host",token,action,...extra}, "https://qoj.ac");
     function set(section,status,detail) {
-      states[section] = {state:status,detail}; post("state", {states});
+      states[section] = {state:status,detail}; post("state", {states,connection:state.connected ? "" : connectionMessage()});
       if (section === "judger") {
         $("ready-judger-status").className = "alert alert-" + (status === "ready" ? "success" : status === "checking" ? "info" : "warning");
         $("ready-judger-status").textContent = detail;
@@ -56,7 +59,7 @@ globalThis.VpReadyUi = (() => {
         await call("scoreboard.resolve",{sessionId});
         state.session = await call("inspect_session",{sessionId});
         const result = await call("board.snapshot",{sessionId,includeHistory:true,refresh:true,elapsedMs:0});
-        if (result.scope !== "historical" || !result.stored) throw new Error("请抓取并保存本场 RankLand 数据，核对题目对应关系。");
+        if (result.scope !== "historical" || !result.stored) throw new Error("请抓取并保存本场历史榜单数据，核对题目对应关系。");
         state.board = result;
         report("ready","历史榜单已保存，题目对应关系已确认" + (result.cached ? " · 使用缓存" : ""));
       });
@@ -81,15 +84,43 @@ globalThis.VpReadyUi = (() => {
     }
     function warning() {
       const list = $("ready-warning-list"); list.replaceChildren();
-      for (const [id,name] of Object.entries(names)) {
+      if (!state.connected) {
+        const item = document.createElement("li"); item.textContent = connectionMessage(); list.append(item);
+      }
+      for (const [id,name] of Object.entries(state.connected ? names : {})) {
         if (states[id]?.state === "ready") continue;
         const item = document.createElement("li"); item.textContent = name + "：" + (states[id]?.detail || connectionError); list.append(item);
       }
       if (!list.children.length) {const item=document.createElement("li");item.textContent="准备状态已超过五分钟，请重新检查。";list.append(item);}
       modals["ready-warning"].show();
     }
+    function openSettings(section) {
+      if (!names[section]) return;
+      if (!state.connected) {
+        connectionSection = section;
+        $("ready-connection-title").textContent = names[section];
+        $("ready-connection-message").textContent = connectionMessage();
+        $("ready-connection-details").textContent = connectionError;
+        modals["ready-connection"].show(); return;
+      }
+      if (section === "resources") openResources();
+      if (section === "board") openRanklandSettings();
+      if (section === "judger") modals["ready-judger"].show();
+    }
+    $("ready-connection-retry").addEventListener("click", async () => {
+      const button = $("ready-connection-retry"); button.disabled = true;
+      try {
+        await initialize();
+        $("ready-connection-message").textContent = connectionMessage();
+        $("ready-connection-details").textContent = connectionError;
+        if (state.connected) {
+          $("ready-connection-modal").addEventListener("hidden.bs.modal", () => openSettings(connectionSection), {once:true});
+          modals["ready-connection"].hide();
+        }
+      } finally {button.disabled = false;}
+    });
     const openModals = new Set();
-    for (const id of ["resources","manual-samples","rankland","ready-judger","ready-warning"]) {
+    for (const id of ["resources","manual-samples","rankland","ready-judger","ready-warning","ready-connection"]) {
       $(id+"-modal").addEventListener("show.bs.modal", () => openModals.add(id));
       $(id+"-modal").addEventListener("hidden.bs.modal", () => {
         openModals.delete(id);
@@ -110,14 +141,20 @@ globalThis.VpReadyUi = (() => {
       const {action,section} = event.data;
       if (action === "check") {if (!state.connected) initialize(); else for (const check of Object.values(checks)) check();}
       if (action === "warning") warning();
-      if (action === "open") {
-        if (!state.connected) {warning();return;}
-        if (section === "resources") openResources();
-        if (section === "board") openRanklandSettings();
-        if (section === "judger") modals["ready-judger"].show();
+      if (action === "open") openSettings(section);
+      if (action === "appearance") {
+        const {fontFamily,fontSize,lineHeight} = event.data;
+        if (typeof fontFamily === "string") document.body.style.fontFamily = fontFamily;
+        if (typeof fontSize === "string") document.documentElement.style.fontSize = fontSize;
+        if (typeof lineHeight === "string") document.body.style.lineHeight = lineHeight;
       }
     });
-    async function initialize() {
+    function initialize() {
+      if (initialization) return initialization;
+      initialization = connect().finally(() => {initialization = null;});
+      return initialization;
+    }
+    async function connect() {
       for (const section of Object.keys(names)) invalidate(section);
       try {
         const result = await call("connect");
@@ -126,11 +163,12 @@ globalThis.VpReadyUi = (() => {
         state.connected = true; state.generation++;
         $("ready-account").textContent = result.session.account;
         $("ready-contest").textContent = result.contest.name + " (" + result.session.contestId + ")";
+        $("ready-problem").replaceChildren();
         for (const problem of result.contest.problems) $("ready-problem").append(new Option(problem.label,problem.label));
         await Promise.all(Object.values(checks).map(check => check()));
       } catch (error) {
-        connectionError = error.message;
-        for (const section of Object.keys(names)) set(section,"attention",connectionError);
+        state.connected = false; connectionError = error.message;
+        for (const section of Object.keys(names)) set(section,"unavailable",connectionHints[section]);
       }
     }
     return {initialize,invalidate,changed,failed:(section,error)=>edited(section,error.message)};

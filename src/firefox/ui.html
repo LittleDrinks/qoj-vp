@@ -17,9 +17,20 @@
   <script src="ui.js" defer></script>
 </head>
 <body>
+  <div id="ready-connection-modal" class="modal fade" tabindex="-1" aria-labelledby="ready-connection-title" aria-hidden="true">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h2 id="ready-connection-title" class="modal-title fs-5">比赛准备</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div>
+      <div class="modal-body">
+        <p id="ready-connection-message" class="alert alert-warning" role="status"></p>
+        <p>连接成功后将打开此项设置。</p>
+        <details><summary class="text-muted small">连接详情</summary><p id="ready-connection-details" class="small text-break mt-2"></p></details>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button><button id="ready-connection-retry" type="button" class="btn btn-success">重新连接</button></div>
+    </div></div>
+  </div>
   <div id="ready-judger-modal" class="modal fade" tabindex="-1" aria-labelledby="ready-judger-title" aria-hidden="true">
     <div class="modal-dialog"><div class="modal-content">
-      <div class="modal-header"><h2 id="ready-judger-title" class="modal-title fs-5">Judger · 提交准备</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-header"><h2 id="ready-judger-title" class="modal-title fs-5">提交工具</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
       <div class="modal-body">
         <p class="form-text">用 qoj-submitter 的登录配置执行 dry-run，检查提交准备。</p>
         <dl class="row"><dt class="col-3">QOJ 账号</dt><dd id="ready-account" class="col-9"></dd><dt class="col-3">比赛</dt><dd id="ready-contest" class="col-9"></dd></dl>
@@ -48,7 +59,7 @@
           <li class="nav-item"><a id="nav-home" class="nav-link active" href="#home"><i class="fas fa-home" aria-hidden="true"></i> Home</a></li>
           <li class="nav-item"><a id="nav-problems" class="nav-link" href="#problems"><i class="fas fa-book-open" aria-hidden="true"></i> Problemset</a></li>
           <li class="nav-item"><a id="nav-scoreboard" class="nav-link" aria-disabled="true"><i class="fas fa-list-ol" aria-hidden="true"></i> Scoreboard</a></li>
-          <li id="nav-rankland-item" class="nav-item" hidden><a id="nav-rankland" class="nav-link" target="_blank" rel="noopener noreferrer"><i class="fas fa-external-link-alt" aria-hidden="true"></i> RankLand</a></li>
+          <li id="nav-rankland-item" class="nav-item" hidden><a id="nav-rankland" class="nav-link" target="_blank" rel="noopener noreferrer"><i class="fas fa-external-link-alt" aria-hidden="true"></i> 外榜</a></li>
         </ul>
         <ul id="jury-navigation" class="navbar-nav me-auto" hidden><li class="nav-item"><a id="nav-contests" class="nav-link active" href="#jury"><i class="fas fa-trophy" aria-hidden="true"></i> Contests</a></li><li class="nav-item"><a id="nav-team" class="nav-link" href="#home"><i class="fas fa-arrow-right" aria-hidden="true"></i> Team</a></li></ul>
         <ul id="jury-entry" class="navbar-nav me-3"><li class="nav-item"><a id="nav-jury" class="nav-link" href="#jury"><i class="fas fa-gavel" aria-hidden="true"></i> Jury</a></li></ul>
@@ -85,7 +96,7 @@
             <div class="d-flex flex-wrap align-items-center gap-3 my-2 vp-refresh-bar">
               <button id="refresh-submissions" class="btn btn-outline-secondary btn-sm" type="button"><i class="fas fa-sync-alt" aria-hidden="true"></i> 刷新判定</button>
               <a id="qoj-history-link" class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener noreferrer">原站记录</a>
-              <button id="sync-rankland" class="btn btn-outline-secondary btn-sm" type="button" hidden><i class="fas fa-sync-alt" aria-hidden="true"></i> 同步到 RankLand</button>
+              <button id="sync-rankland" class="btn btn-outline-secondary btn-sm" type="button" hidden><i class="fas fa-sync-alt" aria-hidden="true"></i> 同步到外榜</button>
               <span id="refresh-status" class="small text-muted" role="status" aria-live="polite">尚未同步</span>
             </div>
             <p id="rankland-sync-status" class="small text-muted mb-2" role="status" aria-live="polite" hidden></p>
@@ -176,7 +187,7 @@
           <div class="mb-3"><label for="contest-input" class="form-label">QOJ 比赛 ID 或链接</label><div class="input-group"><input id="contest-input" class="form-control" placeholder="3387 或 https://qoj.ac/contest/3387" required autocomplete="off"><button id="load-contest" class="btn btn-outline-secondary" type="button">读取比赛</button></div><div class="form-text">请先在 QOJ 登录。</div></div>
           <div id="contest-preview" class="alert alert-secondary d-none" role="status"></div>
           <div class="mb-3"><label for="session-title" class="form-label">名称</label><input id="session-title" class="form-control" maxlength="160" autocomplete="off"></div>
-          <div class="mb-3"><label for="rankland-input" class="form-label">RankLand 数据来源 <span class="text-muted">（选填）</span></label><input id="rankland-input" class="form-control" type="url" placeholder="https://rl.algoux.cn/ranklist/… 或 https://vp.xcpc.link/?contest=…" autocomplete="off"></div>
+          <div class="mb-3"><label for="rankland-input" class="form-label">外榜数据来源 <span class="text-muted">（选填）</span></label><input id="rankland-input" class="form-control" type="url" placeholder="https://rl.algoux.cn/ranklist/… 或 https://vp.xcpc.link/?contest=…" autocomplete="off"></div>
           <div class="row"><div class="col-sm-5 mb-3"><label for="duration-input" class="form-label">比赛时长（分钟）</label><input id="duration-input" class="form-control" type="number" value="300" min="1" max="20160" required></div><div class="col-sm-7 mb-3"><label for="start-input" class="form-label">恢复开始时间 <span class="text-muted">（选填）</span></label><input id="start-input" class="form-control" type="datetime-local"><div class="form-text">留空可稍后开始。</div></div></div>
         </div>
         <div class="modal-footer"><button class="btn btn-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button id="prepare-session" class="btn btn-success" type="submit" disabled>准备练习</button></div>
@@ -219,7 +230,7 @@
   <div id="rankland-modal" class="modal fade" tabindex="-1" aria-labelledby="rankland-title" aria-hidden="true">
     <div class="modal-dialog"><div class="modal-content">
       <div class="modal-header"><h2 id="rankland-title" class="modal-title fs-5">榜单设置</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
-      <form id="rankland-form"><div class="modal-body"><div id="rankland-error" class="alert alert-danger d-none" role="alert"></div><label for="rankland-url" class="form-label">RankLand 数据来源</label><input id="rankland-url" class="form-control" type="url" autocomplete="off" placeholder="https://rl.algoux.cn/ranklist/… 或 https://vp.xcpc.link/?contest=…"><p class="form-text">粘贴 RankLand 主站榜单或 VP 链接，抓取并检查后保存。赛中可在 Jury 更换来源；外部看榜时间与本场 VP 同步。留空时自动匹配。</p>
+      <form id="rankland-form"><div class="modal-body"><div id="rankland-error" class="alert alert-danger d-none" role="alert"></div><label for="rankland-url" class="form-label">外榜数据来源</label><input id="rankland-url" class="form-control" type="url" autocomplete="off" placeholder="https://rl.algoux.cn/ranklist/… 或 https://vp.xcpc.link/?contest=…"><p class="form-text">粘贴 RankLand 主站榜单或 VP 链接，抓取并检查后保存。赛中可在 Jury 更换来源；外部看榜时间与本场 VP 同步。留空时自动匹配。</p>
 <label for="board-rule" class="form-label">赛制</label>
 <select id="board-rule" class="form-select"><option value="auto">采用历史榜单赛制</option><option value="ICPC">ICPC</option><option value="CCPC26">CCPC26</option></select>
 <p id="board-rule-hint" class="form-text"></p>

@@ -60,6 +60,7 @@ def main():
                  hashValue=hashlib.sha256(payload).hexdigest(), size=len(payload)))
     traffic, starts = [], []
     board_offline = False
+    qoj_blocked = True
     form = '<form id="form-register_vp" method="post" action="/contest/3387/virtual/register"><input type="hidden" name="_token" value="fixture"><p>Click the button below to start your virtual participation immediately.</p><button class="btn btn-primary w-100" id="button-submit-register_vp" name="submit-register_vp" type="submit">Start</button></form>'
     register = account_menu('FixtureUser', body='<div class="container my-4"><h1>VP Ready · 隔离比赛</h1><p class="text-muted">VMware Firefox · QOJ、历史榜单与 CLI 使用隔离测试数据</p><div class="row mt-4"><section class="col-8"><div class="card"><h4 class="card-header">Virtual Contest Rules</h4><div class="card-body"><p>Prepare your contest before starting virtual participation.</p><ul><li>The contest is 300 minutes long.</li><li>Each wrong submission adds 20 minutes of penalty.</li></ul></div></div></section><aside class="col-4"><div class="card border-primary"><h4 class="card-header bg-primary text-white">Start virtual participation</h4><div class="card-body"><p>Ruleset &nbsp; ICPC &emsp; Duration &nbsp; 5:00</p>' + form + '</div></div></aside></div></div>')
     register = register.replace('//qoj.ac/', '/')
@@ -77,6 +78,7 @@ def main():
             if path == '/bootstrap.css': return self.emit((ROOT / 'src/firefox/assets/bootstrap/bootstrap.min.css').read_bytes(), 'text/css')
             if path == '/contest/3387/virtual/register': return self.emit(register)
             if path == '/contest/3387':
+                if qoj_blocked: return self.emit('Access denied', code=403)
                 body = (fixtures / 'contest-3387.html').read_text().replace('QOJ PRE-FLIGHT FIXTURE', 'VP Ready · 隔离比赛')
                 if starts:
                     body += '<div class="card border-info"><h4 class="card-header bg-info">Contest ends in</h4><div class="card-body text-center countdown" data-rest="17999"></div></div><div class="uoj-footer"><p>Server Time: ' + datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S') + ' (UTC+0)</p></div>'
@@ -169,6 +171,26 @@ def main():
             def close():
                 driver.find_element(By.CSS_SELECTOR,'.modal.show .btn-close').click();driver.switch_to.default_content()
                 wait.until(lambda _:not driver.find_element(By.CSS_SELECTOR,'iframe[title="QOJ VP 准备设置"]').is_displayed())
+            blocked=wait.until(lambda _:settled())
+            assert all('unavailable' in row['state'] for row in blocked), blocked
+            parent_font=driver.execute_script('return getComputedStyle(document.getElementById("form-register_vp")).fontFamily')
+            panel_fonts=driver.execute_script('return [...document.getElementById("qoj-vp-resource-preparation").shadowRoot.querySelectorAll(".row,.status")].map(e=>getComputedStyle(e).fontFamily)')
+            assert all(font==parent_font for font in panel_fonts), panel_fonts
+            capture('00-connection-panel.png')
+            for section,title in enumerate(['题面与样例','榜单数据','提交工具']):
+                enter(section)
+                assert driver.find_element(By.ID,'ready-connection-title').text==title
+                assert '403' in driver.find_element(By.ID,'ready-connection-message').text
+                assert not driver.find_element(By.ID,'ready-warning-modal').is_displayed()
+                assert driver.execute_script('return getComputedStyle(document.body).fontFamily')==parent_font
+                if section==1: capture('00-connection-retry.png')
+                if section<2: close()
+            qoj_blocked=False
+            driver.find_element(By.ID,'ready-connection-retry').click()
+            modal_ready('ready-judger-modal')
+            close()
+            report['connectionRecovery']={'opensSelectedSettings':True,'nativeStartPosts':len(starts),'sharedFont':parent_font}
+            assert not starts
             initial=wait.until(lambda _:settled());report['initial']=initial
             assert all('attention' in row['state'] for row in initial), initial
             assert '待处理：B' in initial[0]['text'], initial
@@ -276,6 +298,11 @@ def main():
             capture('10-jury-replaced-board.png')
             assert call('inspect_session')['startAt'] == active_session['startAt']
             assert call('board.snapshot', includeHistory=True)['own']['score'] == 1
+            own_rank=driver.find_element(By.CSS_SELECTOR,'tr[data-own-team] td').text
+            driver.find_element(By.ID,'nav-home').click()
+            wait.until(lambda _:driver.find_element(By.CSS_SELECTOR,'#teamscoresummary td.rank').text==own_rank)
+            capture('11-home-rank.png')
+            report['homeRankMatchesScoreboard']=own_rank
             report.update(status='passed',nativeStartPosts=len(starts),submissionPosts=0,clock='QOJ server time',
                 draftDownload=True,failedReplacementPreservesBoard=True,runningReplacementPreservesClockAndSubmission=True,offlineReload=True)
     except Exception as error:

@@ -81,7 +81,7 @@ function contentEnvironment({recognized=true,navigation=false,nestedSensitive=fa
   }
   const original=JSON.stringify({form:form.attributes,button:nativeButton.attributes,token:token.attributes,childCount:form.children.length});
   const location=new URL(url);
-  const context={URL,Date,location,addEventListener:(type,listener)=>{windowListeners[type]=listener;},document:{addEventListener:(type,listener)=>{documentListeners[type]=listener;},body,createElement:tag=>{const node=new Element(tag);if(tag==="iframe")node.contentWindow={postMessage:message=>framePosts.push(message)};return node;},querySelector:selector=>selector==="form#form-register_vp"?form:selector==='ul.nav.nav-pills.float-right'?nav:null,querySelectorAll:selector=>body.querySelectorAll(selector),getElementById:id=>walk(body).find(node=>node.id===id)},
+  const context={URL,Date,location,getComputedStyle:()=>({fontFamily:"system-ui",fontSize:"16px",lineHeight:"24px"}),addEventListener:(type,listener)=>{windowListeners[type]=listener;},document:{addEventListener:(type,listener)=>{documentListeners[type]=listener;},body,createElement:tag=>{const node=new Element(tag);if(tag==="iframe")node.contentWindow={postMessage:message=>framePosts.push(message)};return node;},querySelector:selector=>selector==="form#form-register_vp"?form:selector==='ul.nav.nav-pills.float-right'?nav:null,querySelectorAll:selector=>body.querySelectorAll(selector),getElementById:id=>walk(body).find(node=>node.id===id)},
     MutationObserver:class{constructor(callback){observers.push(callback);}observe(){}},
     browser:{runtime:{id:"extension-test",onMessage:{addListener:listener=>listeners.push(listener)},sendMessage:async message=>{
       messages.push(message);

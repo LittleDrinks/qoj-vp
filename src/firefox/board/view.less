@@ -171,6 +171,9 @@
 .qoj-board .ranklist-window .srk-main > table > :is(thead, tbody, tfoot) > tr > :is(.srk-problem-header, .srk-prest-status-block, .srk-status-placeholder-cell, .srk-problem-statistics-footer-cell) { padding-left: var(--ranklist-numeric-padding-x); padding-right: var(--ranklist-numeric-padding-x); }
 .qoj-board .ranklist-window .srk-main table *, .qoj-board .ranklist-window .srk-main table *::before, .qoj-board .ranklist-window .srk-main table *::after { box-sizing: border-box; }
 .qoj-board .ranklist-window .srk-main table :is(thead, tbody, tfoot) > tr > :is(th, td) { min-width: 0; padding: 7px 2px; overflow-wrap: anywhere; }
+.qoj-board .ranklist-window .srk-main table :is(thead, tbody, tfoot) > tr > .srk-series-segmented-column {
+  padding-right: calc(var(--srk-series-segment-border-width) + var(--srk-series-segment-content-gap));
+}
 .qoj-board .srk-main {
   --srk-table-head-bg: #ffffffbf; --srk-table-head-solid-bg: #fff; --srk-table-border: #ddd; --srk-table-striped-bg: #1e1e1e0f;
   --srk-body-color: inherit; --srk-body-bg: inherit; color: hsl(var(--foreground)); background: transparent;

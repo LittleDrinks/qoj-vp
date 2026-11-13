@@ -53,10 +53,10 @@ test("desktop and mobile use local score and penalty without an external page",(
  assert.deepEqual(byClass(e.target,"rank").map(x=>x.textContent),["—","—"]);
  assert.equal(byClass(e.target,"score_correct").length,1);
 });
-test("a historical snapshot cannot introduce an external rank into the local score",()=>{
+test("Home uses the same historical rank as Scoreboard while retaining the local score",()=>{
  const e=environment(),input=e.context.boardInput(),engine=e.context.VpBoardEngine;
  e.state.board={...engine.project(input),inputKey:engine.inputKey(input),scope:"historical"};e.state.board.own.rank=465;
- e.context.renderSummary();assert.deepEqual(byClass(e.target,"rank").map(x=>x.textContent),["—","—"]);
+ e.context.renderSummary();assert.deepEqual(byClass(e.target,"rank").map(x=>x.textContent),["465","465"]);
  assert.deepEqual(byClass(e.target,"scorenc").map(x=>x.textContent),["1","1"]);
 });
 test("changed verdicts immediately discard stale ranks and recompute self score",()=>{
@@ -66,6 +66,18 @@ test("changed verdicts immediately discard stale ranks and recompute self score"
  assert.deepEqual(byClass(e.target,"rank").map(x=>x.textContent),["—","—"]);
  assert.deepEqual(byClass(e.target,"scorenc").map(x=>x.textContent),["0","0"]);
  assert.equal(byClass(e.target,"score_correct").length,0);
+});
+test('Home desktop and mobile show a question mark during freeze and the actual rank after unfreeze',()=>{
+ const e=environment(),input=e.context.boardInput(),engine=e.context.VpBoardEngine;
+ const archive={version:'0.3.14',type:'general',contest:{title:'Frozen contest',startAt:new Date(0).toISOString(),duration:[5,'h'],frozenDuration:[1,'h']},
+  problems:[{alias:'C'}],rows:[],series:[{title:'Rank',rule:{preset:'Normal'}}],sorter:{algorithm:'ICPC',config:{penalty:[20,'min']}}};
+ e.state.session.state='finished';
+ for(const [minute,rank] of [[239,'1'],[240,'?'],[299,'?'],[300,'1'],[250,'?']]) {
+  e.state.board={...engine.project(input,archive,minute*60000),inputKey:engine.inputKey(input)};
+  e.context.renderSummary();assert.deepEqual(byClass(e.target,'rank').map(x=>x.textContent),[rank,rank]);
+  assert.deepEqual(byClass(e.target,'scorenc').map(x=>x.textContent),['1','1']);
+  assert.deepEqual(byClass(e.target,'scorett').map(x=>x.textContent),['77','77']);
+ }
 });
 test("board reads coalesce, and replies for another session cannot change display",async()=>{
  const e=environment();let release;e.setHandler(()=>new Promise(resolve=>release=resolve));
@@ -117,4 +129,23 @@ test("display projection reads the requested time without replacing the real Hom
  });
  const replay=await e.context.projectBoard(0);assert.equal(replay.elapsedMs,0);assert.equal(replay.own.score,0);
  assert.equal(e.state.board,real);assert.equal(e.state.submissions[0].elapsedMs,4674955);
+});
+
+test("Home requests historical opponents for a configured source",async()=>{
+ const e=environment();e.setHandler(async()=>null);
+ await e.context.refreshBoard();assert.equal(e.calls[0].args.includeHistory,true);
+ e.state.session.ranklandUrl=null;await e.context.refreshBoard();assert.equal(e.calls.at(-1).args.includeHistory,false);
+});
+
+test("a changed judgement keeps the full table while its replacement snapshot is loading",async()=>{
+ const e=environment(),engine=e.context.VpBoardEngine; e.context.location.hash="#scoreboard";
+ let displayed;
+ e.context.VpBoardView.render=(_target,snapshot)=>{displayed=snapshot;};
+ e.setHandler(async()=>{const input=e.context.boardInput();return {...engine.project(input),inputKey:engine.inputKey(input),scope:"historical"};});
+ await e.context.refreshBoard();const previous=displayed;
+ e.state.submissions[0].verdict="WRONG-ANSWER";e.context.renderBoard();
+ assert.equal(displayed,previous,"Do not collapse the table to a single row between history and board reads");
+ await e.context.refreshBoard();assert.notEqual(displayed,previous);assert.equal(displayed.own.score,0);
+ e.state.session.ranklandUrl="https://vp.xcpc.link/?contest=another";e.context.renderBoard();
+ assert.equal(displayed.scope,"self","A new source must not display the previous opponents");
 });

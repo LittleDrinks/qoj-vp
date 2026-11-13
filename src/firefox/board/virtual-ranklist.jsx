@@ -8,7 +8,19 @@ import {
   uniformRowWindow,
 } from './view-model.js';
 
-const MemoRanklist = React.memo(Ranklist);
+// Keep upstream numeric ranks for ordering; adapt only the frozen own-rank cells.
+class WorkbenchRanklist extends Ranklist {
+  constructor(props) {
+    super(props);
+    const renderRank = this.renderSingleSeriesBody;
+    this.renderSingleSeriesBody = (rank, series, row) => {
+      if (!this.props.hideOwnRank || row.user.id !== this.props.ownTeamId) return renderRank(rank, series, row);
+      return React.cloneElement(renderRank({...rank, rank: null, segmentIndex: null}, series, row),
+        {title: '封榜期间排名待揭晓。'}, '?');
+    };
+  }
+}
+const MemoRanklist = React.memo(WorkbenchRanklist);
 const NUMERIC_PADDING = 2;
 
 export function ranklistColumnWidths(props, availableWidth) {

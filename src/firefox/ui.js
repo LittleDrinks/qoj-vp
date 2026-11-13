@@ -336,7 +336,7 @@
     } catch (_) { return null; }
   }
   function resetBoard() {
-    state.board=null; state.boardRequest=null; state.boardSource=null; state.ranklandAutoSync=false;
+    state.board=null; state.boardContext=null; state.boardRequest=null; state.boardSource=null; state.ranklandAutoSync=false;
   }
   function adoptRanklandUrl(raw) {
     const previous = ranklandViewIdentity(state.session?.ranklandUrl), incoming = ranklandViewIdentity(raw);
@@ -376,10 +376,13 @@
       return url.href;
     } catch (_) { return null; }
   }
-  function currentBoard(includeHistory=false) {
+  function boardContext() {
+    return VpBoardEngine.inputKey({...boardInput(),history:{submissions:[]}});
+  }
+  function currentBoard() {
     if (!state.session || !state.contest?.problems?.length) return null;
     const input=boardInput();
-    if ((includeHistory || state.board?.scope==="self") && state.board?.inputKey===VpBoardEngine.inputKey(input)) return state.board;
+    if (state.board?.inputKey===VpBoardEngine.inputKey(input)) return state.board;
     try {
       const elapsed=input.session.startAt==null ? 0 : Math.max(0,Date.now()-input.session.startAt);
       const projected=VpBoardEngine.project(input,null,elapsed);
@@ -400,9 +403,15 @@
   }
   function renderBoard() {
     if (location.hash!=="#scoreboard") return;
-    const result=currentBoard(true), target=$("board-table"), status=$("board-status");
+    let result=currentBoard();
+    const target=$("board-table"), status=$("board-status");
+    // Keep the full table while updated judgements are being ranked. A temporary
+    // self-only table collapses the document and loses the reader's scroll position.
+    const updating = result && state.board?.scope === "historical" && state.boardContext === boardContext() && result !== state.board;
+    if (updating) result = state.board;
     if (!result) { VpBoardView.clear?.(target); status.textContent="题表尚未准备完成。";status.hidden=false;return; }
     const notes=[];
+    target.setAttribute("aria-busy",String(Boolean(updating)));
     if(result.provisional)notes.push("部分判定待确认");
     if(result.warning)notes.push(result.cached ? "历史榜单更新暂不可用，正在显示已缓存内容" : "历史榜单暂不可用，当前仅显示本队成绩");
     status.textContent=notes.join(" · ");status.hidden=!notes.length;
@@ -411,7 +420,7 @@
     VpBoardView.render(target,result,{session:state.session,externalUrl:ranklandBoardUrl,contestKey,onProject:projectBoard});
   }
 
-  function refreshBoard(refreshSource = false, includeHistory = location.hash === "#scoreboard") {
+  function refreshBoard(refreshSource = false, includeHistory = location.hash === "#scoreboard" || Boolean(state.session?.ranklandUrl)) {
     const sessionId=state.session?.sessionId,generation=state.generation;
     if (!sessionId || !state.contest?.problems?.length) return Promise.resolve(null);
     if (state.boardRequest?.sessionId===sessionId && (!includeHistory || state.boardRequest.includeHistory)) return state.boardRequest.promise;
@@ -420,7 +429,7 @@
       try {
         const result=await call("board.snapshot",{sessionId,refresh:refreshSource,includeHistory});
         if (!current(sessionId,generation) || state.boardRequest!==request || result.sessionId!==sessionId || result.inputKey!==VpBoardEngine.inputKey(boardInput())) return null;
-        state.board=result;
+        state.board=result; state.boardContext=boardContext();
         if (includeHistory) state.boardSource={url:state.session.ranklandUrl,warning:result.warning,
           ready:result.scope==="historical",teams:result.ranklist.rows.length-1,problems:result.ranklist.problems.length};
         renderSummary(); renderBoard(); return result;
@@ -435,13 +444,13 @@
     if (!state.session || !state.contest) return;
     const account = state.session.account || state.contest.account || "—";
     const snapshot=currentBoard();
-    const rankNote=snapshot?.scope==="historical"?"与历史对手在同一比赛时刻比较。":"未配置可回放的历史对手数据。";
+    const rankNote=snapshot?.own.rankHidden?"封榜期间排名待揭晓。":snapshot?.scope==="historical"?"与历史对手在同一比赛时刻比较。":"未配置可回放的历史对手数据。";
     const penaltyNote="每题 AC 的原始提交时间先向下取整到分钟，再累计罚时；评测延迟不增加罚时。";
     const progress=state.contest.problems.map(problem=>{
       const item=snapshot?.own.progress.find(p=>p.problemId===String(problem.id));
       return {problem,accepted:item?.acceptedMs!=null?{elapsedMs:item.acceptedMs}:null,judged:item?.judged||0,pending:item?.pending||0};
     });
-    const solved=snapshot?.own.score??0,rankValue=snapshot?.own.rank??"—",penaltyValue=snapshot?.own.penaltyMinutes??"—";
+    const solved=snapshot?.own.score??0,rankValue=snapshot?.own.rankHidden?"?":snapshot?.own.rank??"—",penaltyValue=snapshot?.own.penaltyMinutes??"—";
     const teamCell = () => {
       const cell = node("td", "scoretn cl_FFFFFF"); cell.title = account;
       const link = node("a");
@@ -1533,16 +1542,16 @@
     const status = $("board-source-status");
     const board = state.boardSource?.url === state.session?.ranklandUrl ? state.boardSource : null;
     status.hidden = !state.session?.ranklandUrl;
-    status.textContent = state.boardRequest?.includeHistory ? "正在读取 RankLand 历史数据…" :
+    status.textContent = state.boardRequest?.includeHistory ? "正在读取历史榜单数据…" :
       board?.ready ? `已加载 ${board.teams} 支历史队伍、${board.problems} 道题。${board.warning ? "当前使用已缓存数据。" : ""}` :
       board?.warning ? ({BOARD_PROBLEM_MAPPING_MISMATCH:"榜单题目与这场 QOJ 比赛不一致。",
-        BOARD_HISTORY_INCOMPLETE:"这份榜单缺少用于回放的完整提交记录。"}[board.warning] || "历史数据暂时读取失败，可通过 RankLand 链接查看原榜。") :
+        BOARD_HISTORY_INCOMPLETE:"这份榜单缺少用于回放的完整提交记录。"}[board.warning] || "历史数据暂时读取失败，可通过外榜链接查看原榜。") :
       "已设置数据来源，打开 Scoreboard 加载历史榜单。";
     const source = state.scoreboardSource || scoreboardFallback();
-    const link = $("scoreboard-source-link"); link.textContent = source.source === "rankland" ? "RankLand" : "QOJ";
+    const link = $("scoreboard-source-link"); link.textContent = source.source === "rankland" ? "外榜" : "QOJ";
     link.href = source.url;
     $("scoreboard-source-status").textContent = source.source === "rankland" ? (source.state === "matched" ? "已自动匹配" : "已配置") :
-      state.scoreboardRequest ? "正在检查可用榜单…" : source.state === "unavailable" ? "暂无法匹配 RankLand，使用原站榜单" : "使用原站榜单";
+      state.scoreboardRequest ? "正在检查可用榜单…" : source.state === "unavailable" ? "暂无法匹配外榜，使用原站榜单" : "使用原站榜单";
   }
   function resetScoreboardSource() {
     state.scoreboardRequestSequence++; state.scoreboardRequest = null; state.scoreboardSource = null;
@@ -1660,8 +1669,8 @@
       if (current(sessionId,generation)) {
         const detail = {BOARD_CACHE_FAILED:"本地保存失败，请检查浏览器存储空间后重试。", BOARD_PROBLEM_MAPPING_MISMATCH:"题目与本场 QOJ 比赛不一致，请选择对应榜单。",
           BOARD_HISTORY_INCOMPLETE:"榜单缺少完整提交记录，请选择可回放的榜单。", BOARD_CONTEST_MISMATCH:"榜单赛时与本场比赛不一致，请选择对应榜单。",
-          INVALID_BOARD_SOURCE:"请填写有效的 RankLand 主站榜单或 VP 链接。", NETWORK_ERROR:"连接 RankLand 失败，请检查网络后重试。",
-          TIMEOUT:"抓取榜单超时，请重试。", HTTP_ERROR:"RankLand 暂时无法提供榜单，请检查链接后重试。",
+          INVALID_BOARD_SOURCE:"请填写有效的 RankLand 主站榜单或 VP 链接。", NETWORK_ERROR:"连接外榜数据源失败，请检查网络后重试。",
+          TIMEOUT:"抓取榜单超时，请重试。", HTTP_ERROR:"外榜数据源暂时无法提供榜单，请检查链接后重试。",
           MALFORMED_FILE:"榜单文件信息不完整，请检查数据来源。", SRK_INTEGRITY_MISMATCH:"榜单下载校验失败，请重新抓取。"}[error.message] || message(error);
         showMessage($("rankland-error"), detail);
         showMessage($("rankland-check-status"), "检查未通过。当前使用的榜单保持原样，可修改链接后重试。", "warning");
@@ -1720,7 +1729,7 @@
     if (window.parent && window.parent !== window && !readinessToken) return;
     if (readinessToken) {
       document.documentElement.classList.add("vp-ready-dialogs");
-      for (const id of ["resources", "manual-samples", "rankland", "ready-judger", "ready-warning"]) modals[id] = new bootstrap.Modal($(id + "-modal"));
+      for (const id of ["resources", "manual-samples", "rankland", "ready-judger", "ready-warning", "ready-connection"]) modals[id] = new bootstrap.Modal($(id + "-modal"));
       bindSharedSettings();
       readiness = VpReadyUi.create({token:readinessToken, state, modals, call, openResources, openRanklandSettings,
         loadResourceManifest, prepareResources, readyResource});

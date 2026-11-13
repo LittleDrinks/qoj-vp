@@ -364,8 +364,8 @@ function Board({snapshot, options}) {
   };
   const share = async () => {
     if (!externalUrl) return;
-    try {await navigator.clipboard.writeText(externalUrl); setNotice('RankLand 链接已复制。');}
-    catch (_) {setNotice('无法访问剪贴板，请使用“打开 RankLand”。');}
+    try {await navigator.clipboard.writeText(externalUrl); setNotice('外榜链接已复制。');}
+    catch (_) {setNotice('无法访问剪贴板，请使用“打开外榜”。');}
   };
   const contest = activeSnapshot.ranklist.contest, range = formatContestTimeRange(contest.startAt, contest.duration);
   const contributors = (activeSnapshot.ranklist.contributors || []).map(resolveContributor).filter(Boolean);
@@ -396,12 +396,12 @@ function Board({snapshot, options}) {
     </div>
     {prepared && <p className="qoj-prepared-note">比赛尚未开始，打开榜单不会启动计时。</p>}
     <div className="qoj-title-wrap"><h1 className="srk-ranklist-title">{text(contest.title)}</h1>
-      {externalUrl && <a className="qoj-rankland-link" data-id="board-open-rankland" href={externalUrl} target="_blank" rel="noopener noreferrer">打开 RankLand <Icon name="external" /></a>}
+      {externalUrl && <a className="qoj-rankland-link" data-id="board-open-rankland" href={externalUrl} target="_blank" rel="noopener noreferrer">打开外榜 <Icon name="external" /></a>}
     </div>
     <div className="srk-ranklist-meta">
       <button type="button" className="srk-ranklist-action-menu srk-ranklist-action-trigger" data-id="ranklist-download-action" aria-label="下载当前榜单" onClick={download}><Icon name="download" /></button>
       <span className="srk-ranklist-meta-divider" />
-      {externalUrl && <button type="button" className="srk-ranklist-action-menu srk-ranklist-action-trigger" data-id="ranklist-share-action" aria-label="复制 RankLand 链接" onClick={share}><Icon name="share" /></button>}
+      {externalUrl && <button type="button" className="srk-ranklist-action-menu srk-ranklist-action-trigger" data-id="ranklist-share-action" aria-label="复制外榜链接" onClick={share}><Icon name="share" /></button>}
       {contributors.length > 0 && <p className="srk-ranklist-meta-line">贡献者：{contributors.map((contributor, index) => <React.Fragment key={`${contributor.name}:${index}`}>
         {index > 0 && ', '}{contributor.url && /^https:\/\//.test(contributor.url) ? <a href={contributor.url} target="_blank" rel="noopener noreferrer">{contributor.name}</a> : contributor.name}
       </React.Fragment>)}</p>}
@@ -435,7 +435,7 @@ function Board({snapshot, options}) {
     <div className="qoj-table-gap" />
     {activeSnapshot.ranklist.remarks && <div className="qoj-remarks"><span className="srk-remarks">备注：{text(activeSnapshot.ranklist.remarks)}</span></div>}
     <div className={`srk-ranklist-table-scroll ${projectionBusy ? 'is-projecting' : ''}`} role="region" aria-label="比赛榜单" aria-busy={projectionBusy}>
-      <VirtualRanklist ref={table} data={data} ownTeamId={activeSnapshot.own?.id || OWN_TEAM_ID} resetKey={sessionId}
+      <VirtualRanklist ref={table} data={data} ownTeamId={activeSnapshot.own?.id || OWN_TEAM_ID} hideOwnRank={activeSnapshot.own?.rankHidden === true} resetKey={sessionId}
         enableCCPC26={Boolean(presented.ccpc26Layout)} ccpc26ProblemLayout={presented.ccpc26Layout} theme={theme}
         statusCellPreset={settings.statusCellPreset} statusColorAsText={settings.statusColorAsText}
         showProblemStatisticsFooter={settings.professionalMode} showDirtColumn={settings.professionalMode} showSEColumn={settings.professionalMode}
