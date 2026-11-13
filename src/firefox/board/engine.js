@@ -60,8 +60,15 @@ function sourceFor(input, archive) {
   source.sorter.config.timePrecision='min';
   source.sorter.config.timeRounding='floor';
   if(config.rule==='ICPC') delete source.sorter.config.extendedAlgorithms;
-  if(config.rule==='CCPC26') source.sorter.config.extendedAlgorithms=[{algorithm:'CCPC26',config:{
-    problemRevealAcceptedThreshold:{count:config.revealCount,ratio:config.revealRatio/100}}}];
+  if(config.rule==='CCPC26') {
+    source.sorter.config.extendedAlgorithms=[{algorithm:'CCPC26',config:{
+      problemRevealAcceptedThreshold:{count:config.revealCount,ratio:config.revealRatio/100}}}];
+    // Applying CCPC26 to an unfrozen historical contest also supplies its
+    // last-hour freeze, shared by scoring, rank visibility and problem reveal.
+    if (!source.contest.frozenDuration || milliseconds(source.contest.frozenDuration)===0) {
+      source.contest.frozenDuration=[Math.min(3600000,session.durationMs),'ms'];
+    }
+  }
   // Historical names/links are data; never load remote avatars or executable links.
   function sanitize(value) {
     if (!value || typeof value!=='object') return;
