@@ -362,19 +362,7 @@
     return {session:state.session,contest:state.contest,history:{submissions:state.submissions}};
   }
   function ranklandBoardUrl(playback=null, now=Date.now()) {
-    if (!state.session?.ranklandUrl) return null;
-    try {
-      const url=new URL(state.session.ranklandUrl), start=epoch(state.session.startAt);
-      if (!ranklandViewIdentity(url.href)) return null;
-      const live=start===null ? 0 : Math.max(0,Math.min(state.session.durationMs,(epoch(state.session.finishedAt) ?? now)-start));
-      const replay=VpBoardEngine.canReplay(state.session,live);
-      const display=replay ? Math.max(0,Math.min(state.session.durationMs,playback?.elapsedMs ?? live)) : 0;
-      // Live URLs follow the confirmed start. Replay/share URLs capture a paused instant.
-      url.searchParams.delete("anchor");url.searchParams.set("from",String(display/60000));
-      url.searchParams.set("speed","1");url.searchParams.set("play",start!==null && !replay ? "1" : "0");
-      if (start===null) url.searchParams.delete("at");else url.searchParams.set("at",new Date(start).toISOString());
-      return url.href;
-    } catch (_) { return null; }
+    return VpScoreboardSources.viewUrl(state.session,playback,now);
   }
   function boardContext() {
     return VpBoardEngine.inputKey({...boardInput(),history:{submissions:[]}});
@@ -1549,7 +1537,7 @@
       "已设置数据来源，打开 Scoreboard 加载历史榜单。";
     const source = state.scoreboardSource || scoreboardFallback();
     const link = $("scoreboard-source-link"); link.textContent = source.source === "rankland" ? "外榜" : "QOJ";
-    link.href = source.url;
+    link.href = source.source === "rankland" ? externalUrl : source.url;
     $("scoreboard-source-status").textContent = source.source === "rankland" ? (source.state === "matched" ? "已自动匹配" : "已配置") :
       state.scoreboardRequest ? "正在检查可用榜单…" : source.state === "unavailable" ? "暂无法匹配外榜，使用原站榜单" : "使用原站榜单";
   }

@@ -134,6 +134,28 @@ globalThis.VpScoreboardSources = (() => {
     return {duration: value.contest.duration, problems, sorter: {algorithm: value.sorter.algorithm}};
   }
 
+  function viewUrl(session, playback = null, now = Date.now()) {
+    if (!session?.ranklandUrl) return null;
+    try {
+      const url = new URL(session.ranklandUrl), query = url.searchParams;
+      const loopback = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
+      if ((!loopback && url.origin !== "https://vp.xcpc.link") || url.pathname !== "/" ||
+          url.username || url.password || url.hash || !key(query.get("contest"))) return null;
+      const start = session.startAt == null ? null : typeof session.startAt === "number" ? session.startAt : Date.parse(session.startAt);
+      if (start !== null && !Number.isFinite(start)) return null;
+      const ended = start !== null && (session.finishedAt != null || ["finished", "archived"].includes(session.state) || now - start >= session.durationMs);
+      const display = ended ? Math.max(0, Math.min(session.durationMs,
+        Number.isFinite(playback?.elapsedMs) ? playback.elapsedMs : session.durationMs)) : 0;
+      // The VP player requires from < duration; the main standings show the final result.
+      if (ended && display >= session.durationMs) return (loopback ? url.origin : "https://rl.algoux.cn") + "/ranklist/" + encodeURIComponent(query.get("contest"));
+      query.delete("run"); query.delete("anchor");
+      query.set("from", String(display / 60000)); query.set("speed", "1");
+      query.set("play", start !== null && !ended ? "1" : "0");
+      if (start === null) query.delete("at"); else query.set("at", new Date(start).toISOString());
+      return url.href;
+    } catch (_) { return null; }
+  }
+
   function create(options = {}) {
     const fetchImpl = options.fetchImpl || ((...args) => globalThis.fetch(...args));
     const clock = options.clock || Date.now;
@@ -256,5 +278,5 @@ globalThis.VpScoreboardSources = (() => {
     return {resolve, describeReplay, loadArchive};
   }
   const defaults = create();
-  return {create, resolve: defaults.resolve, describeReplay: defaults.describeReplay, loadArchive: defaults.loadArchive};
+  return {create, viewUrl, resolve: defaults.resolve, describeReplay: defaults.describeReplay, loadArchive: defaults.loadArchive};
 })();

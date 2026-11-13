@@ -45,6 +45,13 @@ test("existing RankLand configuration survives unmatched or unavailable detectio
  e.setHandler(async()=>{throw Error("offline");});await e.context.resolveScoreboardSource(true);
  assert.equal(e.state.scoreboardSource.source,"rankland");assert.equal(e.state.scoreboardSource.state,"configured");assert.equal(e.messages.length,0);
 });
+test('navigation and Jury use the same final standings link while retaining the configured source',()=>{
+ const e=environment(rankland),final='https://rl.algoux.cn/ranklist/fixture';
+ e.context.ranklandBoardUrl=()=>final;e.context.renderScoreboardSource();
+ assert.equal(e.nodes.get('nav-rankland').href,final);
+ assert.equal(e.nodes.get('scoreboard-source-link').href,final);
+ assert.equal(e.state.session.ranklandUrl,rankland);
+});
 test("a changed session cannot receive the previous contest source",async()=>{
  const e=environment();let resolve;e.setHandler(()=>new Promise(done=>resolve=done));
  const pending=e.context.resolveScoreboardSource();e.state.generation++;

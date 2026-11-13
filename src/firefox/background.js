@@ -565,8 +565,12 @@
     const task = (async () => {
       const blocked=syncUnavailable(sessionId);
       if(blocked) throw blocked;
-      const source=await scoreboardSource({sessionId});
+      const source={...await scoreboardSource({sessionId})};
       if(syncUnavailable(sessionId)) throw syncUnavailable(sessionId);
+      if(source.source==="rankland") {
+        source.url=VpScoreboardSources.viewUrl(source.session);
+        if(!source.url) throw new Error("INVALID_REPLAY");
+      }
       const existing=(await browser.tabs.query({})).find(tab=>{
         if(tab.url===source.url) return true;
         try {return source.source==="rankland" && ranklandIdentity(tab.url)===ranklandIdentity(source.url);}

@@ -17,8 +17,11 @@ function setup({fixture=false,ranklandUrl=null}={}){
    case 'update_session':if(session.ranklandUrl===args.expectedRanklandUrl && session.durationMs===args.expectedDurationMs)session.ranklandUrl=args.ranklandUrl+'&run=local-practice';return {...session};
    default:throw Error('Unexpected native '+method);
   }},browser:{runtime:{id:'test',getURL:n=>'moz-extension://test/'+n,onMessage:listener,onInstalled:listener},action:{onClicked:listener},alarms:{create(){},onAlarm:listener},
-   tabs:{create:async o=>{tabs.push(o);return {id:5,...o};}},storage:{local:{get:async k=>({[k]:cache[k]}),set:async o=>Object.assign(cache,o)}}}};
+   tabs:{query:async()=>[],create:async o=>{tabs.push(o);return {id:5,...o};}},storage:{local:{get:async k=>({[k]:cache[k]}),set:async o=>Object.assign(cache,o)}}}};
  vm.createContext(context);
+ const resolve=context.VpScoreboardSources.resolve;
+ vm.runInContext(fs.readFileSync('src/firefox/scoreboard-sources.js','utf8'),context);
+ context.VpScoreboardSources.resolve=resolve;
  for (const file of ['readiness-bridge.js','board/generated/engine.js','board/cache.js','board/service.js'])
   vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
  if (!context.VpScoreboardSources) context.VpScoreboardSources={};
@@ -35,6 +38,14 @@ test('unmatched Ucup opens the observed original QOJ board and persists discover
 test('existing RankLand replay remains intact without catalogue requests',async()=>{
  const f=setup({ranklandUrl:'https://vp.xcpc.link/?contest=x&run=existing&from=.25'});
  assert.equal((await f.run('scoreboard.resolve')).url,f.session.ranklandUrl);assert.equal(f.matches.length,0);assert.equal(f.calls.length,1);
+});
+test('opening a completed external board uses final standings and preserves its saved source',async()=>{
+ const ranklandUrl='https://vp.xcpc.link/?contest=ccpc2025jinan&from=300';
+ const f=setup({ranklandUrl});Object.assign(f.session,{startAt:f.now-18000000,state:'running'});
+ const result=await f.run('scoreboard.view');
+ assert.equal(result.url,'https://rl.algoux.cn/ranklist/ccpc2025jinan');
+ assert.equal(f.tabs[0].url,result.url);assert.equal(f.session.ranklandUrl,ranklandUrl);
+ assert.equal((await f.run('scoreboard.resolve')).url,ranklandUrl);
 });
 test('exact match saves a session-owned replay using compare-and-set',async()=>{
  const f=setup();f.result={source:'rankland',state:'matched',ranklandUrl:'https://vp.xcpc.link/?contest=verified'};

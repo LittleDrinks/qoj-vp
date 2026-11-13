@@ -34,6 +34,7 @@ function environment() {
     formatDate: value => new Date(value).toISOString(), renderScoreboardSource(){},
     call: async (method, args) => { calls.push({method, args}); return handler(method, args); }};
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync("src/firefox/scoreboard-sources.js","utf8"),context);
   vm.runInContext(fs.readFileSync("src/firefox/board/generated/engine.js","utf8"),context);
   for (const [begin, end] of [["  function node(", "  function showMessage("],
     ["  function epoch(", "  function formatDate("],
@@ -120,6 +121,23 @@ test('prepared external links pause at zero and have no invented start',()=>{
  const e=environment();Object.assign(e.state.session,{startAt:null,state:'prepared',elapsedMs:0});
  const url=new URL(e.context.ranklandBoardUrl());
  assert.equal(url.searchParams.get('at'),null);assert.equal(url.searchParams.get('from'),'0');assert.equal(url.searchParams.get('play'),'0');
+});
+test('external links open the final standings at the exact end, including saved full-duration offsets',()=>{
+ const e=environment();e.state.session.state='running';
+ e.state.session.ranklandUrl='https://vp.xcpc.link/?contest=ccpc2025jinan&from=300&play=0&rule=CCPC26';
+ const before=JSON.stringify(e.state.session);
+ assert.equal(new URL(e.context.ranklandBoardUrl(null,17999999)).searchParams.get('play'),'1');
+ assert.equal(e.context.ranklandBoardUrl(null,18000000),'https://rl.algoux.cn/ranklist/ccpc2025jinan');
+ assert.equal(e.context.ranklandBoardUrl({elapsedMs:18000000},18000000),'https://rl.algoux.cn/ranklist/ccpc2025jinan');
+ assert.equal(JSON.stringify(e.state.session),before);
+});
+test('early finish opens final standings by default and keeps an explicit replay below the duration',()=>{
+ const e=environment();Object.assign(e.state.session,{state:'finished',finishedAt:1200000});
+ assert.equal(new URL(e.context.ranklandBoardUrl(null,1200000)).pathname,'/ranklist/icpc2022xi_an');
+ const replay=new URL(e.context.ranklandBoardUrl({elapsedMs:17999999},1200000));
+ assert.equal(replay.origin,'https://vp.xcpc.link');
+ assert.ok(Number(replay.searchParams.get('from'))<300);
+ assert.equal(replay.searchParams.get('play'),'0');
 });
 test("display projection reads the requested time without replacing the real Home snapshot",async()=>{
  const e=environment(),real={own:{score:99}};e.state.connected=true;e.state.board=real;

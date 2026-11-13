@@ -23,7 +23,7 @@ def main():
         def log_message(self,*_):pass
         def do_GET(self):
             if self.path=='/':
-                page='''<!doctype html><meta charset="utf-8"><title>QOJ VP · 排名更新验证</title><link rel="stylesheet" href="/assets/bootstrap/bootstrap.min.css"><link rel="stylesheet" href="/assets/domjudge/style_domjudge.css"><link rel="stylesheet" href="/ui.css"><link rel="stylesheet" href="/board/generated/view.css"><script src="/board/generated/view.js"></script><script src="/board/generated/engine.js"></script><body class="board-route"><nav class="navbar navbar-dark bg-dark fixed-top"><span class="navbar-brand px-3">DOMjudge · Scoreboard</span></nav><p id="board-status" hidden></p><main id="board-table"></main>'''.encode()
+                page='''<!doctype html><meta charset="utf-8"><title>QOJ VP · 排名更新验证</title><link rel="stylesheet" href="/assets/bootstrap/bootstrap.min.css"><link rel="stylesheet" href="/assets/domjudge/style_domjudge.css"><link rel="stylesheet" href="/ui.css"><link rel="stylesheet" href="/board/generated/view.css"><script src="/board/generated/view.js"></script><script src="/board/generated/engine.js"></script><script src="/scoreboard-sources.js"></script><body class="board-route"><nav class="navbar navbar-dark bg-dark fixed-top"><span class="navbar-brand px-3">DOMjudge · Scoreboard</span></nav><p id="board-status" hidden></p><main id="board-table"></main>'''.encode()
                 self.send_response(200);self.send_header('Content-Type','text/html;charset=utf-8');self.send_header('Content-Length',str(len(page)));self.end_headers();self.wfile.write(page)
             else:super().do_GET()
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler);threading.Thread(target=server.serve_forever,daemon=True).start()

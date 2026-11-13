@@ -51,7 +51,9 @@ function page(saved, {blocked=false, snapshot=fixture(), search="", hash="#probl
       if(method==="session_snapshot")return {ok:true,result:structuredClone(snapshot)};
       if(!gates.has(method))gates.set(method,deferred());return gates.get(method).promise;
     }}}};
-  vm.createContext(context);vm.runInContext(fs.readFileSync('src/firefox/board/generated/engine.js','utf8'),context);context.VpBoardView={render(){}};vm.runInContext(source,context);
+  vm.createContext(context);
+  for(const file of ['scoreboard-sources.js','board/generated/engine.js']) vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
+  context.VpBoardView={render(){}};vm.runInContext(source,context);
   return {context,$,calls,gates,timers,listeners,state:()=>window.qojVpUi.getState()};
 }
 

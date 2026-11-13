@@ -7,7 +7,7 @@ function harness(cache = {}) {
   const listen = {addListener() {}};
   const env = {calls, cache, session, events, failRefresh:false, tabOpen:true, inspectWait:null,
     refreshResult:{submissions:[],coverage:{complete:true,pages:1}},plan:{items:[],pendingCount:1,waiting:[{}]}};
-  const context = {URL, Map, Set, Promise, Date, setTimeout, clearTimeout, crypto:require('node:crypto').webcrypto,
+  const context = {URL, Map, Set, Promise, Date:class extends Date {static now(){return session.startAt+100;}}, setTimeout, clearTimeout, crypto:require('node:crypto').webcrypto,
     VpTransport:{pause:async()=>{}}, VpRanklandTransfer:{sync:async args=>{calls.push(['transfer',args]);if(env.transferError)throw env.transferError;return {synced:0};}},
     __native:async (method,args)=>{ calls.push([method,args]); switch(method) {
       case 'qoj_bind_virtual':session.qojVirtual={mode:'qoj-native',origin:'https://qoj.ac',contestId:'7',account:'me',startAt:session.startAt};return {session:{...session}};
@@ -29,13 +29,13 @@ function harness(cache = {}) {
       action:{onClicked:listen}, alarms:{create(){},onAlarm:{addListener:f=>{events.alarm=f;}}},
       tabs:{query:async()=>env.tabOpen?[{id:7,url:env.tabUrl||session.ranklandUrl}]:[],get:async id=>id===17?{id,url:'https://qoj.ac/contest/7/virtual/register'}:({id:7,url:session.ranklandUrl}),
         sendMessage:async()=>({ready:true}), update:async(id,args)=>({id,url:session.ranklandUrl,...args}),create:async args=>{
-          calls.push(['tab.create',args]);if(args.url.startsWith('https://vp.xcpc.link'))env.tabOpen=true;return {id:7,...args};}},
+          calls.push(['tab.create',args]);if(args.url.startsWith('https://vp.xcpc.link')){env.tabOpen=true;env.tabUrl=args.url;}return {id:7,...args};}},
       scripting:{executeScript:async()=>[{result:null}]},
       storage:{local:{get:async k=>k===null?{...cache}:({[k]:cache[k]}),set:async v=>Object.assign(cache,v),remove:async k=>{delete cache[k];}}}}};
   vm.createContext(context);
- for (const file of ['readiness-bridge.js','board/generated/engine.js','board/cache.js','board/service.js'])
+ for (const file of ['scoreboard-sources.js','readiness-bridge.js','board/generated/engine.js','board/cache.js','board/service.js'])
   vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
- if (!context.VpScoreboardSources) context.VpScoreboardSources={resolve:async()=>env.resolveResult};
+ context.VpScoreboardSources.resolve=async()=>env.resolveResult;
   vm.runInContext(fs.readFileSync('src/firefox/rankland-protocol.js','utf8'),context);
   vm.runInContext(fs.readFileSync('src/firefox/qoj-lifecycle.js','utf8'),context);
   vm.runInContext(fs.readFileSync('src/firefox/background.js','utf8').replace(/\}\)\(\);\s*$/,
@@ -112,7 +112,9 @@ test('a start with no configured board saves a verified match, while an unmatche
  h.resolveResult={source:'rankland',state:'matched',ranklandUrl:target};
  await h.start();await settleBackground();assert.equal(h.session.ranklandUrl,target);
  assert.equal(h.calls.some(c=>c[0]==='transfer'),false);
- assert.equal(h.calls.filter(c=>c[0]==='tab.create' && c[1].url===target).length,1);
+ const opened=h.calls.filter(c=>c[0]==='tab.create' && c[1].url.startsWith('https://vp.xcpc.link'));assert.equal(opened.length,1);
+ const url=new URL(opened[0][1].url);assert.equal(url.searchParams.get('contest'),'test');
+ assert.equal(Date.parse(url.searchParams.get('at')),h.session.startAt);
  const other=harness();other.session.ranklandUrl=null;await other.start();await settleBackground();
  assert.equal(other.session.ranklandUrl,null);
  assert.equal(other.calls.some(c=>c[0]==='tab.create' && c[1].url.startsWith('https://vp.xcpc.link')),false);
@@ -137,6 +139,7 @@ test('opening a configured board reuses its tab and never sends submission recor
 
 test('RankLand canonical timezone and default parameters do not create a second tab',async()=>{
  const h=harness();h.session.ranklandUrl='https://vp.xcpc.link/?contest=test&at=2026-11-01T00%3A00%3A00Z&from=0&play=1&speed=1';
+ h.session.startAt=Date.parse('2026-11-01T00:00:00Z');
  const canonical=new URL(h.session.ranklandUrl);canonical.searchParams.set('at','2026-11-01T08:00:00+08:00');canonical.searchParams.set('rule','auto');canonical.searchParams.set('feed','1');h.tabUrl=canonical.href;
  await h.dispatch('scoreboard.view',{sessionId:h.session.sessionId});
  assert.equal(h.calls.some(c=>c[0]==='tab.create'),false);
