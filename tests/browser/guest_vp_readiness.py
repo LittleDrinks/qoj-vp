@@ -158,6 +158,9 @@ def main():
                 return driver.execute_script('return [...(document.getElementById("qoj-vp-resource-preparation")?.shadowRoot?.querySelectorAll(".row")||[])].map(e=>({state:e.className,text:e.innerText}));')
             def settled():
                 rows=overview();(output/'progress.json').write_text(json.dumps({'url':driver.current_url,'rows':rows},ensure_ascii=False));return rows if len(rows)==3 and all('checking' not in row['state'] for row in rows) else False
+            def row_ready(index):
+                rows = settled()
+                return bool(rows) and rows[index]['state'].endswith(' ready')
             def capture(name):
                 driver.save_screenshot(str(output/name));report['screenshots'].append(name)
             def modal_ready(name=None):
@@ -213,7 +216,7 @@ def main():
             driver.find_element(By.ID,'manual-sample-output').send_keys('3\n')
             driver.find_element(By.CSS_SELECTOR,'#manual-samples-form button[type=submit]').click()
             modal_ready('resources-modal')
-            close();wait.until(lambda _:'ready' in settled()[0]['state'] if settled() else False)
+            close();wait.until(lambda _:row_ready(0))
             enter(1);field=driver.find_element(By.ID,'rankland-url');field.clear();field.send_keys('https://rl.algoux.cn/ranklist/ready-fixture')
             extension_url = driver.execute_script('return location.href.split("?")[0];')
             driver.find_element(By.ID,'rankland-check').click()
@@ -221,7 +224,7 @@ def main():
             capture('03-board-settings.png')
             assert not saved_session()['ranklandUrl'], 'Preview must preserve the active source'
             driver.find_element(By.CSS_SELECTOR,'#rankland-form button[type=submit]').click()
-            driver.switch_to.default_content();wait.until(lambda _:'ready' in settled()[1]['state'] if settled() else False)
+            driver.switch_to.default_content();wait.until(lambda _:row_ready(1))
             enter(2);driver.find_element(By.ID,'ready-judger-bind').click()
             wait.until(lambda _:'dry-run 通过' in driver.find_element(By.ID,'ready-judger-status').text)
             capture('04-judger-dry-run.png');close()
