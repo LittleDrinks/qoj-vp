@@ -8,7 +8,8 @@ function environment(initialUrl=null){
  const session={sessionId:sid,contestId:"3387",account:"fixture",ranklandUrl:initialUrl};
  const state={session,sessions:[session],generation:1,scoreboardRequestSequence:0,scoreboardRequest:null,scoreboardSource:null};
  let handler=async()=>({source:"qoj",state:"unmatched",url:"https://qoj.ac/contest/3387/standings"});
- const context={state,URL,location:{hash:"#home"},route(){},$:id=>{if(!nodes.has(id))nodes.set(id,{});return nodes.get(id);},
+ const context={state,URL,location:{hash:"#home"},route(){},$:id=>{if(!nodes.has(id))nodes.set(id,{removeAttribute(key){delete this[key];}});return nodes.get(id);},
+  ranklandBoardUrl:()=>state.session?.ranklandUrl || null,
   current:(id,generation)=>state.session?.sessionId===id&&state.generation===generation,
   call:async(method,args)=>{calls.push({method,args});return handler(method,args);},
   renderBoard:()=>{},resetBoard:()=>snapshots.push("reset"),refreshBoard:async()=>snapshots.push("read"),adoptRanklandUrl:()=>{},
@@ -43,6 +44,13 @@ test("existing RankLand configuration survives unmatched or unavailable detectio
  const e=environment(rankland);await e.context.resolveScoreboardSource();assert.equal(e.state.session.ranklandUrl,rankland);
  e.setHandler(async()=>{throw Error("offline");});await e.context.resolveScoreboardSource(true);
  assert.equal(e.state.scoreboardSource.source,"rankland");assert.equal(e.state.scoreboardSource.state,"configured");assert.equal(e.messages.length,0);
+});
+test('navigation and Jury use the same final standings link while retaining the configured source',()=>{
+ const e=environment(rankland),final='https://rl.algoux.cn/ranklist/fixture';
+ e.context.ranklandBoardUrl=()=>final;e.context.renderScoreboardSource();
+ assert.equal(e.nodes.get('nav-rankland').href,final);
+ assert.equal(e.nodes.get('scoreboard-source-link').href,final);
+ assert.equal(e.state.session.ranklandUrl,rankland);
 });
 test("a changed session cannot receive the previous contest source",async()=>{
  const e=environment();let resolve;e.setHandler(()=>new Promise(done=>resolve=done));

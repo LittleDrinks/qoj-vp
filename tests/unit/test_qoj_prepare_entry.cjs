@@ -34,7 +34,7 @@ const results=[];
 async function check(name,run){await run();results.push(name);}
 
 function contentEnvironment({recognized=true,navigation=false,nestedSensitive=false,url="https://qoj.ac/contest/4582/virtual/register"}={}) {
-  let submits=0;const messages=[],listeners=[],observers=[];
+  let submits=0;const messages=[],framePosts=[],listeners=[],observers=[],windowListeners={},documentListeners={};
   const escape=value=>String(value).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
   const matches=(node,selector)=>selector==="*"||selector==="a[href]"&&node.tagName==="A"&&node.getAttribute("href")!==null||node.tagName.toLowerCase()===selector;
   class Element {
@@ -51,6 +51,10 @@ function contentEnvironment({recognized=true,navigation=false,nestedSensitive=fa
     getAttribute(name){return this.attributes[name]??null;}
     setAttribute(name,value){this.attributes[name]=String(value);}removeAttribute(name){delete this.attributes[name];}
     append(...items){for(const item of items){item.parentElement=this;this.children.push(item);}}
+    attachShadow(){return this.shadow=new Element("shadow");}
+    before(item){const parent=this.parentElement;item.parentElement=parent;parent.children.splice(parent.children.indexOf(this),0,item);}
+    closest(selector){return selector==="#button-submit-register_vp" && this===nativeButton?this:null;}
+    click(){const event={type:"click",target:this,preventDefault(){this.cancelled=true;},stopImmediatePropagation(){}};documentListeners.click?.(event);if(this===nativeButton&&!event.cancelled)submits++;}
     after(item){const parent=this.parentElement;item.parentElement=parent;parent.children.splice(parent.children.indexOf(this)+1,0,item);}
     remove(){this.parentElement.children=this.parentElement.children.filter(item=>item!==this);this.parentElement=null;}
     querySelectorAll(selector){const selectors=selector.split(",");return this.children.flatMap(walk).filter(node=>selectors.some(value=>matches(node,value)));}
@@ -60,7 +64,7 @@ function contentEnvironment({recognized=true,navigation=false,nestedSensitive=fa
   }
   const body=new Element("body"),form=new Element("form"),nativeButton=new Element("button"),token=new Element("input");
   form.attributes={id:"form-register_vp",method:"POST",action:"/contest/4582/virtual/register"};nativeButton.attributes={id:"button-submit-register_vp",type:"submit",name:"submit-register_vp"};nativeButton.type="submit";token.attributes={type:"hidden",name:"_token"};
-  form.querySelector=selector=>selector.startsWith("input")?token:selector.startsWith("button")&&recognized?nativeButton:null;
+  form.querySelector=selector=>selector.startsWith("input")?token:(selector.startsWith("button")||selector==="#button-submit-register_vp")&&recognized?nativeButton:null;
   form.append(token,nativeButton);body.append(form);
   const walk=node=>[node,...node.children.flatMap(walk)];
   let nav;
@@ -77,7 +81,7 @@ function contentEnvironment({recognized=true,navigation=false,nestedSensitive=fa
   }
   const original=JSON.stringify({form:form.attributes,button:nativeButton.attributes,token:token.attributes,childCount:form.children.length});
   const location=new URL(url);
-  const context={URL,location,document:{body,createElement:tag=>new Element(tag),querySelector:selector=>selector==="form#form-register_vp"?form:selector==='ul.nav.nav-pills.float-right'?nav:null,querySelectorAll:selector=>body.querySelectorAll(selector),getElementById:id=>walk(body).find(node=>node.id===id)},
+  const context={URL,Date,location,getComputedStyle:()=>({fontFamily:"system-ui",fontSize:"16px",lineHeight:"24px"}),addEventListener:(type,listener)=>{windowListeners[type]=listener;},document:{addEventListener:(type,listener)=>{documentListeners[type]=listener;},body,createElement:tag=>{const node=new Element(tag);if(tag==="iframe")node.contentWindow={postMessage:message=>framePosts.push(message)};return node;},querySelector:selector=>selector==="form#form-register_vp"?form:selector==='ul.nav.nav-pills.float-right'?nav:null,querySelectorAll:selector=>body.querySelectorAll(selector),getElementById:id=>walk(body).find(node=>node.id===id)},
     MutationObserver:class{constructor(callback){observers.push(callback);}observe(){}},
     browser:{runtime:{id:"extension-test",onMessage:{addListener:listener=>listeners.push(listener)},sendMessage:async message=>{
       messages.push(message);
@@ -85,13 +89,13 @@ function contentEnvironment({recognized=true,navigation=false,nestedSensitive=fa
         listeners.forEach(listener=>listener({type:"vp.resources.progress",cid,jobId:"test-job",sessionId:sid,done:1,total:2,ready:1,unknown:0},{id:"extension-test"}));
         return{ok:true,result:{jobId:"test-job",cid,sessionId:sid,done:2,total:2,ready:2,unknown:0}};
       }
-      return{ok:true,result:{sessionId:sid}};
+      return{ok:true,result:{sessionId:sid,token:"ready-ticket",url:"moz-extension://fixture/ui.html?ready=ready-ticket"}};
     }}}};
   context.window=context;context.top=context;vm.createContext(context);
  for (const file of ['board/generated/engine.js','board/cache.js','board/service.js'])
   vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
- if (!context.VpScoreboardSources) context.VpScoreboardSources={};vm.runInContext(content,context);
-  return{body,form,nativeButton,token,messages,observers,get submits(){return submits;},original,
+ if (!context.VpScoreboardSources) context.VpScoreboardSources={};vm.runInContext(fs.readFileSync(path.join(root,"src/firefox/ready-panel.js"),"utf8"),context);vm.runInContext(content,context);
+  return{body,form,nativeButton,token,messages,framePosts,observers,fromFrame(data){const frame=body.children.find(n=>n.tagName==="IFRAME");windowListeners.message({source:frame.contentWindow,origin:new URL("moz-extension://fixture/ui.html").origin,data:{type:"vp.ready.host",token:"ready-ticket",...data}});},get submits(){return submits;},original,
     snapshot:()=>JSON.stringify({form:form.attributes,button:nativeButton.attributes,token:token.attributes,childCount:form.children.length})};
 }
 (async()=>{
@@ -152,22 +156,23 @@ function contentEnvironment({recognized=true,navigation=false,nestedSensitive=fa
     target.location.search="?session="+sid+"&prepare=1";opened=0;
     await vm.runInContext("(async()=>{"+ui.slice(begin,end)+"})()",target);assert.equal(opened,0);assert.equal(prepared,1);
   });
-  await check("actual content button events keep native Start/form unchanged and submit zero",async()=>{
-    const e=contentEnvironment();const panel=e.body.children.find(node=>node.id==="qoj-vp-resource-preparation");assert.ok(panel);
-    assert.equal(panel.parentElement,e.form.parentElement);assert.equal(e.form.children.length,2);
+  await check("native Start waits for warning confirmation and continues exactly once",async()=>{
+    const e=contentEnvironment();await new Promise(setImmediate);
+    const panel=e.body.children.find(node=>node.id==="qoj-vp-resource-preparation");assert.ok(panel);
     for(const observer of e.observers)observer();assert.equal(e.body.children.filter(node=>node.id===panel.id).length,1);
-    const [prepare]=panel.children;assert.equal(prepare.type,"button");
-    const event=()=>({preventDefault(){},stopPropagation(){}});
-    await prepare.listeners.click(event());
-    assert.deepEqual(e.messages.map(message=>message.type),["vp.qoj.prepare"]);
-    let cancelled=0; e.form.listeners.submit({preventDefault(){cancelled++;},stopPropagation(){cancelled++;}});
-    await new Promise(setImmediate);
-    assert.equal(e.messages.at(-1).type,"vp.qoj.startIntent");assert.equal(cancelled,0);
-    assert.equal(e.submits,0);assert.equal(e.snapshot(),e.original);assert.equal(e.nativeButton.disabled,undefined);
+    e.nativeButton.click();assert.equal(e.submits,0);
+    assert.equal(e.framePosts.length,0);
+    e.fromFrame({action:"state",states:{resources:{state:"checking",detail:"正在检查"}}});
+    assert.equal(e.framePosts.at(-1).action,"warning");
+    assert.equal(e.messages.some(m=>m.type==="vp.qoj.startIntent"),false);
+    e.fromFrame({action:"continue"});assert.equal(e.submits,1);
+    e.fromFrame({action:"continue"});assert.equal(e.submits,1);
+    assert.equal(e.messages.filter(m=>m.type==="vp.qoj.startIntent").length,1);
+    assert.equal(e.snapshot(),e.original);
   });
   await check("registration snapshots preserve account/rules/form while omitting credentials and executable markup",async()=>{
     const e=contentEnvironment({navigation:true});
-    assert.deepEqual(e.messages.map(message=>message.type),["vp.qoj.registration"]);
+    assert.deepEqual(e.messages.map(message=>message.type),["vp.qoj.registration","vp.ready.open"]);
     const snapshot=e.messages[0].registrationPage;
     assert.equal(snapshot.url,"https://qoj.ac/contest/4582/virtual/register");
     assert.match(snapshot.html,/<a href="\/user\/profile\/LittleDrinks" class="nav-link">LittleDrinks<\/a>/);
@@ -177,10 +182,6 @@ function contentEnvironment({recognized=true,navigation=false,nestedSensitive=fa
     assert.match(snapshot.html,/<button id="button-submit-register_vp" type="submit" name="submit-register_vp"><\/button>/);
     assert.match(snapshot.html,/<a href="#">Elsewhere<\/a>/);
     assert.doesNotMatch(snapshot.html,/_token|SECRET|SENSITIVE|<script|<input|<textarea|onclick|data-token/);
-    const panel=e.body.children.find(node=>node.id==="qoj-vp-resource-preparation");
-    await panel.children[0].listeners.click({preventDefault(){},stopPropagation(){}});
-    e.form.listeners.submit({});await new Promise(setImmediate);
-    assert.deepEqual(e.messages.map(message=>message.type),["vp.qoj.registration","vp.qoj.prepare","vp.qoj.startIntent"]);
     assert.ok(e.messages.every(message=>JSON.stringify(message.registrationPage)===JSON.stringify(snapshot)));
     assert.equal(e.submits,0);assert.equal(e.snapshot(),e.original);
   });

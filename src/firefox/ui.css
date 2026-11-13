@@ -29,3 +29,7 @@ body.board-route main.container-fluid { padding-right: 0; padding-left: 0; }
   #menuDefault > .me-3 { margin-top: .5rem; }
   .vp-clock { margin-top: .5rem; }
 }
+html.vp-ready-dialogs, .vp-ready-dialogs body { background: transparent; padding: 0; }
+.vp-ready-dialogs body > :not(.modal):not(.modal-backdrop) { display: none !important; }
+.vp-ready-dialogs .modal-dialog { margin-top: max(2rem, 10vh); }
+#ready-judger-output { white-space: pre-wrap; overflow-wrap: anywhere; }

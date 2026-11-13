@@ -80,9 +80,16 @@ def main():
         after = h.call('inspect_session', {'sessionId': sid})
         require(after['finishedAt'] == finished['finishedAt'] and after['startAt'] == start, 'Replay changed lifecycle')
         h.driver.save_screenshot(str(output/'early-finish-replay.png'))
+        final_url = reference.origin+'/ranklist/qoj-preflight-fixture'
+        for selector in ['#nav-rankland', '#scoreboard-source-link', '[data-id="board-open-rankland"]']:
+            require(h.driver.find_element('css selector', selector).get_attribute('href') == final_url,
+                    'Final standings link differs: '+selector)
+        report['checks'].append({'name': 'final_standings_from_navigation_jury_and_full_replay', 'url': final_url})
         seek(h.driver, 125)
         link = h.driver.find_element('css selector', '[data-id="board-open-rankland"]').get_attribute('href')
         require(parse_qs(urlsplit(link).query)['from'] == ['125'], 'Replay link lost display time')
+        require(h.driver.find_element('id', 'nav-rankland').get_attribute('href') == final_url,
+                'Explicit replay changed the navigation final standings')
         h.driver.switch_to.new_window('tab'); h.driver.get(link)
         h.wait(lambda: h.driver.execute_script('return document.querySelector(".srk-progress-secondary-area-left")?.textContent.includes("2:05:00")'), 'external replay', 60)
         h.driver.save_screenshot(str(output/'external-replay.png'))

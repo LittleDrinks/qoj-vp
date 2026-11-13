@@ -3,7 +3,7 @@
   const HOST = "org.littledrinks.qoj_vp";
   const methods = new Set(["hello", "create_session", "start_session", "list_sessions", "inspect_session", "archive_session", "update_session",
     "qoj_contest", "qoj_bind_virtual", "qoj_confirm_virtual_start", "qoj_problem_form", "qoj_samples", "qoj_submit", "qoj_submissions", "qoj_reconcile", "rankland_queue", "rankland_ack", "rankland_ack_batch", "rankland_plan", "refresh_sessions", "prepare_rankland",
-    "resource_manifest", "prepare_resource", "resource_chunk", "import_samples", "delete_session", "finish_session", "session_snapshot"]);
+    "resource_manifest", "prepare_resource", "resource_chunk", "import_samples", "delete_session", "finish_session", "session_snapshot", "submitter_check", "submitter_bind"]);
   const ranklandIdentity = raw => VpRanklandProtocol.identity(raw);
   async function rememberRanklandUrl(raw) {
     const identity = ranklandIdentity(raw);
@@ -521,7 +521,7 @@
     // Isolated guest suites never contact public providers implicitly.
     if (!helperInfo) helperInfo = native("hello").catch(error => { helperInfo = null; throw error; });
     if ((await helperInfo).fixture) return {...fallback("FIXTURE"), state: "unmatched"};
-    if (!contest?.scoreboardUrl) {
+    if (refresh || !contest?.scoreboardUrl || !Array.isArray(contest?.titles)) {
       try { contest = await providerRead("qoj_contest", {contestId: session.contestId, sessionId}); }
       catch (_) { /* Cached title/problems and the original contest link remain usable. */ }
     }
@@ -565,8 +565,12 @@
     const task = (async () => {
       const blocked=syncUnavailable(sessionId);
       if(blocked) throw blocked;
-      const source=await scoreboardSource({sessionId});
+      const source={...await scoreboardSource({sessionId})};
       if(syncUnavailable(sessionId)) throw syncUnavailable(sessionId);
+      if(source.source==="rankland") {
+        source.url=VpScoreboardSources.viewUrl(source.session);
+        if(!source.url) throw new Error("INVALID_REPLAY");
+      }
       const existing=(await browser.tabs.query({})).find(tab=>{
         if(tab.url===source.url) return true;
         try {return source.source==="rankland" && ranklandIdentity(tab.url)===ranklandIdentity(source.url);}
@@ -592,6 +596,7 @@
     if (method.startsWith("judger.")) {
       const action=method.slice(7);method=action==="prepare_resource"?action:"qoj_"+action;
     }
+    if (method === "board.prepare") return board.prepare(args.sessionId,{url:args.url,board:args.board,refresh:args.refresh!==false});
     if (method === "board.snapshot") return board.snapshot(args.sessionId, {localOnly:args.includeHistory!==true, refresh:args.refresh === true,
       elapsedMs:typeof args.elapsedMs === "number" ? args.elapsedMs : null});
     if (method === "qoj.virtual.open") {
@@ -630,7 +635,11 @@
     if(method==="start_session") bindViewingBoard(result.sessionId).catch(()=>{});
     return result;
   }
+  const readiness = VpReadinessBridge.create({lifecycle:qojLifecycle, dispatch});
   browser.runtime.onMessage.addListener((message, sender) => {
+    if (["vp.ready.open", "vp.ready.task"].includes(message?.type)) {
+      return readiness.handle(message, sender).then(result => ({ok:true,result}), error => ({ok:false,error:{message:error.message}}));
+    }
     if (["vp.qoj.registration", "vp.qoj.prepare", "vp.qoj.startIntent", "vp.qoj.checkStart"].includes(message?.type)) {
       const action = {"vp.qoj.registration":"registration", "vp.qoj.prepare":"prepare", "vp.qoj.startIntent":"startIntent", "vp.qoj.checkStart":"check"}[message.type];
       return qojLifecycle[action](message, sender).then(result => ({ok:true,result}), error => ({ok:false,error:{code:error.code || "QOJ_VIRTUAL_FAILED",message:error.message}}));
@@ -655,6 +664,7 @@
       } catch (_) { return Promise.resolve({allowed: false, code: "IDENTITY_UNAVAILABLE"}); }
     }
     if (sender.id !== browser.runtime.id || !sender.url?.startsWith(browser.runtime.getURL(""))) return undefined;
+    if (sender.frameId > 0) return undefined;
     if (message?.type === "vp.diagnostics") return Promise.resolve({ok: true, result: {http: VpTransport.diagnostics(), ranklandGuards: ranklandGuardEvents.slice(-30)}});
     if (message?.type !== "vp.task") return undefined;
     return dispatch(message.method, message.args || {}).then(result => ({ok: true, result}), error => ({ok: false, error: {code: error.code || "BROWSER_ERROR", message: error.message}}));

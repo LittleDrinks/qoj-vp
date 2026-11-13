@@ -24,7 +24,7 @@ function environment({first=snapshot(), second=snapshot(other), snapshotWait}={}
   forms:new Map(),resources:new Map(),resourceActivity:new Map(),resourceInteractive:new Map(),resourceDownloads:new Set(),resourceReadSequence:0,
   contestRequests:new Map(),historyRequests:new Map(),sessionRequest:null,refreshPromise:null,refreshSession:null,historyLoaded:false};
  const $=id=>{if(!elements.has(id)){const e=new Element();e.id=id;elements.set(id,e);}return elements.get(id);};
- const context={state,$,URL,Date,location:{hash:"#home"},ACTIVE_KEY:"active",document:{createElement:t=>new Element(t)},
+ const context={readinessToken:null,state,$,URL,Date,location:{hash:"#home"},ACTIVE_KEY:"active",document:{createElement:t=>new Element(t)},
   browser:{storage:{local:{set:async()=>{}}}},persistIntents:async()=>{},
   current:(id,gen)=>state.session?.sessionId===id&&state.generation===gen,
   call:async(method,args)=>{calls.push({method,args});

@@ -134,14 +134,36 @@ globalThis.VpScoreboardSources = (() => {
     return {duration: value.contest.duration, problems, sorter: {algorithm: value.sorter.algorithm}};
   }
 
+  function viewUrl(session, playback = null, now = Date.now()) {
+    if (!session?.ranklandUrl) return null;
+    try {
+      const url = new URL(session.ranklandUrl), query = url.searchParams;
+      const loopback = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
+      if ((!loopback && url.origin !== "https://vp.xcpc.link") || url.pathname !== "/" ||
+          url.username || url.password || url.hash || !key(query.get("contest"))) return null;
+      const start = session.startAt == null ? null : typeof session.startAt === "number" ? session.startAt : Date.parse(session.startAt);
+      if (start !== null && !Number.isFinite(start)) return null;
+      const ended = start !== null && (session.finishedAt != null || ["finished", "archived"].includes(session.state) || now - start >= session.durationMs);
+      const display = ended ? Math.max(0, Math.min(session.durationMs,
+        Number.isFinite(playback?.elapsedMs) ? playback.elapsedMs : session.durationMs)) : 0;
+      // The VP player requires from < duration; the main standings show the final result.
+      if (ended && display >= session.durationMs) return (loopback ? url.origin : "https://rl.algoux.cn") + "/ranklist/" + encodeURIComponent(query.get("contest"));
+      query.delete("run"); query.delete("anchor");
+      query.set("from", String(display / 60000)); query.set("speed", "1");
+      query.set("play", start !== null && !ended ? "1" : "0");
+      if (start === null) query.delete("at"); else query.set("at", new Date(start).toISOString());
+      return url.href;
+    } catch (_) { return null; }
+  }
+
   function create(options = {}) {
     const fetchImpl = options.fetchImpl || ((...args) => globalThis.fetch(...args));
     const clock = options.clock || Date.now;
     const timeoutMs = options.timeoutMs ?? 5000, cacheTtlMs = options.cacheTtlMs ?? 300000;
-    const maxCandidates = options.maxCandidates ?? 6;
+    const concurrency = options.concurrency ?? 6;
     if (typeof fetchImpl !== "function" || typeof clock !== "function" || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000 ||
         !Number.isSafeInteger(cacheTtlMs) || cacheTtlMs < 0 || cacheTtlMs > 86400000 ||
-        !Number.isSafeInteger(maxCandidates) || maxCandidates < 1 || maxCandidates > 8) throw failure("INVALID_OPTIONS");
+        !Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 8) throw failure("INVALID_OPTIONS");
     const cache = new Map(), pending = new Map();
     async function request(url, archive = null) {
       const cacheKey = archive ? url + "#sha256=" + archive.hash : url;
@@ -214,13 +236,14 @@ globalThis.VpScoreboardSources = (() => {
       const candidates = all.map(item => ({item, score: titleScore(contest, item)})).filter(item => item.score > 0)
         .sort((a, b) => b.score - a.score || a.item.uk.localeCompare(b.item.uk));
       const summary = candidate => ({uk: candidate.uk, name: names(candidate)[0]});
-      const info = {candidateCount: candidates.length, candidates: candidates.slice(0, maxCandidates).map(value => summary(value.item))};
       if (!candidates.length) return fallback("unmatched", "NO_TITLE_CANDIDATE");
-      if (candidates.length > maxCandidates) return fallback("unverified", "CANDIDATE_LIMIT", info);
-      const checked = await Promise.all(candidates.map(async ({item}) => {
-        try { return {...summary(item), ...verify(contest, item, await contestDetail(API, item.uk))}; }
-        catch (error) { return {...summary(item), state: "unverified", reason: error.code || "DETAIL_UNAVAILABLE"}; }
-      }));
+      const checked = [];
+      for (let offset = 0; offset < candidates.length; offset += concurrency) {
+        checked.push(...await Promise.all(candidates.slice(offset, offset + concurrency).map(async ({item}) => {
+          try { return {...summary(item), ...verify(contest, item, await contestDetail(API, item.uk))}; }
+          catch (error) { return {...summary(item), state: "unverified", reason: error.code || "DETAIL_UNAVAILABLE"}; }
+        })));
+      }
       const results = {candidateCount: candidates.length, candidates: checked, checkedCandidates: checked.length};
       const matched = checked.filter(item => item.state === "matched");
       if (matched.length > 1) return fallback("ambiguous", "MULTIPLE_MATCHES", results);
@@ -255,5 +278,5 @@ globalThis.VpScoreboardSources = (() => {
     return {resolve, describeReplay, loadArchive};
   }
   const defaults = create();
-  return {create, resolve: defaults.resolve, describeReplay: defaults.describeReplay, loadArchive: defaults.loadArchive};
+  return {create, viewUrl, resolve: defaults.resolve, describeReplay: defaults.describeReplay, loadArchive: defaults.loadArchive};
 })();

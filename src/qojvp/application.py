@@ -107,6 +107,10 @@ class Application:
                 return self.resources.manifest(session) if method == 'resource_manifest' else self.resources.chunk(session, args)
             if method == 'import_samples':
                 return self.import_samples(args)
+            if method in {'submitter_check', 'submitter_bind'}:
+                from .submitter import check
+                return check(self.qoj_path, self.ledger.session(args.get('sessionId')), args,
+                             bind=method == 'submitter_bind')
             if method == 'prepare_resource':
                 session = self.ledger.session(args.get('sessionId'))
                 manual = self.resources.manual_entry(session, problem_id(args.get('problemId')))

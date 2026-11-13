@@ -15,6 +15,7 @@ class Element {
   append(...values){this.children.push(...values);} replaceChildren(...values){this.children=values;}
   setAttribute(k,v){this.attributes[k]=String(v);} getAttribute(k){return this.attributes[k]??null;} removeAttribute(k){delete this.attributes[k];}
   addEventListener(k,v){this.listeners[k]=v;} querySelector(){return null;} querySelectorAll(){return [];}
+  reportValidity(){return true;}
   get firstChild(){return this.children[0];} get options(){return this.children;} reset(){}
 }
 function fixture() {
@@ -50,7 +51,9 @@ function page(saved, {blocked=false, snapshot=fixture(), search="", hash="#probl
       if(method==="session_snapshot")return {ok:true,result:structuredClone(snapshot)};
       if(!gates.has(method))gates.set(method,deferred());return gates.get(method).promise;
     }}}};
-  vm.createContext(context);vm.runInContext(fs.readFileSync('src/firefox/board/generated/engine.js','utf8'),context);context.VpBoardView={render(){}};vm.runInContext(source,context);
+  vm.createContext(context);
+  for(const file of ['scoreboard-sources.js','board/generated/engine.js']) vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
+  context.VpBoardView={render(){}};vm.runInContext(source,context);
   return {context,$,calls,gates,timers,listeners,state:()=>window.qojVpUi.getState()};
 }
 
@@ -267,6 +270,21 @@ test("Home hides exports and Jury opens a view-only historical board",async()=>{
  assert.equal(view.calls.filter(item=>item.method==="scoreboard.view").length,1);
  assert.equal(view.calls.filter(item=>item.method==="rankland.sync").length,0);
  assert.equal(view.state().submissions[0].verdict,"CORRECT");
+});
+test("Home navigation opens the configured RankLand board at the local VP time",async()=>{
+ const snapshot=fixture(),start=snapshot.session.startAt;
+ snapshot.session.ranklandUrl='https://vp.xcpc.link/?contest=ccpc2025jinan&at=2020-01-01T00:00:00Z&from=90&speed=5';
+ const view=page(stores(),{snapshot,hash:'#home'});await ticks();
+ const link=view.$('nav-rankland');
+ assert.equal(view.$('nav-rankland-item').hidden,false);
+ assert.ok(link.href,'the Home navigation provides a direct external link');
+ const url=new URL(link.href);
+ assert.equal(url.searchParams.get('contest'),'ccpc2025jinan');
+ assert.equal(Date.parse(url.searchParams.get('at')),start);
+ assert.equal(url.searchParams.get('from'),'0');assert.equal(url.searchParams.get('speed'),'1');
+ assert.equal(view.calls.some(c=>c.method==='rankland.sync'),false);
+ const unconfigured=page(stores(),{hash:'#home'});await ticks();
+ assert.equal(unconfigured.$('nav-rankland-item').hidden,true);
 });
 test("opening a board coalesces clicks and leaves pending submissions and the editor untouched",async()=>{
  const gate=deferred(),view=ranklandPage({sync:()=>gate.promise});await ticks();

@@ -37,7 +37,7 @@ function environment() {
   ];
   const state = {sessions, session: sessions[0], connected: true, submitting: false, contest: {id: "1051"}};
   const elements = new Map(), selected = [], actions = [];
-  const context = {
+  const context = {readinessToken:null,
     URL, state, location: {hash: "#problems"},
     document: {createElement: tag => new Element(tag)},
     $: id => {if (!elements.has(id)) elements.set(id, new Element("div")); return elements.get(id);},

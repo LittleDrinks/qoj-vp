@@ -9,20 +9,11 @@
     browser.runtime.sendMessage({type:"vp.qoj.checkStart", cid}).catch(() => {});
     return;
   }
-  let mountedForm, panel, control, status, registrationPage, busy = false;
-  const observed = new WeakSet();
+  let mountedForm, panel, registrationPage;
   async function send(type) {
     const response = await browser.runtime.sendMessage({type, cid, ...(registrationPage ? {registrationPage} : {})});
     if (!response?.ok) throw new Error(response?.error?.message || "未能连接工作台，请检查按需助手。");
     return response.result;
-  }
-  async function prepare(event) {
-    event.preventDefault(); event.stopPropagation();
-    if (busy) return;
-    busy = true; control.disabled = true; status.textContent = "正在关联当前账号与比赛…";
-    try { await send("vp.qoj.prepare"); status.textContent = "已打开工作台，正在准备题目文件。"; }
-    catch (error) { status.textContent = error.message; }
-    finally { busy = false; control.disabled = false; }
   }
   function registrationSnapshot(form) {
     const navigation = document.querySelector('ul.nav.nav-pills.float-right');
@@ -66,18 +57,7 @@
     document.getElementById(panelId)?.remove(); mountedForm = form;
     registrationPage = registrationSnapshot(form);
     if (registrationPage) send('vp.qoj.registration').catch(() => {});
-    if (!observed.has(form)) {
-      // Observe the original submit without cancelling, replacing or retrying it.
-      form.addEventListener("submit", () => { send("vp.qoj.startIntent").catch(() => {}); }, true);
-      observed.add(form);
-    }
-    panel = document.createElement("div"); panel.id = panelId; panel.className = "mt-3 mb-3";
-    control = document.createElement("button"); control.type = "button"; control.className = "btn btn-primary btn-sm";
-    control.textContent = "准备比赛文件并打开工作台"; control.addEventListener("click", prepare);
-    status = document.createElement("p"); status.className = "small text-muted mt-2 mb-0";
-    status.textContent = "点击原站 Start! 后，工作台会自动开始本场比赛。";
-    status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
-    panel.append(control, status); form.after(panel);
+    panel = VpReadyPanel.mount({form, panelId, send});
   }
   mount();
   if (document.body) new MutationObserver(mount).observe(document.body, {subtree:true, childList:true});

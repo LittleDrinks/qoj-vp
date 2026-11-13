@@ -284,13 +284,20 @@ class QojNativeVirtualTests(unittest.TestCase):
     def test_repeated_native_start_confirmation_preserves_verified_rankland_start(self):
         session = self.bind()['session']
         sid = session['sessionId']
-        self.app.dispatch('update_session', {'sessionId': sid, 'ranklandUrl': 'https://vp.xcpc.link/?contest=known-target'})
+        prepared = self.app.dispatch('update_session', {'sessionId': sid, 'ranklandUrl':
+            'https://vp.xcpc.link/?contest=known-target&at=2026-11-01T09:00:00%2B08:00&from=300&play=1&speed=5',
+            'board': {'rule': 'CCPC26', 'revealCount': 50, 'revealRatio': 20}})
+        q = parse_qs(urlsplit(prepared['ranklandUrl']).query)
+        self.assertNotIn('at', q)
+        self.assertEqual((q['from'], q['play'], q['speed']), (['0'], ['0'], ['1']))
         self.fixture.dashboard = active_dashboard()
         first = self.call('qoj_confirm_virtual_start', {'sessionId': sid})['session']
         self.app.clock = lambda: first['startAt'] + 900000
         frozen = self.app.dispatch('prepare_rankland', {'sessionId': sid})
         q = parse_qs(urlsplit(frozen['ranklandUrl']).query)
         self.assertEqual(q['from'], ['0'])
+        self.assertEqual((q['play'], q['speed'], q['rule']), (['1'], ['1'], ['CCPC26']))
+        self.assertEqual((q['count'], q['ratio']), (['50'], ['20']))
         self.assertNotIn('run', q)
         self.assertNotIn('anchor', q)
         self.assertEqual(int(datetime.fromisoformat(q['at'][0].replace('Z', '+00:00')).timestamp() * 1000),

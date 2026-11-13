@@ -26,6 +26,15 @@ function submission(id,elapsedMs,verdict='CORRECT',extra={}) {return {id:String(
 function archive() {return {version:'0.3.14',type:'general',contest:{title:'test',startAt:'2020-01-01T00:00:00Z',duration:[5,'h'],frozenDuration:[1,'h']},
  problems:[{alias:'A'},{alias:'B'}],series:[{title:'Rank',rule:{preset:'Normal'}}],sorter:{algorithm:'ICPC',config:{penalty:[20,'min'],timePrecision:'min'}},
  rows:[{user:{id:'opponent',name:'Opponent'},score:{value:1,time:[30,'min']},statuses:[{result:'AC',tries:1,time:[30,'min'],solutions:[{result:'AC',time:[30,'min']}]},{solutions:[]}]}]};}
+test('Jinan untouched cells with zero time and no solutions remain valid empty history',()=>{
+ const a=archive();a.rows[0].statuses[1]={result:null,time:[0,'s'],tries:0};
+ const b=engine.project(input(),a);
+ assert.equal(b.scope,'historical');assert.equal(b.ranklist.rows.find(r=>r.user.name==='Opponent').score.value,1);
+ for(const change of [{tries:1},{result:'AC'},{time:[1,'s']}]) {
+  const invalid=structuredClone(a);Object.assign(invalid.rows[0].statuses[1],change);
+  assert.throws(()=>engine.project(input(),invalid),/BOARD_HISTORY_INCOMPLETE/);
+ }
+});
 test('delayed AC scores the original minute; rejudge replaces the submission without duplication',()=>{
  const i=input([submission(1,20*60000)]);i.session.elapsedMs=25*60000;
  let result=engine.project(i,archive());assert.equal(result.own.penaltyMinutes,20);assert.equal(result.own.rank,1);
@@ -65,6 +74,30 @@ test('freeze masks opponents but not own submissions; final replay reveals oppon
  const i=input([submission(1,245*60000)]);i.session.elapsedMs=260*60000;
  let b=engine.project(i,a);assert.equal(b.ranklist.rows.find(r=>r.user.name==='Opponent').score.value,1);assert.equal(b.own.score,1);
  i.session.elapsedMs=duration;b=engine.project(i,a);assert.equal(b.ranklist.rows.find(r=>r.user.name==='Opponent').score.value,2);
+});
+test('own rank is unknown throughout the freeze and returns at unfreeze, including backwards replay',()=>{
+ for(const rule of ['ICPC','CCPC26']) {
+  const i=input([submission(1,245*60000)]),a=archive();i.session.board={rule};
+  a.rows[0].statuses[1]={solutions:[{result:'AC',time:[250,'min']}]};
+  for(const minute of [239.999,240,240.001,245,299.999,300,260,239]) {
+   const b=engine.project(i,a,minute*60000),frozen=minute>=240&&minute<300;
+   assert.equal(b.own.rankHidden,frozen,`${rule} at ${minute} min`);
+   assert.equal(b.own.rank,frozen?null:2);
+   assert.equal(b.own.score,minute>=245?1:0);
+   assert.equal(b.own.penaltyMinutes,minute>=245?245:0);
+   assert.equal(b.ranklist.rows.find(r=>r.user.id===b.own.id).rankValues[0].rank,2,'Ordering retains numeric ranks');
+  }
+ }
+});
+test('rank masking follows the source freeze duration rather than assuming four hours',()=>{
+ const i=input(),a=archive();a.contest.frozenDuration=[30,'min'];
+ assert.equal(engine.project(i,a,269*60000).own.rankHidden,false);
+ assert.equal(engine.project(i,a,270*60000).own.rankHidden,true);
+ for(const frozenDuration of [undefined,[0,'min']]) {
+  a.contest.frozenDuration=frozenDuration;
+  const b=engine.project(i,a,299*60000);assert.equal(b.own.rankHidden,false);assert.equal(b.own.rank,2);
+ }
+ const self=engine.project(i,null,260*60000);assert.equal(self.own.rankHidden,false);assert.equal(self.own.rank,null);
 });
 test('replay is pure; moving backwards excludes future submissions without changing input',()=>{
  const i=input([submission(1,40*60000)]),a=archive(),before=JSON.stringify([i,a]);
@@ -123,6 +156,42 @@ test('data adapter cache survives service restart; no external tab or source fet
  board=context.VpBoard.create({...options,sources:{loadArchive:async()=>{throw Error('offline');}}});
  assert.equal((await board.snapshot('practice')).own.rank,1);
  assert.equal((await board.snapshot('practice',{refresh:true})).own.rank,1);
+});
+test('preparing a new board downloads and persists it before use, preserving the active contest',async()=>{
+ const i=input([submission(1,60000)]);i.session.ranklandUrl='https://vp.xcpc.link/?contest=old';
+ const before=JSON.stringify(i),saved=new Map();let downloads=0;
+ const options={readSnapshot:async()=>i,engine,cache:{get:async k=>saved.get(k),set:async(k,v)=>saved.set(k,v)},
+  sources:{loadArchive:async()=>{downloads++;return {archive:archive(),contestKey:'new',fetchedAt:1234};}}};
+ const service=context.VpBoard.create(options);
+ const preview=await service.prepare('practice',{url:'https://rl.algoux.cn/ranklist/new',board:{rule:'ICPC'}});
+ assert.equal(preview.teams,1);assert.equal(preview.problems,2);assert.equal(preview.submissions,1);
+ assert.equal(preview.stored,true);assert.equal(downloads,1);assert.equal(JSON.stringify(i),before);
+ i.session.ranklandUrl='https://vp.xcpc.link/?contest=new';
+ const restarted=context.VpBoard.create({...options,sources:{loadArchive:async()=>{throw Error('offline');}}});
+ const result=await restarted.snapshot('practice');assert.equal(result.scope,'historical');assert.equal(result.stored,true);
+ assert.equal(result.own.score,1);assert.equal(result.own.penaltyMinutes,1);
+});
+test('failed downloads or storage cannot confirm a new board or replace the current data',async()=>{
+ const i=input();i.session.ranklandUrl='https://vp.xcpc.link/?contest=old';
+ for(const fault of ['download','storage']) {
+  const service=context.VpBoard.create({readSnapshot:async()=>i,engine,cache:{get:async()=>null,set:async()=>{throw Error('disk full');}},
+   sources:{loadArchive:async()=>{if(fault==='download')throw Error('offline');return {archive:archive(),contestKey:'new'};}}});
+  await assert.rejects(service.prepare('practice',{url:'https://vp.xcpc.link/?contest=new'}),fault==='download'?/offline/:/BOARD_CACHE_FAILED/);
+  const result=await service.snapshot('practice');assert.equal(result.scope,'self');assert.equal(result.stored,false);
+ }
+});
+test('a mismatched replacement leaves the last downloaded board usable offline',async()=>{
+ const i=input([submission(1,60000)]);i.session.ranklandUrl='https://vp.xcpc.link/?contest=fixture';
+ const saved=new Map(),original=JSON.stringify(i);let broken=false;
+ const service=context.VpBoard.create({readSnapshot:async()=>i,engine,
+  cache:{get:async k=>saved.get(k),set:async(k,v)=>saved.set(k,v)},sources:{loadArchive:async()=>{
+   const a=archive();if(broken)a.problems[0].alias='C';return {archive:a,contestKey:'fixture'};
+  }}});
+ await service.prepare('practice',{url:i.session.ranklandUrl});broken=true;
+ await assert.rejects(service.prepare('practice',{url:i.session.ranklandUrl}),/MAPPING_MISMATCH/);
+ const current=await service.snapshot('practice');
+ assert.equal(current.scope,'historical');assert.equal(current.own.score,1);assert.equal(current.own.penaltyMinutes,1);
+ assert.equal(current.ranklist.problems[0].alias,'A');assert.equal(JSON.stringify(i),original);
 });
 test('unavailable source degrades to own score and is backed off; cached invalid source cannot supply a rank',async()=>{
  const i=input([submission(1,60000)]);i.session.ranklandUrl='https://vp.xcpc.link/?contest=fixture';let reads=0;

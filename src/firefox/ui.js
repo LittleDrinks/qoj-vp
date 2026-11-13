@@ -22,7 +22,7 @@
     "ACCOUNT_UNKNOWN", "ACCOUNT_MISMATCH", "SESSION_NOT_RUNNING",
   ]);
   const state = {
-    board: null, boardRequest: null,
+    board: null, boardRequest: null, boardSource: null,
     connected: false, sessions: [], session: null, contest: null, submissions: [],
     forms: new Map(), generation: 0, refreshPromise: null, refreshSession: null, refreshGeneration: null, refreshMode: null,
     sessionRequest: null, contestRequests: new Map(), historyRequests: new Map(),
@@ -33,11 +33,13 @@
     resources: new Map(), resourceActivity: new Map(), resourceInteractive: new Map(),
     resourceDownloads: new Set(), resourceJob: null, resourcesLoaded: false, resourceReading: false,
     resourceManifestError: "", resourceSummary: "", resourceReadSequence: 0, resourceMutation: 0,
-    ranklandSyncRequest: null, ranklandSyncStatus: null, ranklandAutoSync: false,
+    ranklandSyncRequest: null, ranklandSyncStatus: null, ranklandAutoSync: false, ranklandBusy: false,
     scoreboardSource: null, scoreboardRequestSequence: 0, scoreboardRequest: null,
     juryRequest: null, adminBusy: false, manualProblem: null, manualSessionId: null, manualBusy: false, deleteSessionId: null,
   };
   const modals = {};
+  const readinessToken = new URLSearchParams(location.search).get("ready");
+  let readiness;
 
   function node(tag, className, text) {
     const result = document.createElement(tag);
@@ -85,12 +87,20 @@
     return state.session?.sessionId === sessionId && state.generation === generation;
   }
   async function call(method, args = {}) {
-    const response = await browser.runtime.sendMessage({type: "vp.task", method, args});
+    const section = ["prepare_resource", "import_samples"].includes(method) ? "resources" : method === "update_session" ? "board" : null;
+    if (section) readiness?.invalidate(section, method);
+    const response = await browser.runtime.sendMessage(readinessToken ?
+      {type:"vp.ready.task", token:readinessToken, method, args} : {type: "vp.task", method, args}).catch(error => {
+        if (section) readiness?.failed(section, error);
+        throw error;
+      });
     if (!response || response.ok !== true) {
       const error = new Error(response?.error?.message || "未连接到配套助手。请检查助手安装后重新打开页面。");
       error.code = response?.error?.code || "HELPER_UNAVAILABLE";
+      if (section) readiness?.failed(section, error);
       throw error;
     }
+    if (section) readiness?.changed(section, method);
     return response.result;
   }
   async function localGet(key) {
@@ -326,7 +336,7 @@
     } catch (_) { return null; }
   }
   function resetBoard() {
-    state.board=null; state.boardRequest=null; state.ranklandAutoSync=false;
+    state.board=null; state.boardContext=null; state.boardRequest=null; state.boardSource=null; state.ranklandAutoSync=false;
   }
   function adoptRanklandUrl(raw) {
     const previous = ranklandViewIdentity(state.session?.ranklandUrl), incoming = ranklandViewIdentity(raw);
@@ -352,24 +362,15 @@
     return {session:state.session,contest:state.contest,history:{submissions:state.submissions}};
   }
   function ranklandBoardUrl(playback=null, now=Date.now()) {
-    if (!state.session?.ranklandUrl) return null;
-    try {
-      const url=new URL(state.session.ranklandUrl), start=epoch(state.session.startAt);
-      if (!ranklandViewIdentity(url.href)) return null;
-      const live=start===null ? 0 : Math.max(0,Math.min(state.session.durationMs,(epoch(state.session.finishedAt) ?? now)-start));
-      const replay=VpBoardEngine.canReplay(state.session,live);
-      const display=replay ? Math.max(0,Math.min(state.session.durationMs,playback?.elapsedMs ?? live)) : 0;
-      // Live URLs follow the confirmed start. Replay/share URLs capture a paused instant.
-      url.searchParams.delete("anchor");url.searchParams.set("from",String(display/60000));
-      url.searchParams.set("speed","1");url.searchParams.set("play",start!==null && !replay ? "1" : "0");
-      if (start===null) url.searchParams.delete("at");else url.searchParams.set("at",new Date(start).toISOString());
-      return url.href;
-    } catch (_) { return null; }
+    return VpScoreboardSources.viewUrl(state.session,playback,now);
   }
-  function currentBoard(includeHistory=false) {
+  function boardContext() {
+    return VpBoardEngine.inputKey({...boardInput(),history:{submissions:[]}});
+  }
+  function currentBoard() {
     if (!state.session || !state.contest?.problems?.length) return null;
     const input=boardInput();
-    if ((includeHistory || state.board?.scope==="self") && state.board?.inputKey===VpBoardEngine.inputKey(input)) return state.board;
+    if (state.board?.inputKey===VpBoardEngine.inputKey(input)) return state.board;
     try {
       const elapsed=input.session.startAt==null ? 0 : Math.max(0,Date.now()-input.session.startAt);
       const projected=VpBoardEngine.project(input,null,elapsed);
@@ -390,9 +391,15 @@
   }
   function renderBoard() {
     if (location.hash!=="#scoreboard") return;
-    const result=currentBoard(true), target=$("board-table"), status=$("board-status");
+    let result=currentBoard();
+    const target=$("board-table"), status=$("board-status");
+    // Keep the full table while updated judgements are being ranked. A temporary
+    // self-only table collapses the document and loses the reader's scroll position.
+    const updating = result && state.board?.scope === "historical" && state.boardContext === boardContext() && result !== state.board;
+    if (updating) result = state.board;
     if (!result) { VpBoardView.clear?.(target); status.textContent="题表尚未准备完成。";status.hidden=false;return; }
     const notes=[];
+    target.setAttribute("aria-busy",String(Boolean(updating)));
     if(result.provisional)notes.push("部分判定待确认");
     if(result.warning)notes.push(result.cached ? "历史榜单更新暂不可用，正在显示已缓存内容" : "历史榜单暂不可用，当前仅显示本队成绩");
     status.textContent=notes.join(" · ");status.hidden=!notes.length;
@@ -401,21 +408,23 @@
     VpBoardView.render(target,result,{session:state.session,externalUrl:ranklandBoardUrl,contestKey,onProject:projectBoard});
   }
 
-  function refreshBoard(refreshSource = false) {
+  function refreshBoard(refreshSource = false, includeHistory = location.hash === "#scoreboard" || Boolean(state.session?.ranklandUrl)) {
     const sessionId=state.session?.sessionId,generation=state.generation;
     if (!sessionId || !state.contest?.problems?.length) return Promise.resolve(null);
-    const includeHistory=location.hash==="#scoreboard";
-    if (state.boardRequest?.sessionId===sessionId && state.boardRequest.includeHistory===includeHistory) return state.boardRequest.promise;
+    if (state.boardRequest?.sessionId===sessionId && (!includeHistory || state.boardRequest.includeHistory)) return state.boardRequest.promise;
     const request={sessionId,includeHistory,promise:null};
     request.promise=(async()=>{
       try {
         const result=await call("board.snapshot",{sessionId,refresh:refreshSource,includeHistory});
-        if (!current(sessionId,generation) || result.sessionId!==sessionId || result.inputKey!==VpBoardEngine.inputKey(boardInput()) || includeHistory!==(location.hash==="#scoreboard")) return null;
-        state.board=result; renderSummary(); renderBoard(); return result;
+        if (!current(sessionId,generation) || state.boardRequest!==request || result.sessionId!==sessionId || result.inputKey!==VpBoardEngine.inputKey(boardInput())) return null;
+        state.board=result; state.boardContext=boardContext();
+        if (includeHistory) state.boardSource={url:state.session.ranklandUrl,warning:result.warning,
+          ready:result.scope==="historical",teams:result.ranklist.rows.length-1,problems:result.ranklist.problems.length};
+        renderSummary(); renderBoard(); return result;
       } catch (_) { if(current(sessionId,generation)) renderBoard(); return null; }
-      finally {if(state.boardRequest===request)state.boardRequest=null;}
+      finally {if(state.boardRequest===request)state.boardRequest=null;renderScoreboardSource();}
     })();
-    state.boardRequest=request;return request.promise;
+    state.boardRequest=request;renderScoreboardSource();return request.promise;
   }
   function renderSummary() {
     const target = $("teamscoresummary");
@@ -423,13 +432,13 @@
     if (!state.session || !state.contest) return;
     const account = state.session.account || state.contest.account || "—";
     const snapshot=currentBoard();
-    const rankNote=snapshot?.scope==="historical"?"与历史对手在同一比赛时刻比较。":"未配置可回放的历史对手数据。";
+    const rankNote=snapshot?.own.rankHidden?"封榜期间排名待揭晓。":snapshot?.scope==="historical"?"与历史对手在同一比赛时刻比较。":"未配置可回放的历史对手数据。";
     const penaltyNote="每题 AC 的原始提交时间先向下取整到分钟，再累计罚时；评测延迟不增加罚时。";
     const progress=state.contest.problems.map(problem=>{
       const item=snapshot?.own.progress.find(p=>p.problemId===String(problem.id));
       return {problem,accepted:item?.acceptedMs!=null?{elapsedMs:item.acceptedMs}:null,judged:item?.judged||0,pending:item?.pending||0};
     });
-    const solved=snapshot?.own.score??0,rankValue=snapshot?.own.rank??"—",penaltyValue=snapshot?.own.penaltyMinutes??"—";
+    const solved=snapshot?.own.score??0,rankValue=snapshot?.own.rankHidden?"?":snapshot?.own.rank??"—",penaltyValue=snapshot?.own.penaltyMinutes??"—";
     const teamCell = () => {
       const cell = node("td", "scoretn cl_FFFFFF"); cell.title = account;
       const link = node("a");
@@ -640,7 +649,7 @@
     retry.hidden = !state.contestError; retry.disabled = state.contestRefreshing;
   }
   function isProblemsRoute() { return location.hash === "#problems" || location.hash === "#problemset"; }
-  function isJuryRoute() { return location.hash === "#jury" || location.hash.startsWith("#jury/"); }
+  function isJuryRoute() { return Boolean(readinessToken) || location.hash === "#jury" || location.hash.startsWith("#jury/"); }
   function juryTarget() {
     const match = location.hash.match(/^#jury\/contest\/([a-f0-9-]{36})$/i);
     return match ? match[1] : null;
@@ -1514,11 +1523,23 @@
   }
   function renderScoreboardSource() {
     renderRanklandSyncControls();
+    const externalUrl = ranklandBoardUrl();
+    $("nav-rankland-item").hidden = !externalUrl;
+    if (externalUrl) $("nav-rankland").href = externalUrl;
+    else $("nav-rankland").removeAttribute("href");
+    const status = $("board-source-status");
+    const board = state.boardSource?.url === state.session?.ranklandUrl ? state.boardSource : null;
+    status.hidden = !state.session?.ranklandUrl;
+    status.textContent = state.boardRequest?.includeHistory ? "正在读取历史榜单数据…" :
+      board?.ready ? `已加载 ${board.teams} 支历史队伍、${board.problems} 道题。${board.warning ? "当前使用已缓存数据。" : ""}` :
+      board?.warning ? ({BOARD_PROBLEM_MAPPING_MISMATCH:"榜单题目与这场 QOJ 比赛不一致。",
+        BOARD_HISTORY_INCOMPLETE:"这份榜单缺少用于回放的完整提交记录。"}[board.warning] || "历史数据暂时读取失败，可通过外榜链接查看原榜。") :
+      "已设置数据来源，打开 Scoreboard 加载历史榜单。";
     const source = state.scoreboardSource || scoreboardFallback();
-    const link = $("scoreboard-source-link"); link.textContent = source.source === "rankland" ? "RankLand" : "QOJ";
-    link.href = source.url;
+    const link = $("scoreboard-source-link"); link.textContent = source.source === "rankland" ? "外榜" : "QOJ";
+    link.href = source.source === "rankland" ? externalUrl : source.url;
     $("scoreboard-source-status").textContent = source.source === "rankland" ? (source.state === "matched" ? "已自动匹配" : "已配置") :
-      state.scoreboardRequest ? "正在检查可用榜单…" : source.state === "unavailable" ? "暂无法匹配 RankLand，使用原站榜单" : "使用原站榜单";
+      state.scoreboardRequest ? "正在检查可用榜单…" : source.state === "unavailable" ? "暂无法匹配外榜，使用原站榜单" : "使用原站榜单";
   }
   function resetScoreboardSource() {
     state.scoreboardRequestSequence++; state.scoreboardRequest = null; state.scoreboardSource = null;
@@ -1598,7 +1619,53 @@
     const config=VpBoardEngine.configuration(state.session);
     $("board-rule").value=config.rule;$("board-count").value=config.revealCount;$("board-ratio").value=config.revealRatio;
     renderBoardRuleSettings();
+    showMessage($("rankland-check-status"), "点击“抓取并检查”，下载榜单并核对题目。", "secondary");
     $("rankland-url").value = state.session.ranklandUrl || ""; hideMessage($("rankland-error")); modals.rankland.show();
+  }
+  async function prepareRankland(save) {
+    if (state.ranklandBusy || !state.session || !$("rankland-form").reportValidity()) return;
+    const sessionId = state.session.sessionId, generation = state.generation;
+    updateRanklandDraftUrl();
+    const ranklandUrl = $("rankland-url").value.trim(), board = $("board-rule").value === "CCPC26" ?
+      {rule:"CCPC26",revealCount:Number($("board-count").value),revealRatio:Number($("board-ratio").value)} : {rule:$("board-rule").value};
+    state.ranklandBusy = true;
+    const controls = [...$("rankland-form").querySelectorAll("input, select, button")].filter(control => !control.disabled);
+    controls.forEach(control => {control.disabled = true;});
+    hideMessage($("rankland-error"));
+    showMessage($("rankland-check-status"), "正在读取并保存历史榜单…", "info");
+    try {
+      if (!ranklandUrl && !save) throw new Error("请填写本场 RankLand 主站榜单或 VP 链接。");
+      if (ranklandUrl) {
+        const result = await call("board.prepare", {sessionId,url:ranklandUrl,board,refresh:!save});
+        if (!current(sessionId,generation)) return;
+        showMessage($("rankland-check-status"), `${result.title}：已保存 ${result.teams} 支队伍、${result.problems} 道题、${result.submissions} 条历史提交。题目对应关系已确认，可保存使用。`, "success");
+      }
+      if (!save || !current(sessionId,generation)) return;
+      const updated = await call("update_session", {sessionId,ranklandUrl,board});
+      if (!current(sessionId,generation)) return;
+      state.session = preserveNativeStart(updated);
+      resetBoard(); resetScoreboardSource();
+      const index = state.sessions.findIndex(item => item.sessionId === sessionId);
+      if (index >= 0) state.sessions[index] = state.session;
+      renderSession(); renderSummary();
+      state.ranklandBusy = false; modals.rankland.hide();
+      if (!readinessToken) {
+        resolveScoreboardSource(true);
+        await refreshBoard(false, Boolean(state.session.ranklandUrl));
+      }
+    } catch (error) {
+      if (current(sessionId,generation)) {
+        const detail = {BOARD_CACHE_FAILED:"本地保存失败，请检查浏览器存储空间后重试。", BOARD_PROBLEM_MAPPING_MISMATCH:"题目与本场 QOJ 比赛不一致，请选择对应榜单。",
+          BOARD_HISTORY_INCOMPLETE:"榜单缺少完整提交记录，请选择可回放的榜单。", BOARD_CONTEST_MISMATCH:"榜单赛时与本场比赛不一致，请选择对应榜单。",
+          INVALID_BOARD_SOURCE:"请填写有效的 RankLand 主站榜单或 VP 链接。", NETWORK_ERROR:"连接外榜数据源失败，请检查网络后重试。",
+          TIMEOUT:"抓取榜单超时，请重试。", HTTP_ERROR:"外榜数据源暂时无法提供榜单，请检查链接后重试。",
+          MALFORMED_FILE:"榜单文件信息不完整，请检查数据来源。", SRK_INTEGRITY_MISMATCH:"榜单下载校验失败，请重新抓取。"}[error.message] || message(error);
+        showMessage($("rankland-error"), detail);
+        showMessage($("rankland-check-status"), "检查未通过。当前使用的榜单保持原样，可修改链接后重试。", "warning");
+      }
+    } finally {
+      state.ranklandBusy = false; controls.forEach(control => {control.disabled = false;});
+    }
   }
   async function openScoreboard() {
     if (!state.session) return;
@@ -1629,7 +1696,35 @@
     modals.reconcile.show();
   }
 
+  function bindSharedSettings() {
+    $("manual-samples-mode").addEventListener("change", renderManualMode);
+    $("manual-samples-form").addEventListener("submit", importManualSamples);
+    $("manual-samples-modal").addEventListener("hide.bs.modal", event => { if (state.manualBusy) event.preventDefault(); });
+    $("manual-samples-modal").addEventListener("hidden.bs.modal", () => { if (isJuryRoute() && state.session?.sessionId === state.manualSessionId) modals.resources.show(); });
+    $("prepare-resources").addEventListener("click", () => prepareResources());
+    $("refresh-resources").addEventListener("click", () => prepareResources(undefined, true));
+    $("board-rule").addEventListener("change", () => {renderBoardRuleSettings();updateRanklandDraftUrl();});
+    $("board-count").addEventListener("input", updateRanklandDraftUrl);
+    $("board-ratio").addEventListener("input", updateRanklandDraftUrl);
+    $("rankland-url").addEventListener("change", updateRanklandDraftUrl);
+    $("rankland-form").addEventListener("input", () => {hideMessage($("rankland-error"));showMessage($("rankland-check-status"), "设置已更新，请抓取并检查。", "secondary");});
+    $("rankland-modal").addEventListener("hide.bs.modal", event => {if(state.ranklandBusy) event.preventDefault();});
+    $("rankland-check").addEventListener("click", () => prepareRankland(false));
+    $("rankland-form").addEventListener("submit", event => {event.preventDefault();return prepareRankland(true);});
+  }
+
   async function initialize() {
+    if (window.parent && window.parent !== window && !readinessToken) return;
+    if (readinessToken) {
+      document.documentElement.classList.add("vp-ready-dialogs");
+      for (const id of ["resources", "manual-samples", "rankland", "ready-judger", "ready-warning", "ready-connection"]) modals[id] = new bootstrap.Modal($(id + "-modal"));
+      bindSharedSettings();
+      readiness = VpReadyUi.create({token:readinessToken, state, modals, call, openResources, openRanklandSettings,
+        loadResourceManifest, prepareResources, readyResource});
+      await readiness.initialize();
+      return;
+    }
+    bindSharedSettings();
     browser.runtime.onMessage.addListener((message, sender) => {
       if (sender.id !== browser.runtime.id || message?.type !== "vp.qoj.started" || message.sessionId !== state.session?.sessionId || state.submitting) return undefined;
       return (async () => {
@@ -1651,17 +1746,11 @@
     $("finish-session").addEventListener("click", finishSession);
     $("delete-session").addEventListener("click", openDeleteSession);
     $("delete-contest-form").addEventListener("submit", deleteSession);
-    $("manual-samples-mode").addEventListener("change", renderManualMode);
-    $("manual-samples-form").addEventListener("submit", importManualSamples);
-    $("manual-samples-modal").addEventListener("hide.bs.modal", event => { if (state.manualBusy) event.preventDefault(); });
-    $("manual-samples-modal").addEventListener("hidden.bs.modal", () => { if (isJuryRoute() && state.session?.sessionId === state.manualSessionId) modals.resources.show(); });
     $("load-contest").addEventListener("click", loadSetupContest);
     $("contest-input").addEventListener("input", () => { state.setupContest = null; $("prepare-session").disabled = true; hideMessage($("contest-preview")); });
     $("session-form").addEventListener("submit", prepareSession);
     $("start-session").addEventListener("click", startSession);
     $("open-resources").addEventListener("click", () => openResources().catch(fail));
-    $("prepare-resources").addEventListener("click", () => prepareResources());
-    $("refresh-resources").addEventListener("click", () => prepareResources(undefined, true));
     $("refresh-contest").addEventListener("click", () => refreshContest().catch(() => {}));
     $("refresh-submissions").addEventListener("click", () => {
       refresh(true).catch(() => {});
@@ -1681,10 +1770,6 @@
       if ($("nav-scoreboard").getAttribute("aria-disabled") !== "true") openScoreboard();
     });
     $("rankland-settings").addEventListener("click", openRanklandSettings);
-    $("board-rule").addEventListener("change", () => {renderBoardRuleSettings();updateRanklandDraftUrl();});
-    $("board-count").addEventListener("input", updateRanklandDraftUrl);
-    $("board-ratio").addEventListener("input", updateRanklandDraftUrl);
-    $("rankland-url").addEventListener("change", updateRanklandDraftUrl);
     $("stop-rankland-sync").addEventListener("click", async () => {
       if(!state.session) return;
       const sessionId=state.session.sessionId,generation=state.generation;
@@ -1695,25 +1780,6 @@
     });
     $("sync-scoreboard").addEventListener("click", syncScoreboard);
     $("sync-rankland").addEventListener("click", syncScoreboard);
-    $("rankland-form").addEventListener("submit", async event => {
-      event.preventDefault(); const control = event.submitter; control.disabled = true;
-      const sessionId = state.session.sessionId, generation = state.generation;
-      try {
-        updateRanklandDraftUrl();
-        const updated = await call("update_session", {sessionId, ranklandUrl: $("rankland-url").value.trim(),
-          board:$("board-rule").value==="CCPC26" ?
-            {rule:"CCPC26",revealCount:Number($("board-count").value),revealRatio:Number($("board-ratio").value)} :
-            {rule:$("board-rule").value}});
-        if (!current(sessionId, generation)) return;
-        state.session = preserveNativeStart(updated);
-        resetBoard(); resetScoreboardSource();
-        const index = state.sessions.findIndex(item => item.sessionId === state.session.sessionId);
-        if (index >= 0) state.sessions[index] = state.session;
-        renderSession(); renderSummary(); modals.rankland.hide();
-        refreshBoard(true); resolveScoreboardSource(true);
-      } catch (error) { if (current(sessionId, generation)) showMessage($("rankland-error"), message(error)); }
-      finally { control.disabled = false; }
-    });
     $("reconcile-form").addEventListener("submit", async event => {
       event.preventDefault(); const control = event.submitter; control.disabled = true;
       try {

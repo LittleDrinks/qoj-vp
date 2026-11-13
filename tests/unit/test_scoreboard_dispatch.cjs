@@ -2,7 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
 function setup({fixture=false,ranklandUrl=null}={}){
  const session={sessionId:'local-practice',account:'me',contestId:'4569',durationMs:18000000,ranklandUrl};
- const contest={id:'4569',title:'Dolgoprudny',problems:[{id:'23137',label:'L'}],scoreboardUrl:'https://qoj.ac/results/QOJ4569?mode=pc2'};
+ const contest={id:'4569',title:'Dolgoprudny',titles:[],problems:[{id:'23137',label:'L'}],scoreboardUrl:'https://qoj.ac/results/QOJ4569?mode=pc2'};
  const calls=[],tabs=[],cache={},matches=[];const listener={addListener(){}};
  const env={session,contest,calls,tabs,cache,matches,fixture,now:Date.now(),result:{source:'qoj',state:'unmatched',reason:'NO_MATCH'}};
  const context={URL,Map,Set,Date:class extends Date {static now(){return env.now;}},Promise,setTimeout,clearTimeout,crypto:require('node:crypto').webcrypto,
@@ -11,15 +11,18 @@ function setup({fixture=false,ranklandUrl=null}={}){
   __native:async(method,args={})=>{calls.push({method,args});switch(method){
    case 'hello':return {fixture:env.fixture};
    case 'session_snapshot':return {session:{...session},contest:{...contest}};
-   case 'qoj_contest':return {...contest};
+   case 'qoj_contest':return {...contest,...env.refreshedContest};
    case 'inspect_session':return {...session};
    case 'list_sessions':return {sessions:[{...session}]};
    case 'update_session':if(session.ranklandUrl===args.expectedRanklandUrl && session.durationMs===args.expectedDurationMs)session.ranklandUrl=args.ranklandUrl+'&run=local-practice';return {...session};
    default:throw Error('Unexpected native '+method);
   }},browser:{runtime:{id:'test',getURL:n=>'moz-extension://test/'+n,onMessage:listener,onInstalled:listener},action:{onClicked:listener},alarms:{create(){},onAlarm:listener},
-   tabs:{create:async o=>{tabs.push(o);return {id:5,...o};}},storage:{local:{get:async k=>({[k]:cache[k]}),set:async o=>Object.assign(cache,o)}}}};
+   tabs:{query:async()=>[],create:async o=>{tabs.push(o);return {id:5,...o};}},storage:{local:{get:async k=>({[k]:cache[k]}),set:async o=>Object.assign(cache,o)}}}};
  vm.createContext(context);
- for (const file of ['board/generated/engine.js','board/cache.js','board/service.js'])
+ const resolve=context.VpScoreboardSources.resolve;
+ vm.runInContext(fs.readFileSync('src/firefox/scoreboard-sources.js','utf8'),context);
+ context.VpScoreboardSources.resolve=resolve;
+ for (const file of ['readiness-bridge.js','board/generated/engine.js','board/cache.js','board/service.js'])
   vm.runInContext(fs.readFileSync('src/firefox/'+file,'utf8'),context);
  if (!context.VpScoreboardSources) context.VpScoreboardSources={};
   vm.runInContext(fs.readFileSync('src/firefox/rankland-protocol.js','utf8'),context);
@@ -35,6 +38,14 @@ test('unmatched Ucup opens the observed original QOJ board and persists discover
 test('existing RankLand replay remains intact without catalogue requests',async()=>{
  const f=setup({ranklandUrl:'https://vp.xcpc.link/?contest=x&run=existing&from=.25'});
  assert.equal((await f.run('scoreboard.resolve')).url,f.session.ranklandUrl);assert.equal(f.matches.length,0);assert.equal(f.calls.length,1);
+});
+test('opening a completed external board uses final standings and preserves its saved source',async()=>{
+ const ranklandUrl='https://vp.xcpc.link/?contest=ccpc2025jinan&from=300';
+ const f=setup({ranklandUrl});Object.assign(f.session,{startAt:f.now-18000000,state:'running'});
+ const result=await f.run('scoreboard.view');
+ assert.equal(result.url,'https://rl.algoux.cn/ranklist/ccpc2025jinan');
+ assert.equal(f.tabs[0].url,result.url);assert.equal(f.session.ranklandUrl,ranklandUrl);
+ assert.equal((await f.run('scoreboard.resolve')).url,ranklandUrl);
 });
 test('exact match saves a session-owned replay using compare-and-set',async()=>{
  const f=setup();f.result={source:'rankland',state:'matched',ranklandUrl:'https://vp.xcpc.link/?contest=verified'};
@@ -66,4 +77,11 @@ test('temporary detail failure retries after 30 seconds and explicit refresh byp
 });
 test('a changed CLI contest name invalidates the negative match cache',async()=>{
  const f=setup();f.contest.name='Old title';await f.run('scoreboard.resolve');f.contest.name='New title';await f.run('scoreboard.resolve');assert.equal(f.matches.length,2);
+});
+test('older saved contests refresh their QOJ aliases before discovering a board',async()=>{
+ const f=setup();delete f.contest.titles;
+ f.refreshedContest={titles:['CCPC 2025 Jinan Site']};
+ await f.run('scoreboard.resolve');
+ assert.equal(f.calls.filter(c=>c.method==='qoj_contest').length,1);
+ assert.deepEqual(f.matches[0][0].titles,f.refreshedContest.titles);
 });

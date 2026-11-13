@@ -1,18 +1,25 @@
 """Compatibility URL configuration, independent of local board identity."""
 from datetime import datetime, timezone
+import re
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 def rankland_url(raw, session_id, start_at, *, allow_loopback=False, board=None):
     if not raw:
         return None
     parsed = urlparse(str(raw).strip())
+    if (parsed.scheme == 'https' and parsed.netloc == 'rl.algoux.cn'
+            and not parsed.params and not parsed.fragment):
+        match = re.fullmatch(r'/ranklist/([A-Za-z0-9][A-Za-z0-9_.-]{0,127})/?', parsed.path)
+        if match:
+            parsed = parsed._replace(netloc='vp.xcpc.link', path='/',
+                                     query=urlencode({'contest': match[1]}))
     official = parsed.scheme == 'https' and parsed.netloc == 'vp.xcpc.link'
     loopback = (allow_loopback and parsed.scheme in {'http', 'https'}
                 and parsed.hostname in {'127.0.0.1', 'localhost'}
                 and parsed.port is not None and 0 < parsed.port <= 65535)
     if (not (official or loopback) or parsed.username is not None or parsed.password is not None
             or parsed.path not in ('', '/') or parsed.params or parsed.fragment):
-        raise ValueError('Use a https://vp.xcpc.link/ contest URL')
+        raise ValueError('Use a RankLand ranklist URL or a https://vp.xcpc.link/ contest URL')
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     if not query.get('contest'):
         raise ValueError('The RankLand URL must select a contest')
