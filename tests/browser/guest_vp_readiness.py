@@ -280,12 +280,14 @@ def main():
             settings('replacement')
             driver.find_element(By.ID,'rankland-check').click()
             def downloaded(_):
-                status = driver.find_element(By.ID,'rankland-check-status')
-                # Read the complete status independently of line wrapping in the
-                # narrow modal, and wait for the download controls to settle.
-                text = status.get_attribute('textContent')
-                if not driver.find_element(By.ID,'rankland-check').is_enabled():return False
-                return status.is_displayed() and all(part in text for part in ['Replacement history','1 支队伍','2 道题','1 条历史'])
+                status = driver.execute_script('''
+                  const status=document.getElementById('rankland-check-status');
+                  const button=document.getElementById('rankland-check');
+                  return {text:status.textContent,visible:status.checkVisibility(),
+                    enabled:!button.matches(':disabled')};
+                ''')
+                (output/'download-state.json').write_text(json.dumps(status,ensure_ascii=False))
+                return status['visible'] and status['enabled'] and all(part in status['text'] for part in ['Replacement history','1 支队伍','2 道题','1 条历史'])
             wait.until(downloaded)
             assert call('inspect_session')['ranklandUrl'] == active_session['ranklandUrl']
             capture('09-jury-downloaded.png')

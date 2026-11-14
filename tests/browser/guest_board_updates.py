@@ -12,6 +12,7 @@ sys.path[:0] = [str(ROOT/'vendor_py'),str(ROOT/'tests/browser/vendor_py')]
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.firefox.service import Service
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 
 
@@ -117,6 +118,25 @@ def main():
             assert values['penalty']==('245' if minute>=245 else '0'),values
             if expected=='?':assert values['medal'] is False,values
             if minute in [299,300]:driver.save_screenshot(str(output/f'freeze-{minute}.png'))
+        # Selecting CCPC26 for an unfrozen archive must also supply its freeze.
+        driver.execute_script('''
+          freezeInput.session={...freezeInput.session,sessionId:'ccpc26-replay',startAt:Date.now()-18000000,board:{rule:'CCPC26',revealCount:50,revealRatio:100}};
+          freezeArchive.contest.frozenDuration=[0,'h'];freezeArchive.contest.title='CCPC26 · 四小时揭示全部题号';
+          const project=elapsed=>({...VpBoardEngine.project(freezeInput,freezeArchive,elapsed),inputKey:'ccpc26'});
+          VpBoardView.render(document.getElementById('board-table'),project(18000000),{session:freezeInput.session,onProject:project});
+          scrollTo(0,0);
+        ''')
+        wait.until(lambda _:driver.find_element('css selector','input[type=range]').is_enabled())
+        report['ccpc26Replay']=[]
+        for minute in [239,240,280,300,239]:
+            driver.execute_script("document.querySelector('input[type=range]').value=arguments[0]",minute-1)
+            driver.find_element('css selector','input[type=range]').send_keys(Keys.ARROW_RIGHT)
+            expected='?' if 240<=minute<300 else '2'
+            wait.until(lambda _:driver.execute_script("return document.querySelector('[data-own-team] td')?.textContent===arguments[0]&&document.querySelector('input[type=range]')?.value===arguments[1]&&!document.querySelector('[aria-busy=true]')",expected,str(minute)))
+            labels=driver.execute_script("return [...document.querySelectorAll('.srk-main thead .srk-problem-header .srk--display-block:first-child')].map(e=>e.textContent.trim()).filter(t=>/^[AB]$/.test(t))")
+            assert len(labels)==(0 if minute<240 else 2),labels
+            report['ccpc26Replay'].append({'minute':minute,'visibleProblemLabels':len(labels),'ownRank':expected})
+            if minute in [239,240,280,300]:driver.save_screenshot(str(output/f'ccpc26-{minute}.png'))
         report['status']='passed'
     finally:
         (output/'summary.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))

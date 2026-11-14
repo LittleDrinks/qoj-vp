@@ -2,8 +2,31 @@
 const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
 const context={console,URL,TextEncoder,TextDecoder,setTimeout,clearTimeout,setInterval,clearInterval,queueMicrotask,structuredClone};
 vm.createContext(context);
+vm.runInContext(fs.readFileSync('src/firefox/board/generated/engine.js','utf8'),context);
 vm.runInContext(fs.readFileSync('src/firefox/board/generated/view.js','utf8'),context);
 const view=context.VpBoardView;
+test('explicit CCPC26 replays an unfrozen archive with last-hour freeze and full problem reveal',()=>{
+ const input={session:{sessionId:'ccpc26-replay',account:'Me',startAt:0,durationMs:18000000,elapsedMs:18000000,
+  state:'finished',board:{rule:'CCPC26',revealCount:50,revealRatio:100}},
+  contest:{problems:[{id:'1',label:'A'},{id:'2',label:'B'}]},history:{submissions:[]}};
+ const source={version:'0.3.14',type:'general',contest:{title:'Unfrozen history',startAt:new Date(0).toISOString(),duration:[5,'h'],frozenDuration:[0,'h']},
+  problems:[{alias:'A'},{alias:'B'}],series:[{title:'#',rule:{preset:'Normal'}}],
+  sorter:{algorithm:'ICPC',config:{penalty:[20,'min']}},
+  rows:[{user:{id:'other',name:'Other'},score:{value:0},statuses:[{solutions:[]},{solutions:[{result:'AC',time:[250,'min']}]}]}]};
+ const filter={organizations:[],officialOnly:false,marker:''},settings=view.normalizeSettings();
+ for(const frozenDuration of [[0,'h'],undefined,null]){
+  source.contest.frozenDuration=frozenDuration;
+  const original=JSON.stringify(source);
+  for(const minute of [239.999,240,240.001,280,300,239]){
+   const snapshot=context.VpBoardEngine.project(input,source,minute*60000);
+   const presented=view.presentRanklist(snapshot.ranklist,filter,settings);
+   assert.equal(presented.ccpc26Layout?.hiddenProblemIndexes.length || 0,minute<240?2:0,`problem labels at ${minute}`);
+   assert.equal(snapshot.own.rankHidden,minute>=240&&minute<300,`own rank at ${minute}`);
+   assert.equal(snapshot.ranklist.rows.find(row=>row.user.name==='Other').score.value,minute===300?1:0);
+  }
+  assert.equal(JSON.stringify(source),original,'The historical archive remains unchanged');
+ }
+});
 test('CCPC26 reveals every problem exactly at freeze, without requiring another accepted submission',()=>{
  const start=Date.parse('2026-11-07T00:00:00Z');
  const source={version:'0.3.14',type:'general',contest:{title:'Freeze boundary',startAt:new Date(start).toISOString(),duration:[5,'h'],frozenDuration:[1,'h']},

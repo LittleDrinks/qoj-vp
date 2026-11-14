@@ -99,6 +99,11 @@ test('rank masking follows the source freeze duration rather than assuming four 
  }
  const self=engine.project(i,null,260*60000);assert.equal(self.own.rankHidden,false);assert.equal(self.own.rank,null);
 });
+test('explicit CCPC26 preserves a historical source with its own positive freeze duration',()=>{
+ const i=input(),a=archive();i.session.board={rule:'CCPC26'};a.contest.frozenDuration=[30,'min'];
+ assert.equal(engine.project(i,a,269*60000).own.rankHidden,false);
+ assert.equal(engine.project(i,a,270*60000).own.rankHidden,true);
+});
 test('replay is pure; moving backwards excludes future submissions without changing input',()=>{
  const i=input([submission(1,40*60000)]),a=archive(),before=JSON.stringify([i,a]);
  assert.equal(engine.project(i,a,20*60000).own.score,0);
